@@ -20,7 +20,7 @@ let RSVPS_CACHE = [];
 function isConfigured() {
   return typeof APPS_SCRIPT_URL === "string" &&
     APPS_SCRIPT_URL.startsWith("http") &&
-    !APPS_SCRIPT_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE");
+    !APPS_SCRIPT_URL.includes("https://script.google.com/macros/s/AKfycbzUjmfugZe7jkOt_kfbHo902DLnHJx9Hc7U8ICkzWFf17Xtk7RSSSHdlvpGK9FVsFsV/exec");
 }
 
 async function apiGet(action, params = {}) {
