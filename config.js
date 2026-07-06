@@ -7,4 +7,4 @@
    https://script.google.com/macros/s/AKfycb.../exec
    ===================================================================== */
 
-const APPS_SCRIPT_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzUjmfugZe7jkOt_kfbHo902DLnHJx9Hc7U8ICkzWFf17Xtk7RSSSHdlvpGK9FVsFsV/exec";
