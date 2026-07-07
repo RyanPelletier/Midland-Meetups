@@ -16,6 +16,34 @@ const NAME_KEY = "midland-mixer-name";
 let EVENTS_CACHE = [];
 let RSVPS_CACHE = [];
 
+/* ---------------- Mobile nav toggle ---------------- */
+function initNavToggle(){
+  const toggle = document.getElementById("nav-toggle");
+  const nav = document.getElementById("main-nav");
+  if (!toggle || !nav) return;
+
+  function closeNav(){
+    nav.classList.remove("open");
+    toggle.classList.remove("open");
+    toggle.setAttribute("aria-expanded", "false");
+  }
+
+  toggle.addEventListener("click", () => {
+    const isOpen = nav.classList.toggle("open");
+    toggle.classList.toggle("open", isOpen);
+    toggle.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  // Tapping a link closes the menu, so it doesn't stay open on the next page.
+  nav.querySelectorAll("a").forEach(a => a.addEventListener("click", closeNav));
+
+  // Avoid a stuck-open menu if the viewport grows past the mobile breakpoint
+  // (e.g. rotating a tablet, or resizing a browser window).
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 760) closeNav();
+  });
+}
+
 /* ---------------- API ---------------- */
 function isConfigured() {
   return typeof APPS_SCRIPT_URL === "string" &&
@@ -916,6 +944,7 @@ function initMemoryForm(){
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initNavToggle();
   renderWeek();
   initModal();
   renderLore();
