@@ -82,6 +82,8 @@
   const POWERUP_MIN_SCORE_GAP = 400;  // minimum score between power-up spawns
 
   const WIZARD_DEFEAT_BONUS = 25; // score bonus for hitting a wizard
+
+  const DEBUG = true; // logs key game events to the browser console — flip to false once you're done troubleshooting
   /* ==================== end config ==================== */
 
   let canvas, ctx, overlay, overlayInner;
@@ -172,6 +174,7 @@
       alive: true,
       fireCooldown: WIZARD_FIRE_COOLDOWN_MIN + Math.random() * (WIZARD_FIRE_COOLDOWN_MAX - WIZARD_FIRE_COOLDOWN_MIN)
     });
+    if (DEBUG && isWizard) console.log("[W&W] wizard spawned at frame " + frame);
   }
 
   function spawnPowerup(){
@@ -196,6 +199,7 @@
   function fireEnemyProjectile(wizard){
     const type = Math.random() < 0.5 ? "lightning" : "fireball";
     enemyProjectiles.push({ type, x: wizard.x, y: wizard.y + wizard.h/2 - 6, w: 16, h: 12 });
+    if (DEBUG) console.log("[W&W] wizard fired " + type + " at frame " + frame + ", wizard x=" + Math.round(wizard.x));
   }
 
   function updateEnemyProjectiles(){
@@ -615,6 +619,7 @@
 
   /* ---------------- init ---------------- */
   function initGame(){
+    if (DEBUG) console.log("[W&W] game.js loaded — build includes wizard fire-cooldown fix (22-48f)");
     canvas = document.getElementById("game-canvas");
     overlay = document.getElementById("game-overlay");
     overlayInner = document.getElementById("game-overlay-inner");
