@@ -112,6 +112,20 @@ name (remembered on that device after that). RSVPs are shared and
 tallied for everyone — the card and pop-up show a live count like
 "4 going · 1 can't make it."
 
+The same pop-up has an **Add to Google Calendar** button. It's a plain
+link (no API key or Google account connection involved), so it works for
+anyone regardless of whether they use Gmail. Since events don't store a
+duration, it defaults every event to a 2-hour block starting at the
+listed time — whoever adds it can adjust that in their own calendar
+after the fact. If an event's `time` value isn't in a format the site
+recognizes (`6:30 PM` or `18:30` both work), it falls back to adding it
+as an all-day entry instead of guessing.
+
+There's also a dedicated **RSVPs** page — a full directory of who's going
+and who's not, for every event, split into Upcoming and Past. It's built
+from the same `Events` and `RSVPs` data already used elsewhere, so there
+was nothing new to add on the Sheet side for this one.
+
 ## How the submission forms work
 
 **Submit an Event**, the Lore Letter's memory form, and "Join the Squad"
@@ -191,11 +205,11 @@ again (safe, won't touch existing data) and push a new deployment version.
 ## Putting the website on GitHub Pages
 
 1. Create a new repository on GitHub (public repos get free Pages hosting).
-2. Upload the website files — `index.html`, `lore.html`, `submit.html`,
-   `squad.html`, `chat.html`, `style.css`, `app.js`, `config.js` (with
-   your URL already pasted in). You don't need to upload the
-   `apps-script` folder; that code lives in the Sheet's Apps Script
-   editor, not on GitHub.
+2. Upload the website files — `index.html`, `rsvps.html`, `lore.html`,
+   `submit.html`, `squad.html`, `chat.html`, `style.css`, `app.js`,
+   `config.js` (with your URL already pasted in). You don't need to
+   upload the `apps-script` folder; that code lives in the Sheet's Apps
+   Script editor, not on GitHub.
 3. In the repo, go to **Settings → Pages**.
 4. Under "Build and deployment," set **Source** to "Deploy from a branch,"
    pick the `main` branch and the `/ (root)` folder, then **Save**.
