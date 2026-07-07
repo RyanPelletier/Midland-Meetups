@@ -1,4 +1,4 @@
-# The Midland Mixer — Bulletin Board
+# Midland Meetups — Bulletin Board
 
 A website for posting upcoming events, event updates (rain delays,
 cancellations, new locations), a "Happenings This Week" snapshot with
@@ -28,7 +28,7 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
 ## Part 1 — Set up the Google Sheet + Apps Script
 
 1. Go to [sheets.google.com](https://sheets.google.com) and create a new,
-   blank spreadsheet. Name it something like "Midland Mixer Data."
+   blank spreadsheet. Name it something like "Midland Meetups Data."
 2. In that Sheet, go to **Extensions → Apps Script**. A new tab opens with
    a code editor.
 3. Delete the placeholder `function myFunction() {}` code and paste in the
@@ -107,13 +107,83 @@ to the Sheet with `approved` set to `FALSE`. Review new rows in the Sheet,
 edit anything that needs cleaning up, and flip `approved` to `TRUE` to
 make them public.
 
+## Submit an Event password
+
+The Submit an Event page is behind a simple password (set in `config.js` as
+`SUBMIT_PASSWORD`, currently `gatsbymethod`). It's meant to keep the form
+from being stumbled on by strangers browsing the site, not as real
+security — since this is a static site, anyone who views the page source
+can see the password value. Once someone enters it correctly, the form
+stays unlocked for the rest of that browser tab session.
+
+To change the password, edit `SUBMIT_PASSWORD` in `config.js`.
+
+- **Squad tab:** columns are `id`, `name`, `occupation`, `age`, `gender`,
+  `socialLink`, `bio`, `photoUrl`, `approved`. Same approval pattern as
+  Events and Memories — profiles submitted through the site's "Join the
+  Squad" form arrive as `FALSE` for you to review before they go public.
+
+## How Squad photos are stored
+
+Google Sheets isn't built to hold images, so photos work a little
+differently: when someone uploads one on the "Join the Squad" form, the
+site resizes it down in the browser first (so a big phone photo doesn't
+turn into a slow upload), then sends it to the Apps Script, which saves it
+into a Google Drive folder called **"Midland Meetups Squad Photos"**
+(created automatically the first time it's needed) and stores just the
+resulting image link in the `photoUrl` column of the Squad sheet. The
+Sheet itself never holds the actual image data.
+
+That folder lives in the Drive of whoever's Google account the script is
+deployed under (whoever ran `setup()` / did the deployment). If you ever
+want to review or remove a photo directly, you can find it there.
+
+Photos are optional — if someone skips it, their card shows a colored
+circle with their first initial instead.
+
+**Worth knowing:** Age and gender submitted here are shown publicly on the
+site. Make sure that's something people submitting are aware of and
+comfortable with — you may want to mention that on the page itself if it
+isn't obvious to your group.
+
+## If a date or time looks like "1899-12-31T02:32:11.000Z"
+
+This is a known Google Sheets quirk, not a bug in the website. Sheets
+auto-detects things that look like times or dates and silently stores
+them as real Date values instead of plain text — timestamped against a
+placeholder date from 1899/1900. `Code.gs` converts these back to a
+normal-looking date/time before sending them to the site, but if you're
+seeing this, you're likely running an older deployment. Fix:
+
+1. In the Apps Script editor, run `setup()` again (safe — it won't touch
+   existing data, it just also locks the `date`/`time` columns to plain
+   text going forward so this stops happening for new rows).
+2. Push a **new deployment version** (Deploy → Manage deployments →
+   pencil icon → New version → Deploy) so the live URL picks up the fix.
+
+No need to retype anything in existing rows — the fix normalizes the
+value on the way out regardless of how the cell is stored.
+
+- **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
+  post immediately — there's no approval step, since that would defeat the
+  point of a live chat. The page polls for new messages every 8 seconds
+  (not truly real-time, but close enough for this kind of casual chat).
+  Only the most recent 200 messages are sent to the site at a time (see
+  `CHAT_MESSAGE_LIMIT` in `Code.gs` if you want to change that).
+
+**Moderation note:** since chat messages aren't reviewed before posting,
+the only way to remove one is to delete its row directly in the `Chat`
+sheet — it'll disappear from the site within one polling cycle (~8
+seconds) after that.
+
 ## Putting the website on GitHub Pages
 
 1. Create a new repository on GitHub (public repos get free Pages hosting).
 2. Upload the website files — `index.html`, `lore.html`, `submit.html`,
-   `style.css`, `app.js`, `config.js` (with your URL already pasted in).
-   You don't need to upload the `apps-script` folder; that code lives in
-   the Sheet's Apps Script editor, not on GitHub.
+   `squad.html`, `chat.html`, `style.css`, `app.js`, `config.js` (with
+   your URL already pasted in). You don't need to upload the
+   `apps-script` folder; that code lives in the Sheet's Apps Script
+   editor, not on GitHub.
 3. In the repo, go to **Settings → Pages**.
 4. Under "Build and deployment," set **Source** to "Deploy from a branch,"
    pick the `main` branch and the `/ (root)` folder, then **Save**.
@@ -134,6 +204,6 @@ make them public.
 
 ## Customizing
 
-- **Site name:** search for "The Midland Mixer" across the HTML files.
+- **Site name:** search for "Midland Meetups" across the HTML files.
 - **Colors:** CSS variables at the top of `style.css` (`--blue`, `--red`,
   `--yellow`, `--green`, `--ink`, `--bg`).
