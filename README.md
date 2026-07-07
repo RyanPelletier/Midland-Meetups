@@ -2,13 +2,15 @@
 
 A website for posting upcoming events, event updates (rain delays,
 cancellations, new locations), a "Happenings This Week" snapshot with
-click-to-RSVP, an event submission form, and "The Lore Letter" — a feed of
-memories from past events, with its own submission form. The site itself
+click-to-RSVP, an event submission form, "The Lore Letter" (a memory feed
+with its own submission form), "The Squad" (a member directory with
+profile submissions and photos), and a live group Chat. The site itself
 is static HTML/CSS/JS hosted free on GitHub Pages. All the actual data —
-events, memories, submissions, RSVPs — lives in a **Google Sheet**, read
-and written through a **Google Apps Script** deployed as a web app. That
-means everyone sees the same live data: shared RSVP counts, submissions
-you can review before they go public, all editable right in a spreadsheet.
+events, memories, squad profiles, RSVPs, chat messages — lives in a
+**Google Sheet**, read and written through a **Google Apps Script**
+deployed as a web app. That means everyone sees the same live data, and
+you can review submissions before they go public, all editable right in
+a spreadsheet.
 
 ## How the pieces fit together
 
@@ -17,13 +19,14 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
   (the database)         (the API in between)          (what people see/use)
 ```
 
-- **The Sheet** has three tabs: `Events`, `Memories`, `RSVPs`. You can look
-  at and hand-edit any of it any time.
+- **The Sheet** has five tabs: `Events`, `Memories`, `RSVPs`, `Squad`,
+  `Chat`. You can look at and hand-edit any of it any time.
 - **The Apps Script** (`apps-script/Code.gs`) is code that lives *inside*
   that Sheet (via Extensions → Apps Script) and exposes it to the website
-  through a URL.
+  through a URL. It also emails you when something needs review, and
+  saves Squad photos to Google Drive.
 - **The website** (everything else in this folder) calls that URL to load
-  events/memories and to save RSVPs and new submissions.
+  content and to save RSVPs, submissions, and chat messages.
 
 ## Part 1 — Set up the Google Sheet + Apps Script
 
@@ -40,10 +43,10 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
    **Review permissions**, pick your account, click **Advanced**, then
    **Go to [project name] (unsafe)**, then **Allow**. (This warning shows
    up for any script you write yourself — it's just Google being cautious
-   about scripts that touch your Sheets.)
-7. Go back to the Sheet tab — you should now see three tabs at the bottom:
-   `Events`, `Memories`, `RSVPs`, with headers and a couple of sample rows
-   marked "(sample — delete me)".
+   about scripts that touch your Sheets, Drive, and Gmail.)
+7. Go back to the Sheet tab — you should now see five tabs at the bottom:
+   `Events`, `Memories`, `RSVPs`, `Squad`, `Chat`, with headers and a
+   couple of sample rows marked "(sample — delete me)".
 8. Back in the Apps Script editor: **Deploy → New deployment**.
 9. Click the gear icon next to "Select type" and choose **Web app**.
 10. Set **Execute as** to "Me" and **Who has access** to **"Anyone"** —
@@ -56,7 +59,8 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
 Keep that tab open — you'll need to come back and make a **new version**
 any time you edit the script later (Deploy → Manage deployments → pencil
 icon → New version → Deploy). Editing the code alone doesn't update the
-live URL.
+live URL, but it *does* keep the same URL — no need to update `config.js`
+again after that first time.
 
 ## Part 2 — Connect the website to it
 
@@ -66,8 +70,8 @@ Open `config.js` in this folder and paste your Web app URL in:
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycb.../exec";
 ```
 
-That's the only file you need to edit to wire things up. Once that's set
-and the site is deployed (see Part 3), it should be pulling live data.
+That's the main thing you need to edit to wire things up. Once that's set
+and the site is deployed (see below), it should be pulling live data.
 
 ## Managing content — it's all just the Sheet now
 
@@ -84,13 +88,21 @@ and the site is deployed (see Part 3), it should be pulling live data.
     days — no need to manage that part.
 - **Memories tab:** columns are `id`, `title`, `author`, `date`, `text`,
   `approved`. Same approval pattern as Events.
-- **RSVPs tab:** one row per person per event — this fills in automatically
-  as people RSVP on the site. You generally won't need to touch it, though
-  you're welcome to look at who's going to what.
-- **Deleting something:** just delete the row in the Sheet.
+- **Squad tab:** columns are `id`, `name`, `occupation`, `age`, `gender`,
+  `socialLink`, `bio`, `photoUrl`, `approved`. Same approval pattern —
+  profiles submitted through "Join the Squad" arrive as `FALSE` for review.
+- **RSVPs tab:** one row per person per event — fills in automatically as
+  people RSVP on the site. You generally won't need to touch it.
+- **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
+  post immediately with no approval step (a review queue would defeat the
+  point of a live chat). The page polls for new messages every 8 seconds.
+  Only the most recent 200 messages are sent to the site at a time (see
+  `CHAT_MESSAGE_LIMIT` in `Code.gs` to change that). To remove a message,
+  delete its row directly — it disappears from the site within one poll.
+- **Deleting something (any tab):** just delete the row in the Sheet.
 
 Changes to the Sheet show up on the site the next time someone loads the
-page — no redeploying anything.
+page — no redeploying anything, unless you've changed the script itself.
 
 ## How RSVPs work
 
@@ -102,49 +114,69 @@ tallied for everyone — the card and pop-up show a live count like
 
 ## How the submission forms work
 
-Both **Submit an Event** and the Lore Letter's memory form post straight
-to the Sheet with `approved` set to `FALSE`. Review new rows in the Sheet,
-edit anything that needs cleaning up, and flip `approved` to `TRUE` to
-make them public.
-
-## Submit an Event password
-
-The Submit an Event page is behind a simple password (set in `config.js` as
-`SUBMIT_PASSWORD`, currently `gatsbymethod`). It's meant to keep the form
-from being stumbled on by strangers browsing the site, not as real
-security — since this is a static site, anyone who views the page source
-can see the password value. Once someone enters it correctly, the form
-stays unlocked for the rest of that browser tab session.
-
-To change the password, edit `SUBMIT_PASSWORD` in `config.js`.
-
-- **Squad tab:** columns are `id`, `name`, `occupation`, `age`, `gender`,
-  `socialLink`, `bio`, `photoUrl`, `approved`. Same approval pattern as
-  Events and Memories — profiles submitted through the site's "Join the
-  Squad" form arrive as `FALSE` for you to review before they go public.
+**Submit an Event**, the Lore Letter's memory form, and "Join the Squad"
+all post straight to the Sheet with `approved` set to `FALSE`. Review new
+rows in the Sheet, edit anything that needs cleaning up, and flip
+`approved` to `TRUE` to make them public.
 
 ## How Squad photos are stored
 
 Google Sheets isn't built to hold images, so photos work a little
-differently: when someone uploads one on the "Join the Squad" form, the
-site resizes it down in the browser first (so a big phone photo doesn't
-turn into a slow upload), then sends it to the Apps Script, which saves it
-into a Google Drive folder called **"Midland Meetups Squad Photos"**
-(created automatically the first time it's needed) and stores just the
-resulting image link in the `photoUrl` column of the Squad sheet. The
-Sheet itself never holds the actual image data.
+differently: when someone uploads one on the "Join the Squad" form
+(JPG or PNG only), the site resizes it down in the browser first (so a
+big phone photo doesn't turn into a slow upload), then sends it to the
+Apps Script, which saves it into a Google Drive folder called
+**"Midland Meetups Squad Photos"** (created automatically the first time
+it's needed) and stores just the resulting image link in the `photoUrl`
+column. The Sheet itself never holds the actual image data.
 
 That folder lives in the Drive of whoever's Google account the script is
-deployed under (whoever ran `setup()` / did the deployment). If you ever
-want to review or remove a photo directly, you can find it there.
+deployed under. If you ever want to review or remove a photo directly,
+you can find it there.
 
 Photos are optional — if someone skips it, their card shows a colored
-circle with their first initial instead.
+circle with their first initial instead. The social media link is
+optional too.
 
 **Worth knowing:** Age and gender submitted here are shown publicly on the
 site. Make sure that's something people submitting are aware of and
-comfortable with — you may want to mention that on the page itself if it
-isn't obvious to your group.
+comfortable with.
+
+## Passwords
+
+Two pages are behind a simple password, set in `config.js`:
+
+- **Submit an Event** — `SUBMIT_PASSWORD`, currently `gatsbymethod`.
+- **Chat** — `CHAT_PASSWORD`, currently `ryanisthebest`. Chat doesn't even
+  start polling for messages until it's unlocked.
+
+These are light deterrents to keep the pages from being stumbled on by
+strangers browsing the site — not real security. Since this is a static
+site, anyone who views the page source can see the password values. Once
+someone enters the right one, that page stays unlocked for the rest of
+that browser tab session. To change either, just edit the constant in
+`config.js`.
+
+## Email notifications
+
+Every time someone submits an event, a memory, or a Squad profile, the
+Apps Script emails whatever address is set as `ORGANIZER_EMAIL` near the
+top of `Code.gs` (currently `Rdp4709@gmail.com`), with the submitted
+details and a reminder to flip `approved` to `TRUE` once reviewed. Chat
+messages don't trigger an email since they post immediately without a
+review step — a notification for every message would just be noise.
+
+To change the notification address, edit `ORGANIZER_EMAIL` in `Code.gs`
+and push a new deployment version.
+
+**One-time step:** since sending email is a new capability for the
+script, Google will likely ask you to re-authorize it. In the Apps Script
+editor, run any function once (e.g. `setup`) and approve the new
+permission prompt *before* creating the new deployment version —
+otherwise the emails may silently fail.
+
+Gmail/Apps Script email sending has a daily quota (100/day on a regular
+Gmail account), which is far more than this is likely to need.
 
 ## If a date or time looks like "1899-12-31T02:32:11.000Z"
 
@@ -152,29 +184,9 @@ This is a known Google Sheets quirk, not a bug in the website. Sheets
 auto-detects things that look like times or dates and silently stores
 them as real Date values instead of plain text — timestamped against a
 placeholder date from 1899/1900. `Code.gs` converts these back to a
-normal-looking date/time before sending them to the site, but if you're
-seeing this, you're likely running an older deployment. Fix:
-
-1. In the Apps Script editor, run `setup()` again (safe — it won't touch
-   existing data, it just also locks the `date`/`time` columns to plain
-   text going forward so this stops happening for new rows).
-2. Push a **new deployment version** (Deploy → Manage deployments →
-   pencil icon → New version → Deploy) so the live URL picks up the fix.
-
-No need to retype anything in existing rows — the fix normalizes the
-value on the way out regardless of how the cell is stored.
-
-- **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
-  post immediately — there's no approval step, since that would defeat the
-  point of a live chat. The page polls for new messages every 8 seconds
-  (not truly real-time, but close enough for this kind of casual chat).
-  Only the most recent 200 messages are sent to the site at a time (see
-  `CHAT_MESSAGE_LIMIT` in `Code.gs` if you want to change that).
-
-**Moderation note:** since chat messages aren't reviewed before posting,
-the only way to remove one is to delete its row directly in the `Chat`
-sheet — it'll disappear from the site within one polling cycle (~8
-seconds) after that.
+normal-looking date/time before sending them to the site. If you're
+seeing this, you're likely running an older deployment — run `setup()`
+again (safe, won't touch existing data) and push a new deployment version.
 
 ## Putting the website on GitHub Pages
 
@@ -198,9 +210,13 @@ seconds) after that.
   deployment's "Who has access" is set to "Anyone," not "Anyone with a
   Google account." Also confirm you're using the newest deployment's URL
   after any script edits.
-- **A new event/memory you added directly in the Sheet isn't showing** —
-  check its `approved` column is `TRUE`, and for events, that the date
-  falls within the next 7 days.
+- **A new event/memory/profile you added directly in the Sheet isn't
+  showing** — check its `approved` column is `TRUE`, and for events, that
+  the date falls within the next 7 days.
+- **Notification emails aren't arriving** — check spam, confirm
+  `ORGANIZER_EMAIL` in `Code.gs` is correct, and make sure you
+  re-authorized the script (see "Email notifications" above) after this
+  feature was added.
 
 ## Customizing
 
