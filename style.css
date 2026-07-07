@@ -712,6 +712,76 @@ textarea{ resize: vertical; min-height: 110px; }
   .chat-form input[name="name"]{ flex: 1 1 100%; }
 }
 
+/* -------------------- RSVPs page -------------------- */
+.rsvp-section-title{
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.3rem;
+  letter-spacing: -0.01em;
+  margin: 36px 0 16px;
+}
+.rsvp-section-title:first-child{ margin-top: 0; }
+
+.rsvp-event-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+}
+.rsvp-event-head{
+  display:flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.rsvp-event-head h3{
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin: 0 0 4px;
+}
+.rsvp-event-head .card-meta{ margin: 0; }
+
+.rsvp-columns{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 520px){
+  .rsvp-columns{ grid-template-columns: 1fr; }
+}
+.rsvp-column h4{
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0 0 8px;
+}
+.rsvp-column.going h4{ color: var(--green); }
+.rsvp-column.not-going h4{ color: var(--muted); }
+.rsvp-names{
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display:flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rsvp-names li{
+  font-size: 0.9rem;
+  color: #3B4350;
+}
+.rsvp-names.empty li{
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* -------------------- Footer -------------------- */
 .site-footer{
   border-top: 1px solid var(--border);
