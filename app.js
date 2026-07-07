@@ -16,6 +16,32 @@ const NAME_KEY = "midland-mixer-name";
 let EVENTS_CACHE = [];
 let RSVPS_CACHE = [];
 
+/* ---------------- Shared nav partial ---------------- */
+// Fetches nav.html (the single list of nav links) and drops it into the
+// empty <nav id="main-nav"> that's already in each page's markup, so
+// adding/renaming a page only means editing nav.html — not every page.
+async function loadNav(){
+  const nav = document.getElementById("main-nav");
+  if (!nav) return;
+
+  try{
+    const res = await fetch("nav.html");
+    if (!res.ok) throw new Error("nav.html fetch failed: " + res.status);
+    nav.innerHTML = await res.text();
+  }catch(err){
+    console.error("Could not load navigation links:", err);
+    // The header shell (logo + toggle button) still shows fine — just no links.
+  }
+
+  const currentPage = document.body.dataset.page;
+  if (currentPage){
+    const link = nav.querySelector(`a[data-page="${currentPage}"]`);
+    if (link) link.classList.add("active");
+  }
+
+  initNavToggle();
+}
+
 /* ---------------- Mobile nav toggle ---------------- */
 function initNavToggle(){
   const toggle = document.getElementById("nav-toggle");
@@ -944,7 +970,7 @@ function initMemoryForm(){
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  initNavToggle();
+  loadNav();
   renderWeek();
   initModal();
   renderLore();
