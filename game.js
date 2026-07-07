@@ -61,9 +61,9 @@
   const SPAWN_MIN_GAP = 55;   // frames between spawns, before speed adjustment
   const SPAWN_MAX_GAP = 110;
 
-  const WIZARD_FIRE_COOLDOWN_MIN = 70;  // frames between a wizard's shots
-  const WIZARD_FIRE_COOLDOWN_MAX = 130;
-  const WIZARD_FIRE_RANGE = 420;        // wizard only fires once this close
+  const WIZARD_FIRE_COOLDOWN_MIN = 22;  // frames between a wizard's shots
+  const WIZARD_FIRE_COOLDOWN_MAX = 48;
+  const WIZARD_FIRE_RANGE = 560;        // wizard only fires once this close
 
   const WAFFLE_SPEED = 9;      // straight shot
   const THROW_COOLDOWN = 18;   // frames between throws (waffle or muffin)
@@ -72,7 +72,7 @@
   const MUFFIN_INITIAL_VY = -7;
   const MUFFIN_GRAVITY = 0.4;
 
-  const ENEMY_PROJECTILE_SPEED = 6.5;
+  const ENEMY_PROJECTILE_SPEED_BONUS = 4; // how much faster than world-scroll a bolt/fireball flies
 
   const MOTORCYCLE_DURATION_FRAMES = 10 * 60; // 10 seconds @ ~60fps, invincible
   const JETPACK_DURATION_FRAMES = 8 * 60;     // 8 seconds, hover + throw muffins
@@ -182,7 +182,7 @@
   function updateObstacles(){
     obstacles.forEach(o => {
       o.x -= speed;
-      if (o.type === "wizard" && o.alive && o.x < WIZARD_FIRE_RANGE){
+      if (o.type === "wizard" && o.alive && o.x < WIZARD_FIRE_RANGE && o.x > PLAYER_X + PLAYER_W){
         o.fireCooldown--;
         if (o.fireCooldown <= 0){
           fireEnemyProjectile(o);
@@ -199,7 +199,8 @@
   }
 
   function updateEnemyProjectiles(){
-    enemyProjectiles.forEach(p => { p.x -= ENEMY_PROJECTILE_SPEED; });
+    const flightSpeed = speed + ENEMY_PROJECTILE_SPEED_BONUS;
+    enemyProjectiles.forEach(p => { p.x -= flightSpeed; });
     enemyProjectiles = enemyProjectiles.filter(p => p.x + p.w > -20);
   }
 
