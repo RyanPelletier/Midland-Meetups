@@ -65,6 +65,71 @@ function isWithinNextWeek(iso){
   const d = new Date(iso + "T00:00:00");
   return d >= today && d <= weekOut;
 }
+
+// Parses either "9:00 PM" (12-hour) or "21:00" (24-hour, from <input type="time">)
+// into 24-hour { h, m }. Returns null if it doesn't recognize the format.
+function parseTimeToHM(timeStr){
+  if (!timeStr) return null;
+  const str = String(timeStr).trim();
+
+  let m = str.match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+  if (m){
+    let h = parseInt(m[1], 10) % 12;
+    if (/pm/i.test(m[3])) h += 12;
+    return { h, m: parseInt(m[2], 10) };
+  }
+
+  m = str.match(/^(\d{1,2}):(\d{2})$/);
+  if (m){
+    return { h: parseInt(m[1], 10), m: parseInt(m[2], 10) };
+  }
+
+  return null;
+}
+
+// Builds a Google Calendar "quick add" link — no API key or auth needed.
+// Since events don't store a duration, this defaults every event to a
+// 2-hour block starting at its listed time (editable by whoever adds it).
+function buildGoogleCalendarUrl(evt){
+  const DEFAULT_DURATION_MINUTES = 120;
+  const hm = parseTimeToHM(evt.time);
+
+  function stampFor(totalMinutesFromStartOfDay){
+    const dayOffset = Math.floor(totalMinutesFromStartOfDay / (24 * 60));
+    const minutesInDay = ((totalMinutesFromStartOfDay % (24 * 60)) + 24 * 60) % (24 * 60);
+    const hh = String(Math.floor(minutesInDay / 60)).padStart(2, "0");
+    const mm = String(minutesInDay % 60).padStart(2, "0");
+    const d = new Date(evt.date + "T00:00:00");
+    d.setDate(d.getDate() + dayOffset);
+    const yyyy = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, "0");
+    const DD = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}${MM}${DD}T${hh}${mm}00`;
+  }
+
+  let datesParam;
+  if (hm){
+    const startMinutes = hm.h * 60 + hm.m;
+    datesParam = `${stampFor(startMinutes)}/${stampFor(startMinutes + DEFAULT_DURATION_MINUTES)}`;
+  }else{
+    // Couldn't parse a time — fall back to a simple all-day entry.
+    const dateDigits = String(evt.date).replace(/-/g, "");
+    datesParam = `${dateDigits}/${dateDigits}`;
+  }
+
+  const details = evt.description + (evt.statusNote ? "\n\nUpdate: " + evt.statusNote : "");
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: evt.title,
+    dates: datesParam,
+    details: details,
+    location: evt.location,
+    ctz: "America/Detroit"
+  });
+
+  return "https://www.google.com/calendar/render?" + params.toString();
+}
 function getStoredName(){
   return localStorage.getItem(NAME_KEY) || "";
 }
@@ -216,6 +281,7 @@ function openModal(eventId){
     </div>
     ${evt.statusNote ? `<p class="status-note">${escapeHTML(evt.statusNote)}</p>` : ""}
     <p class="modal-desc">${escapeHTML(evt.description)}</p>
+    <a class="btn light block" href="${escapeHTML(buildGoogleCalendarUrl(evt))}" target="_blank" rel="noopener noreferrer">${ICONS.calendar} Add to Google Calendar</a>
     <div class="rsvp-block">
       <div class="rsvp-label">Are you going?</div>
       <div class="form-row" style="margin-bottom:10px;">
