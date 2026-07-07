@@ -14,3 +14,6 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzUjmfugZe7jkOt
    Since this is a static site, anyone who views the page source can see
    this value, so don't rely on it for anything sensitive. */
 const SUBMIT_PASSWORD = "gatsbymethod";
+
+/* Same idea, gating the Chat page. */
+const CHAT_PASSWORD = "ryanisthebest";
