@@ -19,8 +19,8 @@
 
   /* ==================== CONFIG — tweak freely ==================== */
   const CANVAS_W = 640;
-  const CANVAS_H = 360;
-  const GROUND_Y = 300;
+  const CANVAS_H = 280;
+  const GROUND_Y = 230;
 
   const COLORS = {
     bg: "#F5F0E6",            // warm cream backdrop
