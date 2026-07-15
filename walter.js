@@ -34,6 +34,8 @@
     towerDark: "#6B4222",
     ladder: "#C9922A",
     chest: "#B8860B",
+    treeTrunk: "#6B4222",
+    treeCanopy: "#2D6A4F",
     chestLid: "#8B5A2B",
     altarGlow: "#F6C945",
     player: "#1B7A4A",
@@ -76,6 +78,12 @@
   const CHEST_X = TOWER_X - 60;
   const CHEST_W = 40, CHEST_H = 28;
 
+  // Trees in the fair grounds — solid to projectiles (both Walter's and
+  // enemies'), not to movement, so standing behind one blocks incoming
+  // shots without physically trapping the player against it.
+  const TREE_W = 22, TREE_H = 95;
+  const TREES = [150, 350, 550, 750].map(offset => ({ x: WALL_END + offset, w: TREE_W, h: TREE_H }));
+
   const PLAYER_W = 28, PLAYER_H = 42;
   const PLAYER_MAX_HP = 100;
   const MOVE_SPEED = 3.2;
@@ -103,7 +111,7 @@
   const SILVER_PER_KNIGHT = 1;
 
   const SPELLS = {
-    fireball:    { label: "Fireball",     cost: 10, damage: 20, speed: 8,   cooldown: 30 },
+    fireball:    { label: "Fireball",     cost: 10, damage: 20, speed: 8, splashRadius: 80, burnDuration: 120, burnDamagePerFrame: 0.4, cooldown: 30 },
     lightning:   { label: "Lightning",    cost: 10, damage: 26, range: 260, chainMax: 3, cooldown: 45 },
     freeze:      { label: "Freeze",       cost: 10, radius: 120, duration: 180, cooldown: 240 },
     summonAlly:  { label: "Summon Ally",  cost: 10, allyDuration: 900, allyDamage: 12, allyHp: 40, cooldown: 300 },
@@ -527,7 +535,7 @@
     enemies.push({
       type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
       hp: stats.hp, maxHp: stats.hp,
-      attackCooldown: 0, frozenFrames: 0, counted: false
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
     });
     if (DEBUG) console.log("[WvW] spawned " + type + " in " + zone + " zone");
   }
@@ -537,6 +545,12 @@
     enemies.forEach(en => {
       if (en.hp <= 0) return;
       if (en.frozenFrames > 0){ en.frozenFrames--; return; }
+
+      if (en.burningFrames > 0){
+        en.burningFrames--;
+        damageEnemy(en, SPELLS.fireball.burnDamagePerFrame);
+        if (en.hp <= 0) return;
+      }
 
       const stats = ENEMY_STATS[en.type];
       const enCx = en.x + en.w/2;
@@ -577,20 +591,47 @@
   }
 
   /* ---------------- projectiles ---------------- */
+  function triggerFireSplash(x, y){
+    const cfg = SPELLS.fireball;
+    enemies.forEach(en => {
+      if (en.hp <= 0) return;
+      const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
+      const dx = enCx - x, dy = enCy - y;
+      if (Math.sqrt(dx*dx + dy*dy) < cfg.splashRadius) en.burningFrames = cfg.burnDuration;
+    });
+    effects.push({ type: "fire-burst", x, y, radius: cfg.splashRadius, life: 20 });
+  }
+
+  function hitsTree(x, y){
+    return TREES.some(t => rectsOverlap(x - 8, y - 8, 16, 16, t.x, GROUND_Y - t.h, t.w, t.h));
+  }
+
   function updateProjectiles(){
     playerProjectiles.forEach(p => { p.x += p.vx; });
+
+    // Trees physically block projectiles — check before anything else can hit.
+    playerProjectiles.forEach(p => {
+      if (!p.hit && hitsTree(p.x, p.y)) p.hit = true;
+    });
+
     playerProjectiles.forEach(p => {
       if (p.hit) return;
       enemies.forEach(en => {
         if (en.hp > 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, en.x, en.y, en.w, en.h)){
           damageEnemy(en, p.damage);
           p.hit = true;
+          if (p.type === "fireball") triggerFireSplash(p.x, p.y);
         }
       });
     });
     playerProjectiles = playerProjectiles.filter(p => !p.hit && p.x > -30 && p.x < WORLD_WIDTH + 30);
 
     enemyProjectiles.forEach(p => { p.x += p.vx; });
+
+    enemyProjectiles.forEach(p => {
+      if (!p.hit && hitsTree(p.x, p.y)) p.hit = true;
+    });
+
     enemyProjectiles.forEach(p => {
       if (p.hit) return;
       if (player.invulnFrames <= 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, player.x, player.y, PLAYER_W, PLAYER_H)){
@@ -663,6 +704,7 @@
     drawBackground();
     drawTower();
     drawChest();
+    drawTrees();
     enemies.forEach(drawEnemy);
     allies.forEach(drawAlly);
     effects.forEach(drawEffect);
@@ -731,6 +773,27 @@
     ctx.fillRect(x, GROUND_Y - CHEST_H, CHEST_W, 8);
   }
 
+  function drawTrees(){
+    TREES.forEach(t => {
+      const x = worldToScreen(t.x);
+      if (x < -60 || x > CANVAS_W + 60) return;
+
+      const trunkW = 10;
+      const trunkX = x + (t.w - trunkW) / 2;
+      ctx.fillStyle = COLORS.treeTrunk;
+      ctx.fillRect(trunkX, GROUND_Y - 30, trunkW, 30);
+
+      ctx.fillStyle = COLORS.treeCanopy;
+      const cx = x + t.w / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, GROUND_Y - t.h);
+      ctx.lineTo(x, GROUND_Y - 26);
+      ctx.lineTo(x + t.w, GROUND_Y - 26);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
   function drawPlayer(){
     const x = worldToScreen(player.x);
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
@@ -793,6 +856,10 @@
       ctx.fillStyle = "rgba(143,227,240,0.5)";
       ctx.fillRect(x, en.y, en.w, en.h);
     }
+    if (en.burningFrames > 0){
+      ctx.fillStyle = "rgba(225,75,60,0.45)";
+      ctx.fillRect(x, en.y, en.w, en.h);
+    }
 
     ctx.fillStyle = COLORS.hpBad;
     ctx.fillRect(x, en.y - 8, en.w, 3);
@@ -836,6 +903,12 @@
     const x = worldToScreen(fx.x);
     if (fx.type === "freeze-burst"){
       ctx.strokeStyle = COLORS.freeze;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius * (1 - fx.life/20), 0, Math.PI*2);
+      ctx.stroke();
+    }else if (fx.type === "fire-burst"){
+      ctx.strokeStyle = COLORS.fireball;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius * (1 - fx.life/20), 0, Math.PI*2);
