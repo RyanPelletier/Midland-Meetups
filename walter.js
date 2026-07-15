@@ -113,6 +113,24 @@
     wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true }
   };
 
+  // Tougher wizard variants — same base stats as a regular wizard, just
+  // harder-hitting, and each one starts appearing once totalKills crosses
+  // its threshold. No thresholds were specified, so these are a starting
+  // guess (escalating every so often) — easy to retune here.
+  const WIZARD_TIERS = [
+    { key: "wizard",       label: "Wizard",        cloakColor: null,      damageMultiplier: 1,    minKills: 0   },
+    { key: "wizardYellow", label: "Yellow Wizard", cloakColor: "#F6C945", damageMultiplier: 1.25, minKills: 20  },
+    { key: "wizardBlack",  label: "Black Wizard",  cloakColor: "#1F2430", damageMultiplier: 1.5,  minKills: 50  },
+    { key: "wizardRed",    label: "Red Wizard",    cloakColor: "#E14B3C", damageMultiplier: 1.75, minKills: 100 }
+  ];
+  WIZARD_TIERS.forEach(tier => {
+    if (tier.key === "wizard") return; // base wizard is already defined above
+    ENEMY_STATS[tier.key] = {
+      ...ENEMY_STATS.wizard,
+      damage: Math.round(ENEMY_STATS.wizard.damage * tier.damageMultiplier)
+    };
+  });
+
   const SPAWN_INTERVAL_MIN = 70;
   const SPAWN_INTERVAL_MAX = 140;
   const RATIO_SHIFT_KILLS = 60; // kills to fully shift from 90/5/5 toward 40/30/30
@@ -559,11 +577,16 @@
     }
   }
 
+  function pickWizardTier(){
+    const unlocked = WIZARD_TIERS.filter(t => totalKills >= t.minKills);
+    return unlocked[Math.floor(Math.random() * unlocked.length)];
+  }
+
   function spawnWaveEnemy(zone){
     const r = currentRatios();
     const roll = Math.random();
     let type = "knight";
-    if (roll > r.knight + r.archer) type = "wizard";
+    if (roll > r.knight + r.archer) type = pickWizardTier().key;
     else if (roll > r.knight) type = "archer";
 
     const stats = ENEMY_STATS[type];
@@ -942,7 +965,10 @@
       ctx.arc(x + en.w/2, en.y + en.h/2, 12, -Math.PI/2.2, Math.PI/2.2);
       ctx.stroke();
     }else{
-      ctx.fillStyle = COLORS.wizardCloak;
+      const tier = WIZARD_TIERS.find(t => t.key === en.type);
+      const cloakColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardCloak;
+      const hatColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardHat;
+      ctx.fillStyle = cloakColor;
       ctx.beginPath();
       ctx.moveTo(x + 3, en.y + en.h);
       ctx.lineTo(x, en.y + en.h * 0.4);
@@ -950,7 +976,7 @@
       ctx.lineTo(x + en.w - 3, en.y + en.h);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = COLORS.wizardHat;
+      ctx.fillStyle = hatColor;
       ctx.beginPath();
       ctx.moveTo(x + en.w/2, en.y - 10);
       ctx.lineTo(x + 3, en.y + en.h * 0.4);
