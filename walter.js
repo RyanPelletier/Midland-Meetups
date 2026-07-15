@@ -29,6 +29,8 @@
     skyTower: "#EDE6D6",
     skyWall: "#F5F0E6",
     skyFair: "#FBEFD8",
+    wallStone: "#9C9284",
+    wallStoneDark: "#7A7264",
     ground: "#1F2430",
     tower: "#8B5A2B",
     towerDark: "#6B4222",
@@ -42,6 +44,7 @@
     playerLeather: "#8B5A2B",
     playerSteel: "#9CA3AF",
     playerSword: "#9CA3AF",
+    swordHilt: "#6B4222",
     knight: "#5B6472",
     knightTrim: "#E5484D",
     archer: "#2851E3",
@@ -83,6 +86,11 @@
   // shots without physically trapping the player against it.
   const TREE_W = 22, TREE_H = 95;
   const TREES = [150, 350, 550, 750].map(offset => ({ x: WALL_END + offset, w: TREE_W, h: TREE_H }));
+
+  // Cosmetic castle wall backdrop, spanning the wall zone. Purely visual —
+  // drawn behind everything, no collision.
+  const CASTLE_WALL_HEIGHT = 150;
+  const CRENEL_UNIT = 40; // width of one merlon + gap pair
 
   const PLAYER_W = 28, PLAYER_H = 42;
   const PLAYER_MAX_HP = 100;
@@ -702,6 +710,7 @@
   /* ---------------- draw ---------------- */
   function draw(){
     drawBackground();
+    drawCastleWalls();
     drawTower();
     drawChest();
     drawTrees();
@@ -739,6 +748,39 @@
     ctx.moveTo(0, GROUND_Y);
     ctx.lineTo(CANVAS_W, GROUND_Y);
     ctx.stroke();
+  }
+
+  function drawCastleWalls(){
+    const left = worldToScreen(TOWER_END);
+    const right = worldToScreen(WALL_END);
+    if (right < 0 || left > CANVAS_W) return; // zone not currently in view
+
+    const top = GROUND_Y - CASTLE_WALL_HEIGHT;
+    const visLeft = Math.max(0, left);
+    const visRight = Math.min(CANVAS_W, right);
+
+    ctx.fillStyle = COLORS.wallStone;
+    ctx.fillRect(visLeft, top, visRight - visLeft, CASTLE_WALL_HEIGHT);
+
+    // crenellations along the top edge
+    ctx.fillStyle = COLORS.wallStoneDark;
+    for (let wx = TOWER_END; wx < WALL_END; wx += CRENEL_UNIT * 2){
+      const sx = worldToScreen(wx);
+      if (sx + CRENEL_UNIT < 0 || sx > CANVAS_W) continue;
+      ctx.fillRect(sx, top - 14, CRENEL_UNIT, 14);
+    }
+
+    // sparse vertical seams for a bit of stone texture
+    ctx.strokeStyle = COLORS.wallStoneDark;
+    ctx.lineWidth = 2;
+    for (let wx = TOWER_END + 60; wx < WALL_END; wx += 120){
+      const sx = worldToScreen(wx);
+      if (sx < 0 || sx > CANVAS_W) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, top);
+      ctx.lineTo(sx, GROUND_Y);
+      ctx.stroke();
+    }
   }
 
   function drawTower(){
@@ -802,14 +844,49 @@
       : COLORS.player;
     ctx.fillStyle = bodyColor;
     ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
-    ctx.strokeStyle = COLORS.playerSword;
+
+    if (!activeSpell) drawSword(x);
+  }
+
+  function drawSword(x){
+    const swordDir = player.facing > 0 ? 1 : -1;
+    const handX = player.facing > 0 ? x + PLAYER_W : x;
+    const handY = player.y + 14;
+
+    // direction from hand toward the tip
+    const tipX = handX + 20 * swordDir;
+    const tipY = player.y - 2;
+    const dx = tipX - handX, dy = tipY - handY;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const ux = dx / len, uy = dy / len;       // unit vector along the blade
+    const nx = -uy, ny = ux;                  // perpendicular (blade width direction)
+
+    const handleLen = 6;
+    const guardX = handX + ux * handleLen, guardY = handY + uy * handleLen;
+    const bladeWidth = 3;
+
+    // handle (short brown segment from the hand out to the guard)
+    ctx.strokeStyle = COLORS.swordHilt;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    const swordX = player.facing > 0 ? x + PLAYER_W : x;
-    const swordDir = player.facing > 0 ? 1 : -1;
-    ctx.moveTo(swordX, player.y + 12);
-    ctx.lineTo(swordX + 16 * swordDir, player.y + 2);
+    ctx.moveTo(handX, handY);
+    ctx.lineTo(guardX, guardY);
     ctx.stroke();
+
+    // crossguard (short brown line perpendicular to the blade, at the base)
+    ctx.beginPath();
+    ctx.moveTo(guardX + nx * 5, guardY + ny * 5);
+    ctx.lineTo(guardX - nx * 5, guardY - ny * 5);
+    ctx.stroke();
+
+    // blade — a tapered shape from the guard to a pointed tip
+    ctx.fillStyle = COLORS.playerSword;
+    ctx.beginPath();
+    ctx.moveTo(guardX + nx * bladeWidth, guardY + ny * bladeWidth);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(guardX - nx * bladeWidth, guardY - ny * bladeWidth);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawEnemy(en){
