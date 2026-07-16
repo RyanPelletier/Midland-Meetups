@@ -107,6 +107,13 @@
   const CROWSNEST_HALF_WIDTH = 18;
   const MAP_Y = GROUND_Y - 220; // height of the crow's nest platform
 
+  // Open water (the water zone, minus the boat's own footprint) has no solid
+  // floor. Jumping is always available there — each jump is a "stroke" that
+  // keeps Walter near the surface — but without jumping, gravity keeps
+  // pulling him down until he drowns (treated as a normal respawn) once he
+  // passes WATER_DROWN_DEPTH below the surface line.
+  const WATER_DROWN_DEPTH = 90;
+
   const CHESTS = [
     { x: CHEST_X, w: CHEST_W, h: CHEST_H },
     { x: BOAT_CHEST_X, w: CHEST_W, h: CHEST_H }
@@ -226,6 +233,7 @@
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, started, running;
+  let wasAtWalkupAltar, wasAtClimbTop;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
 
@@ -366,6 +374,8 @@
     respawnMessageText = "";
     altarOpen = false;
     mapOpen = false;
+    wasAtWalkupAltar = false;
+    wasAtClimbTop = false;
     nextSpawnFrame = 90;
     running = true;
   }
@@ -441,6 +451,12 @@
     );
   }
 
+  function isOverOpenWater(x){
+    if (currentZone(x) !== "water") return false;
+    const center = x + PLAYER_W / 2;
+    return !(center >= BOAT_X && center <= BOAT_X + BOAT_W); // false while standing on the boat itself
+  }
+
   function updatePlayerMovement(){
     const climb = activeClimbPoint();
 
@@ -455,12 +471,25 @@
       player.onLadder = false;
       player.vy += GRAVITY;
       player.y += player.vy;
-      if (player.y >= GROUND_Y - PLAYER_H){
-        player.y = GROUND_Y - PLAYER_H;
-        player.vy = 0;
-        player.onGround = true;
+
+      const floorY = GROUND_Y - PLAYER_H;
+      if (isOverOpenWater(player.x)){
+        const drownY = floorY + WATER_DROWN_DEPTH;
+        if (player.y >= drownY){
+          player.y = drownY;
+          player.vy = 0;
+          respawnPlayer("drowned");
+          return;
+        }
+        player.onGround = false; // no solid footing over open water — has to keep jumping to stay up
       }else{
-        player.onGround = false;
+        if (player.y >= floorY){
+          player.y = floorY;
+          player.vy = 0;
+          player.onGround = true;
+        }else{
+          player.onGround = false;
+        }
       }
     }
 
@@ -472,7 +501,12 @@
   }
 
   function jumpIfGrounded(){
-    if (player.onGround && !player.onLadder){
+    if (player.onLadder) return;
+    if (isOverOpenWater(player.x)){
+      player.vy = JUMP_VELOCITY; // a "stroke" — always available while swimming, keeps you from sinking if used often enough
+      return;
+    }
+    if (player.onGround){
       player.vy = JUMP_VELOCITY;
       player.onGround = false;
     }
@@ -599,7 +633,7 @@
     if (player.hp <= 0) respawnPlayer();
   }
 
-  function respawnPlayer(){
+  function respawnPlayer(reason){
     const lost = player.carriedCrystals;
     player.carriedCrystals = 0;
     player.hp = PLAYER_MAX_HP;
@@ -607,11 +641,12 @@
     player.y = GROUND_Y - PLAYER_H;
     player.vy = 0;
     player.invulnFrames = RESPAWN_INVULN_FRAMES;
+    const verb = reason === "drowned" ? "drowned" : "went down";
     respawnMessageText = lost > 0
-      ? "You went down and lost " + lost + " crystal" + (lost === 1 ? "" : "s") + "."
-      : "You went down.";
+      ? "You " + verb + " and lost " + lost + " crystal" + (lost === 1 ? "" : "s") + "."
+      : "You " + verb + ".";
     respawnMessageTimer = 180;
-    if (DEBUG) console.log("[WvW] respawned, lost " + lost + " crystals");
+    if (DEBUG) console.log("[WvW] respawned (" + (reason || "defeated") + "), lost " + lost + " crystals");
   }
 
   /* ---------------- wave spawning ---------------- */
@@ -689,6 +724,10 @@
           en.attackCooldown = stats.attackCooldown;
         }
       }
+
+      // Land-bound — can't wade into the water chasing the player, and
+      // can't retreat into the (peaceful) tower zone either.
+      en.x = clamp(en.x, TOWER_END, FAIR_END - en.w);
     });
 
     enemies = enemies.filter(en => en.hp > 0);
@@ -808,19 +847,22 @@
       }
     });
 
-    if (!altarOpen){
-      WALKUP_ALTARS.forEach(a => {
-        if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)){
-          openAltar();
-        }
-      });
-    }
+    // Edge-triggered: only fires on the transition into the zone, not every
+    // frame you happen to be standing in it — otherwise clicking Close
+    // while still standing there reopens it again on the very next frame.
+    const atWalkupAltar = WALKUP_ALTARS.some(a =>
+      rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)
+    );
+    if (atWalkupAltar && !wasAtWalkupAltar && !altarOpen) openAltar();
+    wasAtWalkupAltar = atWalkupAltar;
 
     const climb = activeClimbPoint();
-    if (climb && player.y <= climb.topY - PLAYER_H + 20){
+    const atClimbTop = !!climb && player.y <= climb.topY - PLAYER_H + 20;
+    if (atClimbTop && !wasAtClimbTop){
       if (climb.action === "altar" && !altarOpen) openAltar();
       if (climb.action === "map" && !mapOpen) openMap();
     }
+    wasAtClimbTop = atClimbTop;
   }
 
   /* ---------------- draw ---------------- */
@@ -1060,6 +1102,11 @@
       : COLORS.player;
     ctx.fillStyle = bodyColor;
     ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
+
+    if (isOverOpenWater(player.x) && player.y > GROUND_Y - PLAYER_H){
+      ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
+      ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
+    }
 
     if (!activeSpell) drawSword(x);
   }
