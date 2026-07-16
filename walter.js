@@ -1,16 +1,3 @@
-Here is the updated code with your requested balance and mechanics adjustments for the Cyclops:
-
-* **Boosted Health**: Doubled his maximum health from `180` to `360`.
-
-
-* **Increased Attack Frequency**: Reduced his attack cooldown from `150` frames down to `60` frames so he fires significantly more often.
-
-
-* **Eye Beam Mechanism**: Replaced the slow-moving projectile laser with an instant, direct eye beam. It targets Walter's center, applies the burn effect directly if it hits, and is realistically blocked if a solid tree stands in its path.
-
-
-
-```javascript
 /* =====================================================================
    WALTER VS WIZARDS
    A 2D wave-based brawler. Same mid-century modern visual language as
@@ -2270,5 +2257,3 @@ Here is the updated code with your requested balance and mechanics adjustments f
   };
 
 })();
-
-```
