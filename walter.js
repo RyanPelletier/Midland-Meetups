@@ -32,6 +32,9 @@
     wallStone: "#9C9284",
     wallStoneDark: "#7A7264",
     skyWater: "#CDE7F0",
+    skyDock: "#CDE7F0",
+    skyGrass: "#DCEFC4",
+    skyForest: "#A9D48C",
     water: "#2C6E8E",
     waterDeep: "#1B4F72",
     waterLine: "#F2F7FA",
@@ -116,16 +119,16 @@
   const WATER_STROKE_COOLDOWN = 18; // frames between strokes — stops keyboard auto-repeat from stacking jump velocity
   const WATER_MAX_RISE = 70;        // how far above the surface a stroke can carry him — floats, doesn't fly
 
-  const CHESTS = [
+  const CHESTS_HOME = [
     { x: CHEST_X, w: CHEST_W, h: CHEST_H },
     { x: BOAT_CHEST_X, w: CHEST_W, h: CHEST_H }
   ];
-  const WALKUP_ALTARS = [
-    { x: BOAT_ALTAR_X, w: 36, h: 46 }
+  const WALKUP_ALTARS_HOME = [
+    { x: BOAT_ALTAR_X, w: 36, h: 46, action: "altar" }
   ];
   // Climbable points: ladder position, how high it goes, and what opens
   // once you reach the top.
-  const CLIMB_POINTS = [
+  const CLIMB_POINTS_HOME = [
     { x: TOWER_X,     halfWidth: LADDER_HALF_WIDTH,     zone: "tower", topY: ALTAR_Y, action: "altar" },
     { x: CROWSNEST_X, halfWidth: CROWSNEST_HALF_WIDTH,  zone: "water", topY: MAP_Y,   action: "map"   }
   ];
@@ -134,12 +137,59 @@
   // enemies'), not to movement, so standing behind one blocks incoming
   // shots without physically trapping the player against it.
   const TREE_W = 22, TREE_H = 95;
-  const TREES = [150, 350, 550, 750].map(offset => ({ x: WALL_END + offset, w: TREE_W, h: TREE_H }));
+  const TREES_HOME = [150, 350, 550, 750].map(offset => ({ x: WALL_END + offset, w: TREE_W, h: TREE_H }));
 
   // Cosmetic castle wall backdrop, spanning the wall zone. Purely visual —
   // drawn behind everything, no collision.
   const CASTLE_WALL_HEIGHT = 150;
   const CRENEL_UNIT = 40; // width of one merlon + gap pair
+
+  /* ==================== Land 1: Grass / Forest / Castle Wall ====================
+     Reached by sailing from the home map's boat, once a crew is hired.
+     Same combat systems (enemies, spells, altar) as home — just a new
+     stretch of world to walk through, ending in a castle tower with a
+     one-time silver chest and a rare spell for sale. More lands (and more
+     biome variety per land) are meant to follow this same pattern later. */
+  const LAND1_DOCK_WIDTH = 200;
+  const LAND1_GRASS_WIDTH = 700;
+  const LAND1_FOREST_WIDTH = 900;
+  const LAND1_CASTLEWALL_WIDTH = 900;
+  const LAND1_DOCK_END = LAND1_DOCK_WIDTH;
+  const LAND1_GRASS_END = LAND1_DOCK_END + LAND1_GRASS_WIDTH;
+  const LAND1_FOREST_END = LAND1_GRASS_END + LAND1_FOREST_WIDTH;
+  const LAND1_CASTLEWALL_END = LAND1_FOREST_END + LAND1_CASTLEWALL_WIDTH;
+  const LAND1_WORLD_WIDTH = LAND1_CASTLEWALL_END;
+
+  const LAND1_DOCK_X = 90; // the boat, docked — this land's spawn point and the way back home
+  const LAND1_DOCK_W = 200;
+  const LAND1_TOWER_X = LAND1_CASTLEWALL_END - 150; // castle tower near the far right edge
+  const LAND1_ALTAR_Y = GROUND_Y - 240; // same climb height as the home altar
+
+  const LAND1_TREES = [120, 320, 520, 720].map(offset => ({ x: LAND1_GRASS_END + offset, w: TREE_W, h: TREE_H }));
+
+  const CHESTS_LAND1 = []; // the tower-top chest is one-time loot, not a bank — handled separately
+  const WALKUP_ALTARS_LAND1 = [
+    { x: LAND1_DOCK_X + 40, w: 40, h: 40, action: "map" } // walking up to the dock opens the map (sail home)
+  ];
+  const CLIMB_POINTS_LAND1 = [
+    { x: LAND1_TOWER_X, halfWidth: LADDER_HALF_WIDTH, zone: "castlewall", topY: LAND1_ALTAR_Y, action: "land1Tower" }
+  ];
+
+  function currentWorldWidth(){
+    return currentMap === "land1" ? LAND1_WORLD_WIDTH : WORLD_WIDTH;
+  }
+  function getChests(){
+    return currentMap === "land1" ? CHESTS_LAND1 : CHESTS_HOME;
+  }
+  function getWalkupAltars(){
+    return currentMap === "land1" ? WALKUP_ALTARS_LAND1 : WALKUP_ALTARS_HOME;
+  }
+  function getClimbPoints(){
+    return currentMap === "land1" ? CLIMB_POINTS_LAND1 : CLIMB_POINTS_HOME;
+  }
+  function getTrees(){
+    return currentMap === "land1" ? LAND1_TREES : TREES_HOME;
+  }
 
   const PLAYER_W = 28, PLAYER_H = 42;
   const PLAYER_MAX_HP = 100;
@@ -195,6 +245,21 @@
   };
   const SPELL_ORDER = ["fireball", "lightning", "freeze", "summonAlly", "blackHole"];
 
+  // Rare spells: bought one at a time at a specific land's castle tower (25
+  // crystals, not silver), not at the regular altar. Casting one still costs
+  // the same flat mana as any other spell — only the one-time unlock price
+  // is different. Only mysticArmor is actually placed anywhere yet (land 1's
+  // tower); the rest are here as ready-to-place configs for future lands.
+  const RARE_SPELL_ORDER = ["mysticArmor", "demon", "angel", "teleport"];
+  const RARE_SPELLS = {
+    mysticArmor: { label: "Mystic Armor", cost: 25, duration: 900, cooldown: 600 },
+    demon:       { label: "Demon",        cost: 25, cooldown: 400 },   // TODO: summon a red ally that shoots fireballs
+    angel:       { label: "Angel",        cost: 25, cooldown: 400 },   // TODO: summon a white ally that shoots white lightning
+    teleport:    { label: "Teleport",     cost: 25, cooldown: 900 }    // TODO: safe respawn, keeps everything carried
+  };
+  const MYSTIC_ARMOR_REGEN_PER_FRAME = 1.5; // fast enough to top off even steel armor (200) in ~2 seconds
+  Object.assign(SPELLS, RARE_SPELLS);
+
   // Armor is a consumable HP buffer bought with silver (from knights), separate
   // from the crystal/spell economy. Damage drains armor before Walter's own HP.
   // Buying a new piece replaces whatever's left of the current one.
@@ -213,6 +278,7 @@
   const MAX_MANA_START = 50;
   const MANA_UPGRADE_COST_SILVER = 100;
   const MANA_UPGRADE_AMOUNT = 10;
+  const HIRE_CREW_COST = 500; // silver, one-time — unlocks sailing to new lands from the map
 
   // Letter code for each spell in the progress-save string (F/L/Z/S/B),
   // uppercase = unlocked, lowercase = locked. "fireball" and "freeze" both
@@ -225,6 +291,14 @@
     { key: "summonAlly", letter: "S" },
     { key: "blackHole",  letter: "B" }
   ];
+  // Same idea, separate codex segment, for rare spells (bought at a land's
+  // castle tower rather than the regular altar).
+  const RARE_SPELL_LETTERS = [
+    { key: "mysticArmor", letter: "M" },
+    { key: "demon",       letter: "D" },
+    { key: "angel",       letter: "A" },
+    { key: "teleport",    letter: "T" }
+  ];
 
   const DEBUG = true; // logs key events to the console — flip to false once things look right
   /* ==================== end config ==================== */
@@ -234,10 +308,11 @@
   let cameraX, frame, totalKills, keysDown;
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
-  let altarOpen, mapOpen, started, running;
+  let altarOpen, mapOpen, rareAltarOpen, started, running;
   let wasAtWalkupAltar, wasAtClimbTop;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
+  let currentMap; // "home" | "land1"
 
   /* ---------------- helpers ---------------- */
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -248,6 +323,12 @@
   }
 
   function currentZone(x){
+    if (currentMap === "land1"){
+      if (x < LAND1_DOCK_END) return "dock";
+      if (x < LAND1_GRASS_END) return "grass";
+      if (x < LAND1_FOREST_END) return "forest";
+      return "castlewall";
+    }
     if (x < TOWER_END) return "tower";
     if (x < WALL_END) return "wall";
     if (x < FAIR_END) return "fair";
@@ -286,6 +367,41 @@
     return true;
   }
 
+  function buyHireCrew(){
+    if (player.crewHired || player.silver < HIRE_CREW_COST) return false;
+    player.silver -= HIRE_CREW_COST;
+    player.crewHired = true;
+    if (DEBUG) console.log("[WvW] crew hired — sailing unlocked, boat is now the spawn point");
+    return true;
+  }
+
+  function spawnPoint(){
+    return player.crewHired
+      ? { x: BOAT_ALTAR_X - 30, y: GROUND_Y - PLAYER_H }
+      : { x: TOWER_X, y: GROUND_Y - PLAYER_H };
+  }
+
+  function sailToLand1(){
+    currentMap = "land1";
+    player.x = LAND1_DOCK_X + 10;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    enemies = [];
+    enemyProjectiles = [];
+    if (DEBUG) console.log("[WvW] set sail for the first land");
+  }
+
+  function sailHome(){
+    currentMap = "home";
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    enemies = [];
+    enemyProjectiles = [];
+    if (DEBUG) console.log("[WvW] sailed home");
+  }
+
   /* ---------------- progress save/load codex ----------------
      Format: $<silver>$&<5 spell letters>&@<banked crystals>@!<armor L/S/N>!
      Spell letters use SPELL_LETTERS above, uppercase = unlocked.
@@ -296,24 +412,43 @@
     const spellStr = SPELL_LETTERS.map(({ key, letter }) =>
       spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
     ).join("");
+    const rareStr = RARE_SPELL_LETTERS.map(({ key, letter }) =>
+      spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
+    ).join("");
     const armorChar = player.armorType === "leather" ? "L" : player.armorType === "steel" ? "S" : "N";
-    return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#";
+    const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
+    return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^";
   }
 
   function decodeProgress(str){
-    const result = { silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START };
+    const result = {
+      silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
+      crewHired: false, land1ChestCollected: false
+    };
     if (!str) return result;
-    // The #maxMana# segment is optional so saves from before this feature still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSN])!(?:#(\d+)#)?/);
+    // The #maxMana#, ~rare~, and ^flags^ segments are all optional so saves
+    // from before each feature existed still load fine.
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSN])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
     result.armor = m[4] === "L" ? "leather" : m[4] === "S" ? "steel" : "none";
     result.maxMana = m[5] ? (parseInt(m[5], 10) || MAX_MANA_START) : MAX_MANA_START;
+
     const spellChars = m[2] || "";
     SPELL_LETTERS.forEach(({ key, letter }, i) => {
       if (spellChars[i] && spellChars[i] === letter.toUpperCase()) result.spells.add(key);
     });
+
+    const rareChars = m[6] || "";
+    RARE_SPELL_LETTERS.forEach(({ key, letter }, i) => {
+      if (rareChars[i] && rareChars[i] === letter.toUpperCase()) result.spells.add(key);
+    });
+
+    const flags = m[7] || "";
+    result.crewHired = flags[0] === "1";
+    result.land1ChestCollected = flags[1] === "1";
+
     return result;
   }
 
@@ -323,11 +458,18 @@
     player.bankedCrystals = loadedProgress.crystals;
     player.maxMana = loadedProgress.maxMana;
     player.mana = loadedProgress.maxMana; // start each session with mana full, same as HP
+    player.crewHired = loadedProgress.crewHired;
+    player.land1ChestCollected = loadedProgress.land1ChestCollected;
     loadedProgress.spells.forEach(key => spellUnlocked.add(key));
     if (loadedProgress.armor !== "none"){
       player.armorType = loadedProgress.armor;
       player.armorMaxHp = Math.round(PLAYER_MAX_HP * ARMOR[loadedProgress.armor].multiplier);
       player.armorHp = player.armorMaxHp;
+    }
+    if (player.crewHired){
+      const spawn = spawnPoint();
+      player.x = spawn.x;
+      player.y = spawn.y;
     }
   }
 
@@ -351,6 +493,7 @@
 
   /* ---------------- state ---------------- */
   function resetState(){
+    currentMap = "home";
     player = {
       x: TOWER_X, y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, onLadder: false,
       facing: 1, hp: PLAYER_MAX_HP,
@@ -358,6 +501,8 @@
       armorType: null, armorHp: 0, armorMaxHp: 0,
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
       waterStrokeCooldown: 0,
+      crewHired: false, land1ChestCollected: false,
+      mysticArmorFramesLeft: 0,
       invulnFrames: RESPAWN_INVULN_FRAMES
     };
     enemies = [];
@@ -369,7 +514,8 @@
     frame = 0;
     totalKills = 0;
     keysDown = new Set();
-    spellCooldowns = { fireball: 0, lightning: 0, freeze: 0, summonAlly: 0, blackHole: 0 };
+    spellCooldowns = { fireball: 0, lightning: 0, freeze: 0, summonAlly: 0, blackHole: 0,
+      mysticArmor: 0, demon: 0, angel: 0, teleport: 0 };
     spellUnlocked = new Set();
     activeSpell = null; // null = sword
     meleeCooldown = 0;
@@ -377,6 +523,7 @@
     respawnMessageText = "";
     altarOpen = false;
     mapOpen = false;
+    rareAltarOpen = false;
     wasAtWalkupAltar = false;
     wasAtClimbTop = false;
     nextSpawnFrame = 90;
@@ -402,10 +549,10 @@
       if (!onLadderNow) jumpIfGrounded();
     }
 
-    const numMatch = e.code.match(/^Digit([1-5])$/);
+    const numMatch = e.code.match(/^Digit([1-9])$/);
     if (numMatch){
       const idx = Number(numMatch[1]) - 1;
-      const key = SPELL_ORDER[idx];
+      const key = SPELL_ORDER.concat(RARE_SPELL_ORDER)[idx]; // 1-5 standard, 6-9 rare
       if (key && spellUnlocked.has(key)){
         activeSpell = (activeSpell === key) ? null : key;
       }
@@ -447,7 +594,7 @@
   }
 
   function activeClimbPoint(){
-    return CLIMB_POINTS.find(c =>
+    return getClimbPoints().find(c =>
       Math.abs(player.x + PLAYER_W/2 - c.x) < c.halfWidth &&
       player.y + PLAYER_H > c.topY - 20 &&
       currentZone(player.x) === c.zone
@@ -503,7 +650,7 @@
 
     if (keysDown.has("ArrowLeft")){ player.x -= MOVE_SPEED; player.facing = -1; }
     if (keysDown.has("ArrowRight")){ player.x += MOVE_SPEED; player.facing = 1; }
-    player.x = clamp(player.x, 0, WORLD_WIDTH - PLAYER_W);
+    player.x = clamp(player.x, 0, currentWorldWidth() - PLAYER_W);
 
     if (player.invulnFrames > 0) player.invulnFrames--;
   }
@@ -528,13 +675,22 @@
   }
 
   function updateCamera(){
-    cameraX = clamp(player.x + PLAYER_W/2 - CANVAS_W/2, 0, Math.max(0, WORLD_WIDTH - CANVAS_W));
+    cameraX = clamp(player.x + PLAYER_W/2 - CANVAS_W/2, 0, Math.max(0, currentWorldWidth() - CANVAS_W));
   }
 
   function updateCooldowns(){
     if (meleeCooldown > 0) meleeCooldown--;
     if (player.waterStrokeCooldown > 0) player.waterStrokeCooldown--;
-    SPELL_ORDER.forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
+    SPELL_ORDER.concat(RARE_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
+    updateMysticArmor();
+  }
+
+  function updateMysticArmor(){
+    if (player.mysticArmorFramesLeft <= 0) return;
+    player.mysticArmorFramesLeft--;
+    if (player.armorType && player.armorHp < player.armorMaxHp){
+      player.armorHp = Math.min(player.armorMaxHp, player.armorHp + MYSTIC_ARMOR_REGEN_PER_FRAME);
+    }
   }
 
   /* ---------------- combat: player ---------------- */
@@ -608,6 +764,8 @@
         type: "black-hole", x: cx, y: GROUND_Y - 60, radius: cfg.radius,
         life: cfg.duration, damagePerFrame: cfg.damagePerFrame, pullStrength: cfg.pullStrength
       });
+    }else if (key === "mysticArmor"){
+      player.mysticArmorFramesLeft = cfg.duration;
     }
 
     if (DEBUG) console.log("[WvW] cast " + key);
@@ -653,8 +811,10 @@
     const lost = player.carriedCrystals;
     player.carriedCrystals = 0;
     player.hp = PLAYER_MAX_HP;
-    player.x = TOWER_X;
-    player.y = GROUND_Y - PLAYER_H;
+    currentMap = "home"; // dying anywhere (including land1) sends you back home
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
     player.vy = 0;
     player.invulnFrames = RESPAWN_INVULN_FRAMES;
     const verb = reason === "drowned" ? "drowned" : "went down";
@@ -666,14 +826,38 @@
   }
 
   /* ---------------- wave spawning ---------------- */
+  const PEACEFUL_ZONES = ["tower", "water", "dock"];
+
   function updateWaveSpawning(){
     const zone = currentZone(player.x);
-    if (zone === "tower" || zone === "water") return; // peaceful zones — waves only happen at the wall/fair grounds
+    if (PEACEFUL_ZONES.includes(zone)) return;
 
     if (frame >= nextSpawnFrame){
       spawnWaveEnemy(zone);
       nextSpawnFrame = frame + SPAWN_INTERVAL_MIN + Math.random() * (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN);
     }
+  }
+
+  // Bounds + which side enemies spawn from, per combat zone. The first
+  // combat zone after a peaceful one only spawns from the right (ahead of
+  // the player); later zones spawn from either side.
+  function zoneCombatBounds(zone){
+    switch (zone){
+      case "wall":       return { start: TOWER_END,        end: WALL_END,           spawnSide: "right" };
+      case "fair":       return { start: WALL_END,         end: FAIR_END,           spawnSide: "both"  };
+      case "grass":      return { start: LAND1_DOCK_END,   end: LAND1_GRASS_END,    spawnSide: "right" };
+      case "forest":     return { start: LAND1_GRASS_END,  end: LAND1_FOREST_END,   spawnSide: "both"  };
+      case "castlewall": return { start: LAND1_FOREST_END, end: LAND1_CASTLEWALL_END, spawnSide: "both" };
+      default:           return { start: 0, end: 0, spawnSide: "both" };
+    }
+  }
+
+  // Overall bounds enemies are confined to on the current map — can't
+  // wade into water/the peaceful zones on either end.
+  function combatZoneBounds(){
+    return currentMap === "land1"
+      ? { start: LAND1_DOCK_END, end: LAND1_CASTLEWALL_END }
+      : { start: TOWER_END, end: FAIR_END };
   }
 
   function pickWizardTier(){
@@ -689,11 +873,12 @@
     else if (roll > r.knight) type = "archer";
 
     const stats = ENEMY_STATS[type];
+    const bounds = zoneCombatBounds(zone);
     let x;
-    if (zone === "wall"){
-      x = WALL_END - 10; // always from the right in this zone
+    if (bounds.spawnSide === "right"){
+      x = bounds.end - 10;
     }else{
-      x = Math.random() < 0.5 ? WALL_END + 10 : FAIR_END - 10;
+      x = Math.random() < 0.5 ? bounds.start + 10 : bounds.end - 10;
     }
 
     enemies.push({
@@ -741,9 +926,11 @@
         }
       }
 
-      // Land-bound — can't wade into the water chasing the player, and
-      // can't retreat into the (peaceful) tower zone either.
-      en.x = clamp(en.x, TOWER_END, FAIR_END - en.w);
+      // Land-bound — can't wade into the water (or off the far end of
+      // land1) chasing the player, and can't retreat into a peaceful
+      // zone either.
+      const bounds = combatZoneBounds();
+      en.x = clamp(en.x, bounds.start, bounds.end - en.w);
     });
 
     enemies = enemies.filter(en => en.hp > 0);
@@ -771,7 +958,7 @@
   }
 
   function hitsTree(x, y){
-    return TREES.some(t => rectsOverlap(x - 8, y - 8, 16, 16, t.x, GROUND_Y - t.h, t.w, t.h));
+    return getTrees().some(t => rectsOverlap(x - 8, y - 8, 16, 16, t.x, GROUND_Y - t.h, t.w, t.h));
   }
 
   function updateProjectiles(){
@@ -792,7 +979,7 @@
         }
       });
     });
-    playerProjectiles = playerProjectiles.filter(p => !p.hit && p.x > -30 && p.x < WORLD_WIDTH + 30);
+    playerProjectiles = playerProjectiles.filter(p => !p.hit && p.x > -30 && p.x < currentWorldWidth() + 30);
 
     enemyProjectiles.forEach(p => { p.x += p.vx; });
 
@@ -807,7 +994,7 @@
         p.hit = true;
       }
     });
-    enemyProjectiles = enemyProjectiles.filter(p => !p.hit && p.x > -30 && p.x < WORLD_WIDTH + 30);
+    enemyProjectiles = enemyProjectiles.filter(p => !p.hit && p.x > -30 && p.x < currentWorldWidth() + 30);
   }
 
   /* ---------------- allies ---------------- */
@@ -852,7 +1039,7 @@
 
   /* ---------------- chest / altar ---------------- */
   function checkChestAndAltar(){
-    CHESTS.forEach(chest => {
+    getChests().forEach(chest => {
       if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, chest.x, GROUND_Y - chest.h, chest.w, chest.h)){
         if (player.carriedCrystals > 0){
           player.bankedCrystals += player.carriedCrystals;
@@ -866,17 +1053,21 @@
     // Edge-triggered: only fires on the transition into the zone, not every
     // frame you happen to be standing in it — otherwise clicking Close
     // while still standing there reopens it again on the very next frame.
-    const atWalkupAltar = WALKUP_ALTARS.some(a =>
+    const walkupHit = getWalkupAltars().find(a =>
       rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)
     );
-    if (atWalkupAltar && !wasAtWalkupAltar && !altarOpen) openAltar();
-    wasAtWalkupAltar = atWalkupAltar;
+    if (walkupHit && !wasAtWalkupAltar){
+      if (walkupHit.action === "map" && !mapOpen) openMap();
+      else if (walkupHit.action === "altar" && !altarOpen) openAltar();
+    }
+    wasAtWalkupAltar = !!walkupHit;
 
     const climb = activeClimbPoint();
     const atClimbTop = !!climb && player.y <= climb.topY - PLAYER_H + 20;
     if (atClimbTop && !wasAtClimbTop){
       if (climb.action === "altar" && !altarOpen) openAltar();
       if (climb.action === "map" && !mapOpen) openMap();
+      if (climb.action === "land1Tower") openLand1Tower();
     }
     wasAtClimbTop = atClimbTop;
   }
@@ -884,10 +1075,16 @@
   /* ---------------- draw ---------------- */
   function draw(){
     drawBackground();
-    drawWater();
-    drawCastleWalls();
-    drawTower();
-    drawBoat();
+    if (currentMap === "land1"){
+      drawLand1Dock();
+      drawLand1CastleWalls();
+      drawLand1Tower();
+    }else{
+      drawWater();
+      drawCastleWalls();
+      drawTower();
+      drawBoat();
+    }
     drawChest();
     drawTrees();
     enemies.forEach(drawEnemy);
@@ -906,12 +1103,19 @@
     ctx.fillStyle = COLORS.skyWall;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    const bands = [
-      { from: 0, to: TOWER_END, color: COLORS.skyTower },
-      { from: TOWER_END, to: WALL_END, color: COLORS.skyWall },
-      { from: WALL_END, to: FAIR_END, color: COLORS.skyFair },
-      { from: FAIR_END, to: WATER_END, color: COLORS.skyWater }
-    ];
+    const bands = currentMap === "land1"
+      ? [
+          { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
+          { from: LAND1_DOCK_END, to: LAND1_GRASS_END, color: COLORS.skyGrass },
+          { from: LAND1_GRASS_END, to: LAND1_FOREST_END, color: COLORS.skyForest },
+          { from: LAND1_FOREST_END, to: LAND1_CASTLEWALL_END, color: COLORS.skyWall }
+        ]
+      : [
+          { from: 0, to: TOWER_END, color: COLORS.skyTower },
+          { from: TOWER_END, to: WALL_END, color: COLORS.skyWall },
+          { from: WALL_END, to: FAIR_END, color: COLORS.skyFair },
+          { from: FAIR_END, to: WATER_END, color: COLORS.skyWater }
+        ];
     bands.forEach(b => {
       const x1 = worldToScreen(b.from), x2 = worldToScreen(b.to);
       if (x2 < 0 || x1 > CANVAS_W) return;
@@ -922,15 +1126,24 @@
     ctx.strokeStyle = COLORS.ground;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    const groundLineEnd = Math.max(0, Math.min(CANVAS_W, worldToScreen(FAIR_END)));
+    // On the home map the ground line stops at the water's edge (the water
+    // zone draws its own ripple line instead); land1 has no water, so the
+    // ground runs the full visible width there.
+    const groundLineEnd = currentMap === "land1"
+      ? CANVAS_W
+      : Math.max(0, Math.min(CANVAS_W, worldToScreen(FAIR_END)));
     ctx.moveTo(0, GROUND_Y);
     ctx.lineTo(groundLineEnd, GROUND_Y);
     ctx.stroke();
   }
 
   function drawCastleWalls(){
-    const left = worldToScreen(TOWER_END);
-    const right = worldToScreen(WALL_END);
+    drawCastleWallBackdrop(TOWER_END, WALL_END);
+  }
+
+  function drawCastleWallBackdrop(startX, endX){
+    const left = worldToScreen(startX);
+    const right = worldToScreen(endX);
     if (right < 0 || left > CANVAS_W) return; // zone not currently in view
 
     const top = GROUND_Y - CASTLE_WALL_HEIGHT;
@@ -942,7 +1155,7 @@
 
     // crenellations along the top edge
     ctx.fillStyle = COLORS.wallStoneDark;
-    for (let wx = TOWER_END; wx < WALL_END; wx += CRENEL_UNIT * 2){
+    for (let wx = startX; wx < endX; wx += CRENEL_UNIT * 2){
       const sx = worldToScreen(wx);
       if (sx + CRENEL_UNIT < 0 || sx > CANVAS_W) continue;
       ctx.fillRect(sx, top - 14, CRENEL_UNIT, 14);
@@ -951,13 +1164,90 @@
     // sparse vertical seams for a bit of stone texture
     ctx.strokeStyle = COLORS.wallStoneDark;
     ctx.lineWidth = 2;
-    for (let wx = TOWER_END + 60; wx < WALL_END; wx += 120){
+    for (let wx = startX + 60; wx < endX; wx += 120){
       const sx = worldToScreen(wx);
       if (sx < 0 || sx > CANVAS_W) continue;
       ctx.beginPath();
       ctx.moveTo(sx, top);
       ctx.lineTo(sx, GROUND_Y);
       ctx.stroke();
+    }
+  }
+
+  function drawLand1CastleWalls(){
+    drawCastleWallBackdrop(LAND1_FOREST_END, LAND1_CASTLEWALL_END);
+  }
+
+  function drawLand1Dock(){
+    const x = worldToScreen(LAND1_DOCK_X);
+    if (x + LAND1_DOCK_W < -40 || x > CANVAS_W + 40) return;
+    const deckY = GROUND_Y - 24;
+
+    // a short dock/gangway rather than a full hull — "attached to a dock,
+    // no swimming needed" reads more like a pier than another ship
+    ctx.fillStyle = COLORS.boatHullDark;
+    ctx.fillRect(x, deckY, LAND1_DOCK_W, 10);
+    ctx.fillStyle = COLORS.boatHull;
+    for (let px = 0; px < LAND1_DOCK_W; px += 24){
+      ctx.fillRect(x + px, deckY, 3, GROUND_Y - deckY);
+    }
+
+    // the boat itself, moored at the near end
+    ctx.fillStyle = COLORS.boatHull;
+    ctx.beginPath();
+    ctx.moveTo(x, deckY);
+    ctx.lineTo(x + 90, deckY);
+    ctx.lineTo(x + 76, GROUND_Y + 14);
+    ctx.lineTo(x + 14, GROUND_Y + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = COLORS.boatHullDark;
+    ctx.fillRect(x, deckY, 90, 8);
+    ctx.strokeStyle = COLORS.boatMast;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x + 45, deckY);
+    ctx.lineTo(x + 45, deckY - 60);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.boatSail;
+    ctx.beginPath();
+    ctx.moveTo(x + 45, deckY - 50);
+    ctx.lineTo(x + 45, deckY - 8);
+    ctx.lineTo(x + 15, deckY - 20);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawLand1Tower(){
+    const x = worldToScreen(LAND1_TOWER_X - LADDER_HALF_WIDTH - 10);
+    const w = (LADDER_HALF_WIDTH + 10) * 2;
+    const topY = LAND1_ALTAR_Y - 20;
+    if (x + w < -40 || x > CANVAS_W + 40) return;
+
+    ctx.fillStyle = COLORS.wallStone;
+    ctx.fillRect(x, topY, w, GROUND_Y - topY);
+    ctx.fillStyle = COLORS.wallStoneDark;
+    ctx.fillRect(x, topY, w, 10);
+
+    // ladder rungs
+    ctx.strokeStyle = COLORS.boatMast;
+    ctx.lineWidth = 3;
+    const ladderX = worldToScreen(LAND1_TOWER_X);
+    for (let ly = topY + 20; ly < GROUND_Y; ly += 22){
+      ctx.beginPath();
+      ctx.moveTo(ladderX - 10, ly);
+      ctx.lineTo(ladderX + 10, ly);
+      ctx.stroke();
+    }
+
+    // a chest icon at the top hints at the loot, even before it's collected
+    if (!player.land1ChestCollected){
+      const chestX = ladderX - 10;
+      const chestY = topY - 22;
+      ctx.fillStyle = COLORS.chest;
+      ctx.fillRect(chestX, chestY, 20, 16);
+      ctx.fillStyle = COLORS.chestLid;
+      ctx.fillRect(chestX, chestY, 20, 5);
     }
   }
 
@@ -1079,7 +1369,7 @@
   }
 
   function drawChest(){
-    CHESTS.forEach(chest => {
+    getChests().forEach(chest => {
       const x = worldToScreen(chest.x);
       if (x < -50 || x > CANVAS_W + 50) return;
       ctx.fillStyle = COLORS.chest;
@@ -1090,7 +1380,7 @@
   }
 
   function drawTrees(){
-    TREES.forEach(t => {
+    getTrees().forEach(t => {
       const x = worldToScreen(t.x);
       if (x < -60 || x > CANVAS_W + 60) return;
 
@@ -1332,6 +1622,11 @@
     ctx.textAlign = "right";
     ctx.fillStyle = COLORS.hud;
     ctx.fillText(activeSpell ? SPELLS[activeSpell].label.toUpperCase() : "SWORD", CANVAS_W - 12, 24);
+
+    if (player.mysticArmorFramesLeft > 0){
+      ctx.fillStyle = COLORS.mana;
+      ctx.fillText("MYSTIC ARMOR " + Math.ceil(player.mysticArmorFramesLeft / 60) + "s", CANVAS_W - 12, 40);
+    }
   }
 
   function drawRespawnMessage(){
@@ -1347,7 +1642,7 @@
   /* ---------------- loop / lifecycle ---------------- */
   function loop(){
     if (!running) return;
-    if (!altarOpen && !mapOpen) update();
+    if (!altarOpen && !mapOpen && !rareAltarOpen) update();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -1495,13 +1790,84 @@
     // stopped, it just skipped update() while mapOpen was true.
   }
 
+  function openLand1Tower(){
+    if (!player.land1ChestCollected){
+      const silverReward = 200 + Math.floor(Math.random() * 101); // 200-300
+      player.silver += silverReward;
+      player.land1ChestCollected = true;
+      respawnMessageText = "Found a chest of " + silverReward + " silver!";
+      respawnMessageTimer = 180;
+      if (DEBUG) console.log("[WvW] land1 tower chest: +" + silverReward + " silver");
+      saveProgress();
+    }
+    openRareAltar();
+  }
+
+  function openRareAltar(){
+    rareAltarOpen = true;
+    renderRareAltar();
+    overlay.style.display = "flex";
+  }
+  function closeRareAltar(){
+    rareAltarOpen = false;
+    hideOverlay();
+    canvas.focus();
+    // Same reasoning as closeAltar() — no loop() call, the rAF chain never stopped.
+  }
+
+  function renderRareAltar(){
+    const key = "mysticArmor"; // the only rare spell actually placed anywhere yet
+    const cfg = RARE_SPELLS[key];
+    const owned = spellUnlocked.has(key);
+    const affordable = totalCrystals() >= cfg.cost;
+
+    overlayInner.innerHTML = `
+      <h3>Castle Tower</h3>
+      <p>A rare spell, guarded at the top of this tower.</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+        <span>${cfg.label}${owned ? " ✓" : ""}</span>
+        ${owned
+          ? `<span style="opacity:0.7;font-size:0.8rem;">Owned</span>`
+          : `<button type="button" class="btn light" id="wvw-rare-buy-btn" ${affordable ? "" : "disabled"}>Buy (${cfg.cost} crystals)</button>`
+        }
+      </div>
+      <button type="button" class="btn light" id="wvw-rare-close" style="margin-top:14px;">Close</button>
+    `;
+
+    const buyBtn = document.getElementById("wvw-rare-buy-btn");
+    if (buyBtn){
+      buyBtn.addEventListener("click", () => {
+        if (totalCrystals() >= cfg.cost && !spellUnlocked.has(key)){
+          spendCrystals(cfg.cost);
+          spellUnlocked.add(key);
+          if (DEBUG) console.log("[WvW] unlocked rare spell " + key);
+          renderRareAltar();
+          saveProgress();
+        }
+      });
+    }
+    document.getElementById("wvw-rare-close").addEventListener("click", closeRareAltar);
+  }
+
   function renderMap(){
-    // Placeholder: four continents, purely visual for now. "Set course"
-    // (actually traveling to one) is a later feature — this just establishes
-    // that a wider world exists beyond the water.
+    const onLand1 = currentMap === "land1";
+
+    let actionHTML;
+    if (onLand1){
+      actionHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Sail Home</button>`;
+    }else if (!player.crewHired){
+      const affordable = player.silver >= HIRE_CREW_COST;
+      actionHTML = `
+        <p style="font-size:0.85rem;opacity:0.85;">A crew costs ${HIRE_CREW_COST} silver, and unlocks setting sail for new lands.</p>
+        <button type="button" class="btn" id="wvw-hire-crew-btn" ${affordable ? "" : "disabled"}>Hire a Crew (${HIRE_CREW_COST} silver)</button>
+      `;
+    }else{
+      actionHTML = `<button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>`;
+    }
+
     overlayInner.innerHTML = `
       <h3>Captain's Map</h3>
-      <p>Four continents, charted so far. Setting course for one of them is coming soon.</p>
+      <p>Four continents, charted so far. ${player.crewHired ? "Your crew can set sail whenever you're ready." : "Hiring a crew is the first step toward reaching them."}</p>
       <svg viewBox="0 0 300 200" width="100%" height="auto" style="background:#1B4F72;border-radius:8px;">
         <ellipse cx="70"  cy="55"  rx="42" ry="28" fill="#2D6A4F" />
         <ellipse cx="220" cy="50"  rx="36" ry="24" fill="#2D6A4F" />
@@ -1509,8 +1875,28 @@
         <ellipse cx="225" cy="150" rx="44" ry="30" fill="#2D6A4F" />
         <circle cx="150" cy="100" r="4" fill="#F6C945" />
       </svg>
-      <button type="button" class="btn light" id="wvw-map-close" style="margin-top:14px;">Close</button>
+      <div style="margin-top:14px;">${actionHTML}</div>
+      <p class="form-note" id="wvw-map-status"></p>
+      <button type="button" class="btn light" id="wvw-map-close" style="margin-top:10px;">Close</button>
     `;
+
+    const hireBtn = document.getElementById("wvw-hire-crew-btn");
+    if (hireBtn) hireBtn.addEventListener("click", () => {
+      if (buyHireCrew()){ renderMap(); saveProgress(); }
+    });
+
+    const sailBtn = document.getElementById("wvw-sail-land1-btn");
+    if (sailBtn) sailBtn.addEventListener("click", () => {
+      sailToLand1();
+      closeMap();
+    });
+
+    const sailHomeBtn = document.getElementById("wvw-sail-home-btn");
+    if (sailHomeBtn) sailHomeBtn.addEventListener("click", () => {
+      sailHome();
+      closeMap();
+    });
+
     document.getElementById("wvw-map-close").addEventListener("click", closeMap);
   }
 
