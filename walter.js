@@ -35,6 +35,11 @@
     skyDock: "#CDE7F0",
     skyGrass: "#DCEFC4",
     skyForest: "#A9D48C",
+    skyCaveEntrance: "#6B6355",
+    skyInnerCave: "#0D0D0F",
+    grassBlade: "#4E8F35",
+    cyclopsBody: "#6B5842",
+    cyclopsEye: "#E14B3C",
     water: "#2C6E8E",
     waterDeep: "#1B4F72",
     waterLine: "#F2F7FA",
@@ -119,6 +124,13 @@
   const WATER_STROKE_COOLDOWN = 18; // frames between strokes — stops keyboard auto-repeat from stacking jump velocity
   const WATER_MAX_RISE = 70;        // how far above the surface a stroke can carry him — floats, doesn't fly
 
+  // The cyclops laser sets Walter on fire rather than dealing direct impact
+  // damage — the burn is the whole attack. Casting Freeze extinguishes it
+  // early (see the freeze branch of castSpell).
+  const PLAYER_BURN_DURATION_FRAMES = 600; // 10 seconds
+  const PLAYER_BURN_DPS = 5;
+  const PLAYER_BURN_DAMAGE_PER_FRAME = PLAYER_BURN_DPS / 60;
+
   const CHESTS_HOME = [
     { x: CHEST_X, w: CHEST_W, h: CHEST_H },
     { x: BOAT_CHEST_X, w: CHEST_W, h: CHEST_H }
@@ -175,20 +187,49 @@
     { x: LAND1_TOWER_X, halfWidth: LADDER_HALF_WIDTH, zone: "castlewall", topY: LAND1_ALTAR_Y, action: "land1Tower" }
   ];
 
+  /* ==================== Land 2: Grasslands / Cave Entrance / Inner Cave ====================
+     Same dock/sail pattern as Land 1. Grasslands and the cave entrance use
+     the normal enemy pool; the inner cave is a single fixed encounter (one
+     cyclops per visit) rather than the usual wave spawner. */
+  const LAND2_DOCK_WIDTH = 200;
+  const LAND2_GRASS_WIDTH = 700;
+  const LAND2_CAVE_WIDTH = 700;
+  const LAND2_INNERCAVE_WIDTH = 500;
+  const LAND2_DOCK_END = LAND2_DOCK_WIDTH;
+  const LAND2_GRASS_END = LAND2_DOCK_END + LAND2_GRASS_WIDTH;
+  const LAND2_CAVE_END = LAND2_GRASS_END + LAND2_CAVE_WIDTH;
+  const LAND2_INNERCAVE_END = LAND2_CAVE_END + LAND2_INNERCAVE_WIDTH;
+  const LAND2_WORLD_WIDTH = LAND2_INNERCAVE_END;
+  const LAND2_DOCK_X = 90;
+
+  const CHESTS_LAND2 = [];
+  const WALKUP_ALTARS_LAND2 = [
+    { x: LAND2_DOCK_X + 40, w: 40, h: 40, action: "map" }
+  ];
+  const CLIMB_POINTS_LAND2 = []; // no climbable structure on land 2 yet
+
   function currentWorldWidth(){
-    return currentMap === "land1" ? LAND1_WORLD_WIDTH : WORLD_WIDTH;
+    if (currentMap === "land1") return LAND1_WORLD_WIDTH;
+    if (currentMap === "land2") return LAND2_WORLD_WIDTH;
+    return WORLD_WIDTH;
   }
   function getChests(){
-    return currentMap === "land1" ? CHESTS_LAND1 : CHESTS_HOME;
+    if (currentMap === "land1") return CHESTS_LAND1;
+    if (currentMap === "land2") return CHESTS_LAND2;
+    return CHESTS_HOME;
   }
   function getWalkupAltars(){
-    return currentMap === "land1" ? WALKUP_ALTARS_LAND1 : WALKUP_ALTARS_HOME;
+    if (currentMap === "land1") return WALKUP_ALTARS_LAND1;
+    if (currentMap === "land2") return WALKUP_ALTARS_LAND2;
+    return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
-    return currentMap === "land1" ? CLIMB_POINTS_LAND1 : CLIMB_POINTS_HOME;
+    if (currentMap === "land1") return CLIMB_POINTS_LAND1;
+    if (currentMap === "land2") return CLIMB_POINTS_LAND2;
+    return CLIMB_POINTS_HOME;
   }
   function getTrees(){
-    return currentMap === "land1" ? LAND1_TREES : TREES_HOME;
+    return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2 has no trees (grass + cave)
   }
 
   const PLAYER_W = 28, PLAYER_H = 42;
@@ -207,7 +248,11 @@
   const ENEMY_STATS = {
     knight:  { hp: 30, speed: 1.4, damage: 8,  attackCooldown: 50, contactRange: 30, w: 26, h: 40, dropsSilver: true },
     archer:  { hp: 22, speed: 1.1, damage: 10, attackCooldown: 80, preferredRange: 220, projectileSpeed: 6,   w: 24, h: 38 },
-    wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true }
+    wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true },
+    // 3x a knight's size, 6x a knight's HP (30 HP / 26x40 taken as the
+    // "regular enemy" baseline). Damage is 0 — the laser doesn't deal a
+    // direct hit, the burn it sets is the entire attack.
+    cyclops: { hp: 180, speed: 0.8, damage: 0, attackCooldown: 150, preferredRange: 320, projectileSpeed: 5, w: 78, h: 120 }
   };
 
   // Tougher wizard variants — same base stats as a regular wizard, just
@@ -273,6 +318,7 @@
   // slow enough relative to cost that draining it acts as a natural extra
   // cooldown: 5 mana per cast, 1 mana/sec regen = ~5 seconds to recover a cast.
   const MANA_COST_PER_SPELL = 5;
+  const RARE_SPELL_MANA_COST = 30;
   const MANA_REGEN_PER_SECOND = 1;
   const MANA_REGEN_PER_FRAME = MANA_REGEN_PER_SECOND / 60;
   const MAX_MANA_START = 50;
@@ -309,7 +355,7 @@
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, rareAltarOpen, started, running;
-  let wasAtWalkupAltar, wasAtClimbTop;
+  let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
   let currentMap; // "home" | "land1"
@@ -328,6 +374,12 @@
       if (x < LAND1_GRASS_END) return "grass";
       if (x < LAND1_FOREST_END) return "forest";
       return "castlewall";
+    }
+    if (currentMap === "land2"){
+      if (x < LAND2_DOCK_END) return "dock";
+      if (x < LAND2_GRASS_END) return "l2grass";
+      if (x < LAND2_CAVE_END) return "cave";
+      return "innercave";
     }
     if (x < TOWER_END) return "tower";
     if (x < WALL_END) return "wall";
@@ -389,6 +441,16 @@
     enemies = [];
     enemyProjectiles = [];
     if (DEBUG) console.log("[WvW] set sail for the first land");
+  }
+
+  function sailToLand2(){
+    currentMap = "land2";
+    player.x = LAND2_DOCK_X + 10;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    enemies = [];
+    enemyProjectiles = [];
+    if (DEBUG) console.log("[WvW] set sail for the second land");
   }
 
   function sailHome(){
@@ -502,6 +564,7 @@
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
       waterStrokeCooldown: 0,
       crewHired: false, land1ChestCollected: false,
+      burningFrames: 0,
       mysticArmorFramesLeft: 0,
       invulnFrames: RESPAWN_INVULN_FRAMES
     };
@@ -526,6 +589,7 @@
     rareAltarOpen = false;
     wasAtWalkupAltar = false;
     wasAtClimbTop = false;
+    wasInInnerCave = false;
     nextSpawnFrame = 90;
     running = true;
   }
@@ -579,12 +643,36 @@
     updateCooldowns();
     updateMana();
     updateWaveSpawning();
+    updateCyclopsEncounter();
     updateEnemies();
     updateProjectiles();
     updateAllies();
     updateEffects();
     checkChestAndAltar();
     if (respawnMessageTimer > 0) respawnMessageTimer--;
+  }
+
+  // The inner cave doesn't use the normal wave spawner — it's a single
+  // fixed encounter, one cyclops per visit (a "visit" = each fresh entry
+  // into the zone, edge-triggered so lingering there doesn't spawn more).
+  function updateCyclopsEncounter(){
+    const inInnerCave = currentMap === "land2" && currentZone(player.x) === "innercave";
+    if (inInnerCave && !wasInInnerCave){
+      const alreadyPresent = enemies.some(en => en.type === "cyclops" && en.hp > 0);
+      if (!alreadyPresent) spawnCyclops();
+    }
+    wasInInnerCave = inInnerCave;
+  }
+
+  function spawnCyclops(){
+    const stats = ENEMY_STATS.cyclops;
+    const x = LAND2_INNERCAVE_END - 180;
+    enemies.push({
+      type: "cyclops", x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: stats.hp, maxHp: stats.hp,
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+    });
+    if (DEBUG) console.log("[WvW] cyclops spawned in the inner cave");
   }
 
   function updateMana(){
@@ -683,6 +771,7 @@
     if (player.waterStrokeCooldown > 0) player.waterStrokeCooldown--;
     SPELL_ORDER.concat(RARE_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
     updateMysticArmor();
+    updatePlayerBurn();
   }
 
   function updateMysticArmor(){
@@ -691,6 +780,18 @@
     if (player.armorType && player.armorHp < player.armorMaxHp){
       player.armorHp = Math.min(player.armorMaxHp, player.armorHp + MYSTIC_ARMOR_REGEN_PER_FRAME);
     }
+  }
+
+  function applyBurnToPlayer(){
+    if (player.invulnFrames > 0) return; // still guarded from a recent hit
+    player.burningFrames = PLAYER_BURN_DURATION_FRAMES;
+    player.invulnFrames = HIT_INVULN_FRAMES; // same brief guard as any other hit, so a laser can't be spammed
+  }
+
+  function updatePlayerBurn(){
+    if (player.burningFrames <= 0) return;
+    player.burningFrames--;
+    damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true });
   }
 
   /* ---------------- combat: player ---------------- */
@@ -708,9 +809,10 @@
   function castSpell(key){
     const cfg = SPELLS[key];
     if (!cfg || spellCooldowns[key] > 0) return;
-    if (player.mana < MANA_COST_PER_SPELL) return;
+    const manaCost = RARE_SPELL_ORDER.includes(key) ? RARE_SPELL_MANA_COST : MANA_COST_PER_SPELL;
+    if (player.mana < manaCost) return;
     spellCooldowns[key] = cfg.cooldown;
-    player.mana -= MANA_COST_PER_SPELL;
+    player.mana -= manaCost;
 
     if (key === "fireball"){
       playerProjectiles.push({
@@ -751,6 +853,7 @@
         const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
         if (Math.sqrt(dx*dx + dy*dy) < cfg.radius) en.frozenFrames = cfg.duration;
       });
+      player.burningFrames = 0; // ice puts out fire — extinguishes an active cyclops burn early
       effects.push({ type: "freeze-burst", x: originX, y: originY, radius: cfg.radius, life: 20 });
     }else if (key === "summonAlly"){
       allies = []; // only one ally at a time — casting again replaces it
@@ -787,8 +890,9 @@
     }
   }
 
-  function damagePlayer(amount){
-    if (player.invulnFrames > 0) return;
+  function damagePlayer(amount, opts){
+    opts = opts || {};
+    if (!opts.ignoreInvuln && player.invulnFrames > 0) return;
 
     let remaining = amount;
     if (player.armorHp > 0){
@@ -803,7 +907,7 @@
     }
     if (remaining > 0) player.hp -= remaining;
 
-    player.invulnFrames = HIT_INVULN_FRAMES;
+    if (!opts.ignoreInvuln) player.invulnFrames = HIT_INVULN_FRAMES;
     if (player.hp <= 0) respawnPlayer();
   }
 
@@ -811,6 +915,7 @@
     const lost = player.carriedCrystals;
     player.carriedCrystals = 0;
     player.hp = PLAYER_MAX_HP;
+    player.burningFrames = 0;
     currentMap = "home"; // dying anywhere (including land1) sends you back home
     const spawn = spawnPoint();
     player.x = spawn.x;
@@ -826,7 +931,7 @@
   }
 
   /* ---------------- wave spawning ---------------- */
-  const PEACEFUL_ZONES = ["tower", "water", "dock"];
+  const PEACEFUL_ZONES = ["tower", "water", "dock", "innercave"]; // innercave uses its own single-cyclops spawn, not the wave system
 
   function updateWaveSpawning(){
     const zone = currentZone(player.x);
@@ -843,21 +948,25 @@
   // the player); later zones spawn from either side.
   function zoneCombatBounds(zone){
     switch (zone){
-      case "wall":       return { start: TOWER_END,        end: WALL_END,           spawnSide: "right" };
-      case "fair":       return { start: WALL_END,         end: FAIR_END,           spawnSide: "both"  };
-      case "grass":      return { start: LAND1_DOCK_END,   end: LAND1_GRASS_END,    spawnSide: "right" };
-      case "forest":     return { start: LAND1_GRASS_END,  end: LAND1_FOREST_END,   spawnSide: "both"  };
-      case "castlewall": return { start: LAND1_FOREST_END, end: LAND1_CASTLEWALL_END, spawnSide: "both" };
+      case "wall":       return { start: TOWER_END,        end: WALL_END,             spawnSide: "right" };
+      case "fair":       return { start: WALL_END,          end: FAIR_END,             spawnSide: "both"  };
+      case "grass":      return { start: LAND1_DOCK_END,    end: LAND1_GRASS_END,      spawnSide: "right" };
+      case "forest":     return { start: LAND1_GRASS_END,   end: LAND1_FOREST_END,     spawnSide: "both"  };
+      case "castlewall": return { start: LAND1_FOREST_END,  end: LAND1_CASTLEWALL_END, spawnSide: "both"  };
+      case "l2grass":    return { start: LAND2_DOCK_END,    end: LAND2_GRASS_END,      spawnSide: "right" };
+      case "cave":       return { start: LAND2_GRASS_END,   end: LAND2_CAVE_END,       spawnSide: "both"  };
       default:           return { start: 0, end: 0, spawnSide: "both" };
     }
   }
 
   // Overall bounds enemies are confined to on the current map — can't
-  // wade into water/the peaceful zones on either end.
+  // wade into water/the peaceful zones on either end. Land 2's span
+  // reaches through the inner cave too, so the cyclops isn't clamped out
+  // of its own zone.
   function combatZoneBounds(){
-    return currentMap === "land1"
-      ? { start: LAND1_DOCK_END, end: LAND1_CASTLEWALL_END }
-      : { start: TOWER_END, end: FAIR_END };
+    if (currentMap === "land1") return { start: LAND1_DOCK_END, end: LAND1_CASTLEWALL_END };
+    if (currentMap === "land2") return { start: LAND2_DOCK_END, end: LAND2_INNERCAVE_END };
+    return { start: TOWER_END, end: FAIR_END };
   }
 
   function pickWizardTier(){
@@ -938,7 +1047,9 @@
 
   function fireEnemyProjectile(en, dir){
     const stats = ENEMY_STATS[en.type];
-    const type = en.type === "archer" ? "arrow" : (Math.random() < 0.5 ? "lightning" : "fireball");
+    const type = en.type === "archer" ? "arrow"
+      : en.type === "cyclops" ? "laser"
+      : (Math.random() < 0.5 ? "lightning" : "fireball");
     enemyProjectiles.push({
       type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
       damage: stats.damage
@@ -990,7 +1101,8 @@
     enemyProjectiles.forEach(p => {
       if (p.hit) return;
       if (player.invulnFrames <= 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, player.x, player.y, PLAYER_W, PLAYER_H)){
-        damagePlayer(p.damage);
+        if (p.type === "laser") applyBurnToPlayer();
+        else damagePlayer(p.damage);
         p.hit = true;
       }
     });
@@ -1076,9 +1188,13 @@
   function draw(){
     drawBackground();
     if (currentMap === "land1"){
+      drawLand1Grass();
       drawLand1Dock();
       drawLand1CastleWalls();
       drawLand1Tower();
+    }else if (currentMap === "land2"){
+      drawLand2Dock();
+      drawLand2Cave();
     }else{
       drawWater();
       drawCastleWalls();
@@ -1103,19 +1219,29 @@
     ctx.fillStyle = COLORS.skyWall;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    const bands = currentMap === "land1"
-      ? [
-          { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
-          { from: LAND1_DOCK_END, to: LAND1_GRASS_END, color: COLORS.skyGrass },
-          { from: LAND1_GRASS_END, to: LAND1_FOREST_END, color: COLORS.skyForest },
-          { from: LAND1_FOREST_END, to: LAND1_CASTLEWALL_END, color: COLORS.skyWall }
-        ]
-      : [
-          { from: 0, to: TOWER_END, color: COLORS.skyTower },
-          { from: TOWER_END, to: WALL_END, color: COLORS.skyWall },
-          { from: WALL_END, to: FAIR_END, color: COLORS.skyFair },
-          { from: FAIR_END, to: WATER_END, color: COLORS.skyWater }
-        ];
+    let bands;
+    if (currentMap === "land1"){
+      bands = [
+        { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
+        { from: LAND1_DOCK_END, to: LAND1_GRASS_END, color: COLORS.skyGrass },
+        { from: LAND1_GRASS_END, to: LAND1_FOREST_END, color: COLORS.skyForest },
+        { from: LAND1_FOREST_END, to: LAND1_CASTLEWALL_END, color: COLORS.skyWall }
+      ];
+    }else if (currentMap === "land2"){
+      bands = [
+        { from: 0, to: LAND2_DOCK_END, color: COLORS.skyDock },
+        { from: LAND2_DOCK_END, to: LAND2_GRASS_END, color: COLORS.skyGrass },
+        { from: LAND2_GRASS_END, to: LAND2_CAVE_END, color: COLORS.skyCaveEntrance },
+        { from: LAND2_CAVE_END, to: LAND2_INNERCAVE_END, color: COLORS.skyInnerCave }
+      ];
+    }else{
+      bands = [
+        { from: 0, to: TOWER_END, color: COLORS.skyTower },
+        { from: TOWER_END, to: WALL_END, color: COLORS.skyWall },
+        { from: WALL_END, to: FAIR_END, color: COLORS.skyFair },
+        { from: FAIR_END, to: WATER_END, color: COLORS.skyWater }
+      ];
+    }
     bands.forEach(b => {
       const x1 = worldToScreen(b.from), x2 = worldToScreen(b.to);
       if (x2 < 0 || x1 > CANVAS_W) return;
@@ -1127,11 +1253,11 @@
     ctx.lineWidth = 2;
     ctx.beginPath();
     // On the home map the ground line stops at the water's edge (the water
-    // zone draws its own ripple line instead); land1 has no water, so the
-    // ground runs the full visible width there.
-    const groundLineEnd = currentMap === "land1"
-      ? CANVAS_W
-      : Math.max(0, Math.min(CANVAS_W, worldToScreen(FAIR_END)));
+    // zone draws its own ripple line instead); the lands have no water, so
+    // the ground runs the full visible width there.
+    const groundLineEnd = currentMap === "home"
+      ? Math.max(0, Math.min(CANVAS_W, worldToScreen(FAIR_END)))
+      : CANVAS_W;
     ctx.moveTo(0, GROUND_Y);
     ctx.lineTo(groundLineEnd, GROUND_Y);
     ctx.stroke();
@@ -1174,12 +1300,28 @@
     }
   }
 
+  function drawLand1Grass(){
+    const spacing = 36;
+    ctx.strokeStyle = COLORS.grassBlade;
+    ctx.lineWidth = 2;
+    for (let gx = LAND1_DOCK_END; gx < LAND1_GRASS_END; gx += spacing){
+      const sx = worldToScreen(gx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      [-6, 0, 6].forEach(offset => {
+        ctx.beginPath();
+        ctx.moveTo(sx + offset, GROUND_Y);
+        ctx.lineTo(sx + offset * 1.4, GROUND_Y - 11);
+        ctx.stroke();
+      });
+    }
+  }
+
   function drawLand1CastleWalls(){
     drawCastleWallBackdrop(LAND1_FOREST_END, LAND1_CASTLEWALL_END);
   }
 
-  function drawLand1Dock(){
-    const x = worldToScreen(LAND1_DOCK_X);
+  function drawDockAt(worldX){
+    const x = worldToScreen(worldX);
     if (x + LAND1_DOCK_W < -40 || x > CANVAS_W + 40) return;
     const deckY = GROUND_Y - 24;
 
@@ -1214,6 +1356,29 @@
     ctx.moveTo(x + 45, deckY - 50);
     ctx.lineTo(x + 45, deckY - 8);
     ctx.lineTo(x + 15, deckY - 20);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawLand1Dock(){ drawDockAt(LAND1_DOCK_X); }
+  function drawLand2Dock(){ drawDockAt(LAND2_DOCK_X); }
+
+  function drawLand2Cave(){
+    // a simple rocky arch marking the mouth of the cave — the inner cave
+    // itself is just the black sky band already handled by drawBackground
+    const archX = worldToScreen(LAND2_GRASS_END);
+    if (archX < -100 || archX > CANVAS_W + 100) return;
+
+    ctx.fillStyle = COLORS.wallStoneDark;
+    ctx.beginPath();
+    ctx.moveTo(archX - 10, GROUND_Y);
+    ctx.lineTo(archX - 10, GROUND_Y - 140);
+    ctx.quadraticCurveTo(archX + 40, GROUND_Y - 190, archX + 90, GROUND_Y - 140);
+    ctx.lineTo(archX + 90, GROUND_Y);
+    ctx.lineTo(archX + 70, GROUND_Y);
+    ctx.lineTo(archX + 70, GROUND_Y - 130);
+    ctx.quadraticCurveTo(archX + 40, GROUND_Y - 165, archX + 10, GROUND_Y - 130);
+    ctx.lineTo(archX + 10, GROUND_Y);
     ctx.closePath();
     ctx.fill();
   }
@@ -1413,6 +1578,10 @@
       ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
+    if (player.burningFrames > 0){
+      ctx.fillStyle = "rgba(225,75,60,0.45)"; // on fire, same treatment as a burning enemy
+      ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
+    }
 
     if (!activeSpell) drawSword(x);
   }
@@ -1476,6 +1645,18 @@
       ctx.beginPath();
       ctx.arc(x + en.w/2, en.y + en.h/2, 12, -Math.PI/2.2, Math.PI/2.2);
       ctx.stroke();
+    }else if (en.type === "cyclops"){
+      ctx.fillStyle = COLORS.cyclopsBody;
+      ctx.fillRect(x, en.y, en.w, en.h);
+      const eyeCx = x + en.w/2, eyeCy = en.y + en.h * 0.32;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(eyeCx, eyeCy, en.w * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.cyclopsEye;
+      ctx.beginPath();
+      ctx.arc(eyeCx, eyeCy, en.w * 0.11, 0, Math.PI * 2);
+      ctx.fill();
     }else{
       const tier = WIZARD_TIERS.find(t => t.key === en.type);
       const cloakColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardCloak;
@@ -1530,6 +1711,19 @@
     }else if (p.type === "arrow"){
       ctx.strokeStyle = COLORS.arrow;
       ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, p.y);
+      ctx.lineTo(x + 10, p.y);
+      ctx.stroke();
+    }else if (p.type === "laser"){
+      ctx.strokeStyle = COLORS.cyclopsEye;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x - 12, p.y);
+      ctx.lineTo(x + 12, p.y);
+      ctx.stroke();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(x - 10, p.y);
       ctx.lineTo(x + 10, p.y);
@@ -1626,6 +1820,10 @@
     if (player.mysticArmorFramesLeft > 0){
       ctx.fillStyle = COLORS.mana;
       ctx.fillText("MYSTIC ARMOR " + Math.ceil(player.mysticArmorFramesLeft / 60) + "s", CANVAS_W - 12, 40);
+    }
+    if (player.burningFrames > 0){
+      ctx.fillStyle = COLORS.fireball;
+      ctx.fillText("ON FIRE " + Math.ceil(player.burningFrames / 60) + "s", CANVAS_W - 12, 56);
     }
   }
 
@@ -1850,10 +2048,10 @@
   }
 
   function renderMap(){
-    const onLand1 = currentMap === "land1";
+    const onAnyLand = currentMap === "land1" || currentMap === "land2";
 
     let actionHTML;
-    if (onLand1){
+    if (onAnyLand){
       actionHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Sail Home</button>`;
     }else if (!player.crewHired){
       const affordable = player.silver >= HIRE_CREW_COST;
@@ -1862,7 +2060,10 @@
         <button type="button" class="btn" id="wvw-hire-crew-btn" ${affordable ? "" : "disabled"}>Hire a Crew (${HIRE_CREW_COST} silver)</button>
       `;
     }else{
-      actionHTML = `<button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>`;
+      actionHTML = `
+        <button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>
+        <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Sail to the Second Land</button>
+      `;
     }
 
     overlayInner.innerHTML = `
@@ -1885,9 +2086,15 @@
       if (buyHireCrew()){ renderMap(); saveProgress(); }
     });
 
-    const sailBtn = document.getElementById("wvw-sail-land1-btn");
-    if (sailBtn) sailBtn.addEventListener("click", () => {
+    const sailLand1Btn = document.getElementById("wvw-sail-land1-btn");
+    if (sailLand1Btn) sailLand1Btn.addEventListener("click", () => {
       sailToLand1();
+      closeMap();
+    });
+
+    const sailLand2Btn = document.getElementById("wvw-sail-land2-btn");
+    if (sailLand2Btn) sailLand2Btn.addEventListener("click", () => {
+      sailToLand2();
       closeMap();
     });
 
