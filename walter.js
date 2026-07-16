@@ -113,6 +113,8 @@
   // pulling him down until he drowns (treated as a normal respawn) once he
   // passes WATER_DROWN_DEPTH below the surface line.
   const WATER_DROWN_DEPTH = 90;
+  const WATER_STROKE_COOLDOWN = 18; // frames between strokes — stops keyboard auto-repeat from stacking jump velocity
+  const WATER_MAX_RISE = 70;        // how far above the surface a stroke can carry him — floats, doesn't fly
 
   const CHESTS = [
     { x: CHEST_X, w: CHEST_W, h: CHEST_H },
@@ -355,6 +357,7 @@
       carriedCrystals: 0, bankedCrystals: 0, silver: 0,
       armorType: null, armorHp: 0, armorMaxHp: 0,
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
+      waterStrokeCooldown: 0,
       invulnFrames: RESPAWN_INVULN_FRAMES
     };
     enemies = [];
@@ -475,11 +478,16 @@
       const floorY = GROUND_Y - PLAYER_H;
       if (isOverOpenWater(player.x)){
         const drownY = floorY + WATER_DROWN_DEPTH;
+        const riseCeiling = floorY - WATER_MAX_RISE;
         if (player.y >= drownY){
           player.y = drownY;
           player.vy = 0;
           respawnPlayer("drowned");
           return;
+        }
+        if (player.y < riseCeiling){
+          player.y = riseCeiling;
+          if (player.vy < 0) player.vy = 0; // stop rising once capped, keep falling if already headed down
         }
         player.onGround = false; // no solid footing over open water — has to keep jumping to stay up
       }else{
@@ -503,7 +511,9 @@
   function jumpIfGrounded(){
     if (player.onLadder) return;
     if (isOverOpenWater(player.x)){
-      player.vy = JUMP_VELOCITY; // a "stroke" — always available while swimming, keeps you from sinking if used often enough
+      if (player.waterStrokeCooldown > 0) return; // ignore repeat/rapid presses — one stroke at a time
+      player.vy = JUMP_VELOCITY;
+      player.waterStrokeCooldown = WATER_STROKE_COOLDOWN;
       return;
     }
     if (player.onGround){
@@ -518,6 +528,7 @@
 
   function updateCooldowns(){
     if (meleeCooldown > 0) meleeCooldown--;
+    if (player.waterStrokeCooldown > 0) player.waterStrokeCooldown--;
     SPELL_ORDER.forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
   }
 
