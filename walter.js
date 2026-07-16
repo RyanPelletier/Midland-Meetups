@@ -31,6 +31,17 @@
     skyFair: "#FBEFD8",
     wallStone: "#9C9284",
     wallStoneDark: "#7A7264",
+    skyWater: "#CDE7F0",
+    water: "#2C6E8E",
+    waterDeep: "#1B4F72",
+    waterLine: "#F2F7FA",
+    boatHull: "#8B5A2B",
+    boatHullDark: "#6B4222",
+    boatMast: "#4A3420",
+    boatSail: "#F5F0E6",
+    wheel: "#6B4222",
+    wheelSpoke: "#3D2A16",
+    crowsNest: "#4A3420",
     ground: "#1F2430",
     tower: "#8B5A2B",
     towerDark: "#6B4222",
@@ -72,16 +83,43 @@
   const TOWER_WIDTH = 260;
   const WALL_WIDTH = 900;
   const FAIR_WIDTH = 900;
+  const WATER_WIDTH = 900;
   const TOWER_END = TOWER_WIDTH;
   const WALL_END = TOWER_END + WALL_WIDTH;
   const FAIR_END = WALL_END + FAIR_WIDTH;
-  const WORLD_WIDTH = FAIR_END;
+  const WATER_END = FAIR_END + WATER_WIDTH;
+  const WORLD_WIDTH = WATER_END;
 
   const TOWER_X = 130;              // center of the tower/ladder
   const LADDER_HALF_WIDTH = 22;
   const ALTAR_Y = GROUND_Y - 240;   // how high the altar sits
   const CHEST_X = TOWER_X - 60;
   const CHEST_W = 40, CHEST_H = 28;
+
+  // The boat, out in the water zone — a second chest, a walk-up altar
+  // (the steering wheel, no climbing needed), and a crow's nest you do
+  // have to climb, which opens the map instead of the spell shop.
+  const BOAT_X = FAIR_END + 260;
+  const BOAT_W = 220;
+  const BOAT_CHEST_X = BOAT_X + 16;
+  const BOAT_ALTAR_X = BOAT_X + BOAT_W - 56;
+  const CROWSNEST_X = BOAT_X + BOAT_W / 2;
+  const CROWSNEST_HALF_WIDTH = 18;
+  const MAP_Y = GROUND_Y - 220; // height of the crow's nest platform
+
+  const CHESTS = [
+    { x: CHEST_X, w: CHEST_W, h: CHEST_H },
+    { x: BOAT_CHEST_X, w: CHEST_W, h: CHEST_H }
+  ];
+  const WALKUP_ALTARS = [
+    { x: BOAT_ALTAR_X, w: 36, h: 46 }
+  ];
+  // Climbable points: ladder position, how high it goes, and what opens
+  // once you reach the top.
+  const CLIMB_POINTS = [
+    { x: TOWER_X,     halfWidth: LADDER_HALF_WIDTH,     zone: "tower", topY: ALTAR_Y, action: "altar" },
+    { x: CROWSNEST_X, halfWidth: CROWSNEST_HALF_WIDTH,  zone: "water", topY: MAP_Y,   action: "map"   }
+  ];
 
   // Trees in the fair grounds — solid to projectiles (both Walter's and
   // enemies'), not to movement, so standing behind one blocks incoming
@@ -127,7 +165,8 @@
     if (tier.key === "wizard") return; // base wizard is already defined above
     ENEMY_STATS[tier.key] = {
       ...ENEMY_STATS.wizard,
-      damage: Math.round(ENEMY_STATS.wizard.damage * tier.damageMultiplier)
+      damage: Math.round(ENEMY_STATS.wizard.damage * tier.damageMultiplier),
+      hp: Math.round(ENEMY_STATS.wizard.hp * tier.damageMultiplier)
     };
   });
 
@@ -186,7 +225,7 @@
   let cameraX, frame, totalKills, keysDown;
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
-  let altarOpen, started, running;
+  let altarOpen, mapOpen, started, running;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
 
@@ -201,7 +240,8 @@
   function currentZone(x){
     if (x < TOWER_END) return "tower";
     if (x < WALL_END) return "wall";
-    return "fair";
+    if (x < FAIR_END) return "fair";
+    return "water";
   }
 
   function currentRatios(){
@@ -325,6 +365,7 @@
     respawnMessageTimer = 0;
     respawnMessageText = "";
     altarOpen = false;
+    mapOpen = false;
     nextSpawnFrame = 90;
     running = true;
   }
@@ -392,16 +433,23 @@
     }
   }
 
-  function updatePlayerMovement(){
-    const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH &&
-                         player.y + PLAYER_H > GROUND_Y - 260 && currentZone(player.x) === "tower";
+  function activeClimbPoint(){
+    return CLIMB_POINTS.find(c =>
+      Math.abs(player.x + PLAYER_W/2 - c.x) < c.halfWidth &&
+      player.y + PLAYER_H > c.topY - 20 &&
+      currentZone(player.x) === c.zone
+    );
+  }
 
-    if (onLadderNow && (keysDown.has("ArrowUp") || keysDown.has("ArrowDown"))){
+  function updatePlayerMovement(){
+    const climb = activeClimbPoint();
+
+    if (climb && (keysDown.has("ArrowUp") || keysDown.has("ArrowDown"))){
       player.onLadder = true;
       player.vy = 0;
       if (keysDown.has("ArrowUp")) player.y -= CLIMB_SPEED;
       if (keysDown.has("ArrowDown")) player.y += CLIMB_SPEED;
-      player.y = clamp(player.y, ALTAR_Y - PLAYER_H + 10, GROUND_Y - PLAYER_H);
+      player.y = clamp(player.y, climb.topY - PLAYER_H + 10, GROUND_Y - PLAYER_H);
       player.onGround = player.y >= GROUND_Y - PLAYER_H - 0.5;
     }else{
       player.onLadder = false;
@@ -569,7 +617,7 @@
   /* ---------------- wave spawning ---------------- */
   function updateWaveSpawning(){
     const zone = currentZone(player.x);
-    if (zone === "tower") return; // waves only happen in the wall/fair zones
+    if (zone === "tower" || zone === "water") return; // peaceful zones — waves only happen at the wall/fair grounds
 
     if (frame >= nextSpawnFrame){
       spawnWaveEnemy(zone);
@@ -749,26 +797,39 @@
 
   /* ---------------- chest / altar ---------------- */
   function checkChestAndAltar(){
-    if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, CHEST_X, GROUND_Y - CHEST_H, CHEST_W, CHEST_H)){
-      if (player.carriedCrystals > 0){
-        player.bankedCrystals += player.carriedCrystals;
-        if (DEBUG) console.log("[WvW] deposited " + player.carriedCrystals + " crystals, banked=" + player.bankedCrystals);
-        player.carriedCrystals = 0;
-        saveProgress();
+    CHESTS.forEach(chest => {
+      if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, chest.x, GROUND_Y - chest.h, chest.w, chest.h)){
+        if (player.carriedCrystals > 0){
+          player.bankedCrystals += player.carriedCrystals;
+          if (DEBUG) console.log("[WvW] deposited " + player.carriedCrystals + " crystals, banked=" + player.bankedCrystals);
+          player.carriedCrystals = 0;
+          saveProgress();
+        }
       }
+    });
+
+    if (!altarOpen){
+      WALKUP_ALTARS.forEach(a => {
+        if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)){
+          openAltar();
+        }
+      });
     }
 
-    const atAltar = player.y <= ALTAR_Y - PLAYER_H + 20 && currentZone(player.x) === "tower";
-    if (atAltar && !altarOpen){
-      openAltar();
+    const climb = activeClimbPoint();
+    if (climb && player.y <= climb.topY - PLAYER_H + 20){
+      if (climb.action === "altar" && !altarOpen) openAltar();
+      if (climb.action === "map" && !mapOpen) openMap();
     }
   }
 
   /* ---------------- draw ---------------- */
   function draw(){
     drawBackground();
+    drawWater();
     drawCastleWalls();
     drawTower();
+    drawBoat();
     drawChest();
     drawTrees();
     enemies.forEach(drawEnemy);
@@ -790,7 +851,8 @@
     const bands = [
       { from: 0, to: TOWER_END, color: COLORS.skyTower },
       { from: TOWER_END, to: WALL_END, color: COLORS.skyWall },
-      { from: WALL_END, to: FAIR_END, color: COLORS.skyFair }
+      { from: WALL_END, to: FAIR_END, color: COLORS.skyFair },
+      { from: FAIR_END, to: WATER_END, color: COLORS.skyWater }
     ];
     bands.forEach(b => {
       const x1 = worldToScreen(b.from), x2 = worldToScreen(b.to);
@@ -802,8 +864,9 @@
     ctx.strokeStyle = COLORS.ground;
     ctx.lineWidth = 2;
     ctx.beginPath();
+    const groundLineEnd = Math.max(0, Math.min(CANVAS_W, worldToScreen(FAIR_END)));
     ctx.moveTo(0, GROUND_Y);
-    ctx.lineTo(CANVAS_W, GROUND_Y);
+    ctx.lineTo(groundLineEnd, GROUND_Y);
     ctx.stroke();
   }
 
@@ -840,6 +903,99 @@
     }
   }
 
+  function drawWater(){
+    const left = worldToScreen(FAIR_END);
+    const right = worldToScreen(WATER_END);
+    if (right < 0 || left > CANVAS_W) return;
+
+    const visLeft = Math.max(0, left);
+    const visRight = Math.min(CANVAS_W, right);
+
+    ctx.fillStyle = COLORS.water;
+    ctx.fillRect(visLeft, GROUND_Y, visRight - visLeft, CANVAS_H - GROUND_Y);
+    ctx.fillStyle = COLORS.waterDeep;
+    ctx.fillRect(visLeft, GROUND_Y + 20, visRight - visLeft, CANVAS_H - GROUND_Y - 20);
+
+    // a simple ripple line along the surface instead of the plain ground line
+    ctx.strokeStyle = COLORS.waterLine;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let wx = FAIR_END; wx <= WATER_END; wx += 20){
+      const sx = worldToScreen(wx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      const ripple = Math.sin(wx / 40 + frame / 20) * 2;
+      if (wx === FAIR_END) ctx.moveTo(sx, GROUND_Y + ripple);
+      else ctx.lineTo(sx, GROUND_Y + ripple);
+    }
+    ctx.stroke();
+  }
+
+  function drawBoat(){
+    const x = worldToScreen(BOAT_X);
+    if (x + BOAT_W < -40 || x > CANVAS_W + 40) return;
+
+    const deckY = GROUND_Y - 30;
+
+    // hull
+    ctx.fillStyle = COLORS.boatHull;
+    ctx.beginPath();
+    ctx.moveTo(x, deckY);
+    ctx.lineTo(x + BOAT_W, deckY);
+    ctx.lineTo(x + BOAT_W - 20, GROUND_Y + 14);
+    ctx.lineTo(x + 20, GROUND_Y + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = COLORS.boatHullDark;
+    ctx.fillRect(x, deckY, BOAT_W, 8);
+
+    // mast + sail
+    const mastX = worldToScreen(CROWSNEST_X);
+    ctx.strokeStyle = COLORS.boatMast;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(mastX, deckY);
+    ctx.lineTo(mastX, MAP_Y - 20);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.boatSail;
+    ctx.beginPath();
+    ctx.moveTo(mastX, deckY - 10);
+    ctx.lineTo(mastX, MAP_Y + 10);
+    ctx.lineTo(mastX - 40, deckY - 20);
+    ctx.closePath();
+    ctx.fill();
+
+    // crow's nest platform + climb rungs
+    ctx.fillStyle = COLORS.crowsNest;
+    ctx.fillRect(mastX - CROWSNEST_HALF_WIDTH, MAP_Y - 20, CROWSNEST_HALF_WIDTH * 2, 12);
+    ctx.strokeStyle = COLORS.boatMast;
+    ctx.lineWidth = 3;
+    for (let y = MAP_Y; y < GROUND_Y; y += 22){
+      ctx.beginPath();
+      ctx.moveTo(mastX - 6, y);
+      ctx.lineTo(mastX + 6, y);
+      ctx.stroke();
+    }
+
+    // steering wheel (the boat's altar)
+    const wheelX = worldToScreen(BOAT_ALTAR_X + 18);
+    const wheelY = deckY - 18;
+    ctx.strokeStyle = COLORS.wheel;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(wheelX, wheelY, 16, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = COLORS.wheelSpoke;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++){
+      const angle = (Math.PI / 2) * i;
+      ctx.beginPath();
+      ctx.moveTo(wheelX, wheelY);
+      ctx.lineTo(wheelX + Math.cos(angle) * 16, wheelY + Math.sin(angle) * 16);
+      ctx.stroke();
+    }
+  }
+
   function drawTower(){
     const x = worldToScreen(TOWER_X - LADDER_HALF_WIDTH - 10);
     const w = (LADDER_HALF_WIDTH + 10) * 2;
@@ -865,11 +1021,14 @@
   }
 
   function drawChest(){
-    const x = worldToScreen(CHEST_X);
-    ctx.fillStyle = COLORS.chest;
-    ctx.fillRect(x, GROUND_Y - CHEST_H, CHEST_W, CHEST_H);
-    ctx.fillStyle = COLORS.chestLid;
-    ctx.fillRect(x, GROUND_Y - CHEST_H, CHEST_W, 8);
+    CHESTS.forEach(chest => {
+      const x = worldToScreen(chest.x);
+      if (x < -50 || x > CANVAS_W + 50) return;
+      ctx.fillStyle = COLORS.chest;
+      ctx.fillRect(x, GROUND_Y - chest.h, chest.w, chest.h);
+      ctx.fillStyle = COLORS.chestLid;
+      ctx.fillRect(x, GROUND_Y - chest.h, chest.w, 8);
+    });
   }
 
   function drawTrees(){
@@ -1125,7 +1284,7 @@
   /* ---------------- loop / lifecycle ---------------- */
   function loop(){
     if (!running) return;
-    if (!altarOpen) update();
+    if (!altarOpen && !mapOpen) update();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -1258,6 +1417,38 @@
     // never stopped (it only skipped update() while altarOpen was true), so
     // calling loop() again would spawn a second, parallel chain and the game
     // would run 2x speed after every altar visit (3x after two visits, etc).
+  }
+
+  function openMap(){
+    mapOpen = true;
+    renderMap();
+    overlay.style.display = "flex";
+  }
+  function closeMap(){
+    mapOpen = false;
+    hideOverlay();
+    canvas.focus();
+    // Same reasoning as closeAltar() — the requestAnimationFrame chain never
+    // stopped, it just skipped update() while mapOpen was true.
+  }
+
+  function renderMap(){
+    // Placeholder: four continents, purely visual for now. "Set course"
+    // (actually traveling to one) is a later feature — this just establishes
+    // that a wider world exists beyond the water.
+    overlayInner.innerHTML = `
+      <h3>Captain's Map</h3>
+      <p>Four continents, charted so far. Setting course for one of them is coming soon.</p>
+      <svg viewBox="0 0 300 200" width="100%" height="auto" style="background:#1B4F72;border-radius:8px;">
+        <ellipse cx="70"  cy="55"  rx="42" ry="28" fill="#2D6A4F" />
+        <ellipse cx="220" cy="50"  rx="36" ry="24" fill="#2D6A4F" />
+        <ellipse cx="60"  cy="145" rx="38" ry="26" fill="#2D6A4F" />
+        <ellipse cx="225" cy="150" rx="44" ry="30" fill="#2D6A4F" />
+        <circle cx="150" cy="100" r="4" fill="#F6C945" />
+      </svg>
+      <button type="button" class="btn light" id="wvw-map-close" style="margin-top:14px;">Close</button>
+    `;
+    document.getElementById("wvw-map-close").addEventListener("click", closeMap);
   }
 
   function renderAltar(){
