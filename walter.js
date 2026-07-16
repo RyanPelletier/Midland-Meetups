@@ -511,7 +511,12 @@
   function jumpIfGrounded(){
     if (player.onLadder) return;
     if (isOverOpenWater(player.x)){
-      if (player.waterStrokeCooldown > 0) return; // ignore repeat/rapid presses — one stroke at a time
+      // Both gates matter: the cooldown stops rapid-fire spam, but the real
+      // fix is the velocity check — without it, a new stroke could fire
+      // right as the previous one peaks (before it's fallen back down at
+      // all), chaining peak-to-peak into a sustained climb instead of a
+      // bob. Must actually be falling (or neutral) before another stroke.
+      if (player.waterStrokeCooldown > 0 || player.vy < 0) return;
       player.vy = JUMP_VELOCITY;
       player.waterStrokeCooldown = WATER_STROKE_COOLDOWN;
       return;
