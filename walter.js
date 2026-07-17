@@ -614,19 +614,55 @@
   const ARMOR = {
     leather: { label: "Leather Armor",      cost: 5,  multiplier: 1.5 },
     steel:   { label: "Steel Armor",        cost: 10, multiplier: 2 },
-    // Trait armors. Costs weren't specified — picked to sit above steel
-    // since the value here is the trait, not raw buffer size.
-    goblin:  { label: "Goblin Armor",       cost: 12, multiplier: 1.5, trait: "pacifyGoblinOgre" },
-    siren:   { label: "Siren Scale Armor",  cost: 12, multiplier: 1.5, trait: "waterBreathing" },
+    // Trait armors — repriced up significantly (roadmap balancing pass).
+    goblin:  { label: "Goblin Armor",       cost: 500, multiplier: 1.5, trait: "pacifyGoblinOgre" },
+    siren:   { label: "Siren Scale Armor",  cost: 500, multiplier: 1.5, trait: "waterBreathing" },
     // Tier-0 utility — no HP buffer at all (multiplier: 0). Its value is
     // the activated ability, not damage soak.
-    cloak:   { label: "Invisibility Cloak", cost: 15, multiplier: 0,   trait: "cloak" }
+    cloak:   { label: "Invisibility Cloak", cost: 200, multiplier: 0,   trait: "cloak" }
   };
+  // Tiered repair: standard armor is cheap to fix, special/trait armor costs more.
+  const ARMOR_REPAIR_COST_STANDARD = 20;
+  const ARMOR_REPAIR_COST_SPECIAL = 50;
+  const ARMOR_SPECIAL_TYPES = new Set(["goblin", "siren", "cloak"]);
+  function armorRepairCost(key){
+    return ARMOR_SPECIAL_TYPES.has(key) ? ARMOR_REPAIR_COST_SPECIAL : ARMOR_REPAIR_COST_STANDARD;
+  }
   const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "cloak"];
-  const ARMOR_REPAIR_COST = 20; // flat, regardless of remaining durability
   // Letters for the save codex — S is already steel, so siren uses R.
   const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C" };
   const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak" };
+
+  // Format: <equipped char><5 owned bits><5 broken bits>, bits in
+  // ARMOR_ORDER sequence. Old saves only ever stored the single equipped
+  // character — those still decode fine (that one piece is treated as
+  // owned, nothing broken, matching what they'd actually have had).
+  function encodeArmorInventory(){
+    const equippedChar = ARMOR_LETTERS[player.armorType] || "N";
+    const ownedBits = ARMOR_ORDER.map(k => (player.armorInventory[k] && player.armorInventory[k].owned) ? "1" : "0").join("");
+    const brokenBits = ARMOR_ORDER.map(k => (player.armorInventory[k] && player.armorInventory[k].broken) ? "1" : "0").join("");
+    return equippedChar + ownedBits + brokenBits;
+  }
+
+  function decodeArmorInventory(str){
+    const result = { equipped: "none", owned: {}, broken: {} };
+    ARMOR_ORDER.forEach(k => { result.owned[k] = false; result.broken[k] = false; });
+    if (!str) return result;
+    if (str.length <= 1){
+      result.equipped = ARMOR_LETTERS_REVERSE[str] || "none";
+      if (result.equipped !== "none") result.owned[result.equipped] = true;
+      return result;
+    }
+    result.equipped = ARMOR_LETTERS_REVERSE[str[0]] || "none";
+    const ownedBits = str.slice(1, 1 + ARMOR_ORDER.length);
+    const brokenBits = str.slice(1 + ARMOR_ORDER.length, 1 + ARMOR_ORDER.length * 2);
+    ARMOR_ORDER.forEach((k, i) => {
+      result.owned[k] = ownedBits[i] === "1";
+      result.broken[k] = brokenBits[i] === "1";
+    });
+    if (result.equipped !== "none") result.owned[result.equipped] = true; // safety net, equipped implies owned
+    return result;
+  }
 
   // Enemy types Goblin Armor pacifies. Goblins/ogres don't exist in the game
   // yet (Swamp biome, later phase) — this is wired and ready, just inert
@@ -713,6 +749,8 @@
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
+  let altarActiveTab = "spells"; // "spells" | "inventory" | "shops" | "amulets"
+  let amuletViewKey = null; // which amulet's sub-tab is currently shown in the Amulets tab
   let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave, wasInBossArena;
   let dockMenuUnlockFrame; // the dock's map trigger stays inert until this frame, so it doesn't pop up the instant you step off the boat
   let animId, nextSpawnFrame;
@@ -774,22 +812,38 @@
   function buyArmor(key){
     const cfg = ARMOR[key];
     if (!cfg || player.silver < cfg.cost) return false;
+    if (player.armorInventory[key] && player.armorInventory[key].owned) return false; // already owned — nothing to buy
     player.silver -= cfg.cost;
-    player.armorType = key;
-    player.armorMaxHp = Math.round(PLAYER_MAX_HP * cfg.multiplier);
-    player.armorHp = player.armorMaxHp; // replaces whatever armor was left, if any
-    player.armorBroken = false;
-    if (DEBUG) console.log("[WvW] bought " + key + " armor, armorHp=" + player.armorHp);
+    player.armorInventory[key] = { owned: true, broken: false };
+    equipArmor(key);
+    if (DEBUG) console.log("[WvW] bought " + key + " armor");
     return true;
   }
 
-  function repairArmor(){
-    if (!player.armorType || player.armorHp >= player.armorMaxHp) return false;
-    if (player.silver < ARMOR_REPAIR_COST) return false;
-    player.silver -= ARMOR_REPAIR_COST;
-    player.armorHp = player.armorMaxHp;
-    player.armorBroken = false;
-    if (DEBUG) console.log("[WvW] repaired " + player.armorType + " armor for " + ARMOR_REPAIR_COST + " silver");
+  function equipArmor(key){
+    const cfg = ARMOR[key];
+    const inv = player.armorInventory[key];
+    if (!cfg || !inv || !inv.owned) return false;
+    player.armorType = key;
+    player.armorMaxHp = Math.round(PLAYER_MAX_HP * cfg.multiplier);
+    player.armorHp = inv.broken ? 0 : player.armorMaxHp; // gear stays broken across an equip-swap until repaired
+    player.armorBroken = inv.broken;
+    if (DEBUG) console.log("[WvW] equipped " + key + " armor" + (inv.broken ? " (broken)" : ""));
+    return true;
+  }
+
+  function repairArmor(key){
+    const inv = player.armorInventory[key];
+    if (!inv || !inv.owned || !inv.broken) return false; // nothing to repair
+    const cost = armorRepairCost(key);
+    if (player.silver < cost) return false;
+    player.silver -= cost;
+    inv.broken = false;
+    if (key === player.armorType){
+      player.armorHp = player.armorMaxHp;
+      player.armorBroken = false;
+    }
+    if (DEBUG) console.log("[WvW] repaired " + key + " armor for " + cost + " silver");
     return true;
   }
 
@@ -838,6 +892,17 @@
     respawnMessageText = "The Castle stands rebuilt. Victory!";
     respawnMessageTimer = 240;
     if (DEBUG) console.log("[WvW] castle rebuilt — victory condition met");
+    return true;
+  }
+
+  function equipAmulet(key){
+    if (!player.amuletsOwned.has(key)) return false;
+    player.equippedAmulet = key; // only one equipped at a time — this just replaces whichever was equipped before
+    return true;
+  }
+  function unequipAmulet(key){
+    if (player.equippedAmulet !== key) return false;
+    player.equippedAmulet = null;
     return true;
   }
 
@@ -940,7 +1005,7 @@
     const rareStr = RARE_SPELL_LETTERS.map(({ key, letter }) =>
       spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
     ).join("");
-    const armorChar = ARMOR_LETTERS[player.armorType] || "N";
+    const armorChar = encodeArmorInventory();
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
     const amuletStr = encodeAmulets();
     const homebaseStr = encodeHomebase();
@@ -1042,7 +1107,7 @@
 
   function decodeProgress(str){
     const result = {
-      silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
+      silver: 0, crystals: 0, armor: "none", armorOwned: {}, armorBroken: {}, spells: new Set(), maxMana: MAX_MANA_START,
       crewHired: false, land1ChestCollected: false,
       amuletOwnedKeys: [], amuletEquippedKey: null, amuletSlotsByKey: {},
       houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0,
@@ -1052,11 +1117,14 @@
     // The #maxMana#, ~rare~, ^flags^, *amulet*, +homebase+, and %world%
     // segments are all optional so saves from before each feature existed
     // still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?/);
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
-    result.armor = ARMOR_LETTERS_REVERSE[m[4]] || "none";
+    const armorData = decodeArmorInventory(m[4] || "");
+    result.armor = armorData.equipped;
+    result.armorOwned = armorData.owned;
+    result.armorBroken = armorData.broken;
     result.maxMana = m[5] ? (parseInt(m[5], 10) || MAX_MANA_START) : MAX_MANA_START;
 
     const spellChars = m[2] || "";
@@ -1099,10 +1167,14 @@
     player.crewHired = loadedProgress.crewHired;
     player.land1ChestCollected = loadedProgress.land1ChestCollected;
     loadedProgress.spells.forEach(key => spellUnlocked.add(key));
-    if (loadedProgress.armor !== "none"){
-      player.armorType = loadedProgress.armor;
-      player.armorMaxHp = Math.round(PLAYER_MAX_HP * ARMOR[loadedProgress.armor].multiplier);
-      player.armorHp = player.armorMaxHp;
+    ARMOR_ORDER.forEach(key => {
+      player.armorInventory[key] = {
+        owned: !!loadedProgress.armorOwned[key],
+        broken: !!loadedProgress.armorBroken[key]
+      };
+    });
+    if (loadedProgress.armor !== "none" && player.armorInventory[loadedProgress.armor] && player.armorInventory[loadedProgress.armor].owned){
+      equipArmor(loadedProgress.armor);
     }
     loadedProgress.amuletOwnedKeys.forEach(key => {
       player.amuletsOwned.add(key);
@@ -1171,6 +1243,8 @@
       mysticArmor: 0, demon: 0, angel: 0, teleport: 0 };
     spellUnlocked = new Set();
     player.amuletsOwned = new Set();
+    player.armorInventory = {}; // { [armorType]: { owned: bool, broken: bool } } — persists per-piece, independent of what's currently worn
+    ARMOR_ORDER.forEach(key => { player.armorInventory[key] = { owned: false, broken: false }; });
     player.amuletSlots = {}; // { amuletKey: [9 slots, spell key or null] }, populated as amulets are earned
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
@@ -1692,6 +1766,7 @@
       if (player.armorHp <= 0){
         player.armorHp = 0;
         player.armorBroken = true; // depleted, not deleted — repairable at an altar
+        if (player.armorInventory[player.armorType]) player.armorInventory[player.armorType].broken = true;
         if (DEBUG) console.log("[WvW] " + player.armorType + " armor broke");
       }
     }
@@ -3231,7 +3306,7 @@
         ctx.fillStyle = COLORS.hpBad;
         ctx.font = "700 10px 'JetBrains Mono', monospace";
         ctx.textAlign = "left";
-        ctx.fillText("broken — repair for " + ARMOR_REPAIR_COST + " silver", 138, 34);
+        ctx.fillText("broken — repair for " + armorRepairCost(player.armorType) + " silver", 138, 34);
       }
     }
 
@@ -3411,6 +3486,7 @@
   /* ---------------- altar shop ---------------- */
   function openAltar(){
     altarOpen = true;
+    altarActiveTab = "spells";
     renderAltar();
     overlay.style.display = "flex";
   }
@@ -3691,18 +3767,125 @@
     document.getElementById("wvw-map-close").addEventListener("click", closeMap);
   }
 
-  function renderAmuletSection(){
-    if (player.amuletsOwned.size === 0) return "";
+  function tabBarHtml(){
+    const tabs = [["spells","Spells"],["inventory","Inventory"],["shops","Shops"],["amulets","Amulets"]];
+    return `
+      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
+        ${tabs.map(([id, label]) => `
+          <button type="button" class="btn ${altarActiveTab === id ? "" : "light"}" style="padding:6px 12px;font-size:0.82rem;" data-menu-tab="${id}">${label}</button>
+        `).join("")}
+      </div>
+    `;
+  }
 
-    const amuletKey = player.equippedAmulet;
-    const amulet = AMULETS[amuletKey];
-    const slots = player.amuletSlots[amuletKey] || new Array(9).fill(null);
+  function renderSpellsTab(){
+    const total = totalCrystals();
+    const allKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
+    const mastered = allKeys.filter(k => spellUnlocked.has(k));
+    const discovered = allKeys.filter(k => !spellUnlocked.has(k));
+
+    const rowFor = (key, i) => {
+      const cfg = SPELLS[key];
+      const owned = spellUnlocked.has(key);
+      const isRare = RARE_SPELL_ORDER.includes(key);
+      const affordable = total >= cfg.cost;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>${cfg.label}${isRare ? " (rare)" : ""}</span>
+          ${owned
+            ? `<span style="opacity:0.7;font-size:0.8rem;">Mastered</span>`
+            : `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-spell="${key}" ${affordable ? "" : "disabled"}>Master (${cfg.cost} crystals)</button>`
+          }
+        </div>
+      `;
+    };
+
+    return `
+      <p>You have ${total} crystal${total === 1 ? "" : "s"} to spend on spells (carried + banked).</p>
+      <p style="font-weight:700;margin:14px 0 4px;">Mastered</p>
+      <div style="text-align:left;">${mastered.length ? mastered.map(k => rowFor(k)).join("") : `<p style="opacity:0.7;font-size:0.85rem;">None yet.</p>`}</div>
+      <p style="font-weight:700;margin:14px 0 4px;">Discovered</p>
+      <div style="text-align:left;">${discovered.length ? discovered.map(k => rowFor(k)).join("") : `<p style="opacity:0.7;font-size:0.85rem;">Everything's mastered.</p>`}</div>
+    `;
+  }
+
+  function renderInventoryTab(){
+    const owned = ARMOR_ORDER.filter(k => player.armorInventory[k] && player.armorInventory[k].owned);
+    if (owned.length === 0) return `<p style="opacity:0.7;">No gear owned yet — check the Shops tab.</p>`;
+
+    const rows = owned.map(key => {
+      const cfg = ARMOR[key];
+      const inv = player.armorInventory[key];
+      const equipped = player.armorType === key;
+      const status = inv.broken ? "Broken" : "Ready";
+      const repairCost = armorRepairCost(key);
+      const repairAffordable = player.silver >= repairCost;
+      let actionHtml;
+      if (inv.broken){
+        actionHtml = `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-repair="${key}" ${repairAffordable ? "" : "disabled"}>Repair (${repairCost} silver)</button>`;
+      }else if (equipped){
+        actionHtml = `<span style="opacity:0.7;font-size:0.8rem;">Equipped</span>`;
+      }else{
+        actionHtml = `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-equip-armor="${key}">Equip</button>`;
+      }
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>${cfg.label} — <span style="color:${inv.broken ? "#E14B3C" : "#12B76A"};">${status}</span>${equipped ? " (equipped)" : ""}</span>
+          ${actionHtml}
+        </div>
+      `;
+    }).join("");
+
+    return `<div style="text-align:left;">${rows}</div>`;
+  }
+
+  function renderShopsTab(){
+    const notOwned = ARMOR_ORDER.filter(k => !player.armorInventory[k] || !player.armorInventory[k].owned);
+    const armorRows = notOwned.map(key => {
+      const cfg = ARMOR[key];
+      const affordable = player.silver >= cfg.cost;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>${cfg.label}</span>
+          <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-armor="${key}" ${affordable ? "" : "disabled"}>Buy (${cfg.cost} silver)</button>
+        </div>
+      `;
+    }).join("");
+
+    const manaAffordable = player.silver >= MANA_UPGRADE_COST_SILVER;
+    const manaRow = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
+        <span>Max Mana: ${player.maxMana}</span>
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" id="wvw-mana-upgrade-btn" ${manaAffordable ? "" : "disabled"}>+${MANA_UPGRADE_AMOUNT} (${MANA_UPGRADE_COST_SILVER} silver)</button>
+      </div>
+    `;
+
+    return `
+      <p>${Math.floor(player.silver)} silver available.</p>
+      ${notOwned.length ? `<p style="font-weight:700;margin:14px 0 4px;">Gear</p><div style="text-align:left;">${armorRows}</div>` : `<p style="opacity:0.7;font-size:0.85rem;">All gear owned — check your Inventory.</p>`}
+      <p style="font-weight:700;margin:14px 0 4px;">Mana (repeatable)</p>
+      <div style="text-align:left;">${manaRow}</div>
+    `;
+  }
+
+  function renderAmuletsTab(){
+    if (player.amuletsOwned.size === 0) return `<p style="opacity:0.7;">No amulets earned yet — boss drops only.</p>`;
+
+    const ownedKeys = AMULET_ORDER.filter(k => player.amuletsOwned.has(k));
+    if (!amuletViewKey || !player.amuletsOwned.has(amuletViewKey)) amuletViewKey = player.equippedAmulet || ownedKeys[0];
+
+    const subTabs = ownedKeys.map(k => `
+      <button type="button" class="btn ${amuletViewKey === k ? "" : "light"}" style="padding:5px 10px;font-size:0.78rem;" data-amulet-subtab="${k}">${AMULETS[k].label}</button>
+    `).join("");
+
+    const amulet = AMULETS[amuletViewKey];
+    const equipped = player.equippedAmulet === amuletViewKey;
+    const slots = player.amuletSlots[amuletViewKey] || new Array(9).fill(null);
     const buffActive = isAmuletBuffActive(amulet.buffSpell);
-    const buffSpellLabel = SPELLS[amulet.buffSpell] ? SPELLS[amulet.buffSpell].label : amulet.buffSpell;
+    const buffSpellLabel = amulet.buffSpell ? (SPELLS[amulet.buffSpell] ? SPELLS[amulet.buffSpell].label : amulet.buffSpell) : null;
 
     const allSpellKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
     const assignedElsewhere = new Set(slots.filter(Boolean));
-
     const slotRows = slots.map((assigned, i) => {
       const choices = allSpellKeys.filter(k => spellUnlocked.has(k) && (k === assigned || !assignedElsewhere.has(k)));
       const options = ['<option value="">Empty</option>'].concat(
@@ -3717,78 +3900,34 @@
     }).join("");
 
     return `
-      <p style="font-weight:700;margin:14px 0 4px;">${amulet.label}${buffActive ? " — buff active" : ""}</p>
-      <p style="font-size:0.78rem;opacity:0.8;margin-top:-4px;">Slot ${buffSpellLabel} into any of the 9 slots to activate its passive (+50% Fireball burn duration).</p>
+      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">${subTabs}</div>
+      <p style="font-weight:700;margin:4px 0 4px;">${amulet.label}${buffActive ? " — buff active" : ""}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-4px;">${buffSpellLabel ? `Slot ${buffSpellLabel} into any of the 9 slots to activate its passive.` : "Passive not yet implemented — no matching spell exists for this one yet."}</p>
+      <button type="button" class="btn ${equipped ? "light" : ""}" style="padding:6px 12px;font-size:0.8rem;margin-bottom:10px;" id="wvw-amulet-equip-toggle" data-amulet-key="${amuletViewKey}">${equipped ? "Unequip" : "Equip"}</button>
       <div style="text-align:left;">${slotRows}</div>
     `;
   }
 
   function renderAltar(){
-    const total = totalCrystals();
-    const spellRows = SPELL_ORDER.map((key, i) => {
-      const cfg = SPELLS[key];
-      const owned = spellUnlocked.has(key);
-      const affordable = total >= cfg.cost;
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-          <span>${i+1}. ${cfg.label}${owned ? " ✓" : ""}</span>
-          ${owned
-            ? `<span style="opacity:0.7;font-size:0.8rem;">Owned</span>`
-            : `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-spell="${key}" ${affordable ? "" : "disabled"}>Buy (${cfg.cost})</button>`
-          }
-        </div>
-      `;
-    }).join("");
-
-    const armorRows = ARMOR_ORDER.map(key => {
-      const cfg = ARMOR[key];
-      const equipped = player.armorType === key;
-      const affordable = player.silver >= cfg.cost;
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-          <span>${cfg.label}${equipped ? " (equipped)" : ""}</span>
-          <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-armor="${key}" ${affordable ? "" : "disabled"}>Buy (${cfg.cost} silver)</button>
-        </div>
-      `;
-    }).join("");
-
-    const armorStatus = player.armorType
-      ? `${ARMOR[player.armorType].label}: ${Math.ceil(player.armorHp)}/${player.armorMaxHp}${player.armorBroken ? " (broken)" : ""}`
-      : "No armor equipped";
-
-    const repairEligible = player.armorType && player.armorHp < player.armorMaxHp;
-    const repairAffordable = player.silver >= ARMOR_REPAIR_COST;
-    const repairRow = repairEligible ? `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
-        <span>Repair ${ARMOR[player.armorType].label}</span>
-        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" id="wvw-repair-btn" ${repairAffordable ? "" : "disabled"}>Repair (${ARMOR_REPAIR_COST} silver)</button>
-      </div>
-    ` : "";
-
-    const manaAffordable = player.silver >= MANA_UPGRADE_COST_SILVER;
-    const manaRow = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
-        <span>Max Mana: ${player.maxMana}</span>
-        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" id="wvw-mana-upgrade-btn" ${manaAffordable ? "" : "disabled"}>+${MANA_UPGRADE_AMOUNT} (${MANA_UPGRADE_COST_SILVER} silver)</button>
-      </div>
-    `;
-
-    const amuletSection = renderAmuletSection();
+    let bodyHtml;
+    if (altarActiveTab === "spells") bodyHtml = renderSpellsTab();
+    else if (altarActiveTab === "inventory") bodyHtml = renderInventoryTab();
+    else if (altarActiveTab === "shops") bodyHtml = renderShopsTab();
+    else bodyHtml = renderAmuletsTab();
 
     overlayInner.innerHTML = `
-      <h3>Wizard Skill Altar</h3>
-      <p>You have ${total} crystal${total === 1 ? "" : "s"} to spend on spells (carried + banked), and ${Math.floor(player.silver)} silver for armor and mana.</p>
-      <p style="font-size:0.82rem;opacity:0.85;margin-top:-8px;">${armorStatus}</p>
-      <div style="text-align:left;">${spellRows}</div>
-      <p style="font-weight:700;margin:14px 0 4px;">Armor (buying replaces your current piece)</p>
-      <div style="text-align:left;">${armorRows}</div>
-      ${repairRow ? `<div style="text-align:left;">${repairRow}</div>` : ""}
-      <p style="font-weight:700;margin:14px 0 4px;">Mana (repeatable)</p>
-      <div style="text-align:left;">${manaRow}</div>
-      ${amuletSection}
+      <h3>Menu</h3>
+      ${tabBarHtml()}
+      <div id="wvw-menu-body">${bodyHtml}</div>
       <button type="button" class="btn light" id="wvw-altar-close" style="margin-top:14px;">Close</button>
     `;
 
+    overlayInner.querySelectorAll("button[data-menu-tab]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        altarActiveTab = btn.dataset.menuTab;
+        renderAltar();
+      });
+    });
     overlayInner.querySelectorAll("button[data-spell]").forEach(btn => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.spell;
@@ -3796,7 +3935,7 @@
         if (totalCrystals() >= cfg.cost && !spellUnlocked.has(key)){
           spendCrystals(cfg.cost);
           spellUnlocked.add(key);
-          if (DEBUG) console.log("[WvW] unlocked spell " + key);
+          if (DEBUG) console.log("[WvW] mastered spell " + key);
           renderAltar();
           saveProgress();
         }
@@ -3805,6 +3944,22 @@
     overlayInner.querySelectorAll("button[data-armor]").forEach(btn => {
       btn.addEventListener("click", () => {
         if (buyArmor(btn.dataset.armor)){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-equip-armor]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (equipArmor(btn.dataset.equipArmor)){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-repair]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (repairArmor(btn.dataset.repair)){
           renderAltar();
           saveProgress();
         }
@@ -3819,19 +3974,26 @@
         }
       });
     }
-    const repairBtn = document.getElementById("wvw-repair-btn");
-    if (repairBtn){
-      repairBtn.addEventListener("click", () => {
-        if (repairArmor()){
-          renderAltar();
-          saveProgress();
-        }
+    overlayInner.querySelectorAll("button[data-amulet-subtab]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        amuletViewKey = btn.dataset.amuletSubtab;
+        renderAltar();
+      });
+    });
+    const amuletToggleBtn = document.getElementById("wvw-amulet-equip-toggle");
+    if (amuletToggleBtn){
+      amuletToggleBtn.addEventListener("click", () => {
+        const key = amuletToggleBtn.dataset.amuletKey;
+        if (player.equippedAmulet === key) unequipAmulet(key);
+        else equipAmulet(key);
+        renderAltar();
+        saveProgress();
       });
     }
     overlayInner.querySelectorAll("select[data-amulet-slot]").forEach(sel => {
       sel.addEventListener("change", () => {
         const slotIndex = Number(sel.dataset.amuletSlot);
-        if (assignAmuletSlot(player.equippedAmulet, slotIndex, sel.value || null)){
+        if (assignAmuletSlot(amuletViewKey, slotIndex, sel.value || null)){
           renderAltar();
           saveProgress();
         }
