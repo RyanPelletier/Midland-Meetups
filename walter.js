@@ -279,12 +279,14 @@
 
   /* ==================== Land 3+: procedural biome generation ====================
      Land 1 and Land 2 stay hand-built and untouched. Starting at Land 3,
-     lands are generated from a deterministic per-player seed: same
-     worldSeed + landNumber always produces the same layout, so a
-     player's world is permanent and learnable, not re-rolled per visit.
+     lands are procedurally generated — and re-rolled fresh on every visit
+     (a deliberate choice: infinite replayability over a fixed, memorized
+     world). Each generation still uses a seeded RNG rather than raw
+     Math.random() calls scattered around, purely so the generator itself
+     stays a clean, testable pure function — the seed is just freshly
+     randomized each time now instead of being fixed per player.
      Ported from a standalone, dependency-free generator module — see
-     mulberry32/hashSeed below for the seeded RNG (no Math.random, so
-     results are reproducible). */
+     mulberry32/hashSeed below for the seeded RNG. */
   function mulberry32(seed){
     let a = seed >>> 0;
     return function(){
@@ -434,17 +436,16 @@
   // without storing full layouts — everything regenerates from the seed.
   // Lands 1-2 are hand-built (outside this system), so recursion bottoms
   // out there.
-  function computeGeneratedLandBiomeIds(landNumber){
-    if (landNumber <= 2) return [];
-    const prevIds = computeGeneratedLandBiomeIds(landNumber - 1);
-    const land = generateLand(player.worldSeed, landNumber, prevIds);
-    return land.biomes.map(b => b.id);
-  }
-
   function loadGeneratedLand(landNumber){
-    const prevIds = computeGeneratedLandBiomeIds(landNumber - 1);
-    const land = generateLand(player.worldSeed, landNumber, prevIds);
+    // Re-rolled every visit, on purpose — infinite replayability was the
+    // whole point, so this no longer reuses a fixed per-player world seed.
+    // The "no repeat from the land you just came from" rule now tracks
+    // whatever you actually visited last (any land number), not a fixed
+    // deterministic history.
+    const freshSeed = Math.floor(Math.random() * 1000000000);
+    const land = generateLand(freshSeed, landNumber, lastGeneratedLandBiomeIds);
     currentGeneratedLandLayout = buildGeneratedLandLayout(land);
+    lastGeneratedLandBiomeIds = land.biomes.map(b => b.id);
   }
 
   function sailToGeneratedLand(landNumber){
@@ -710,6 +711,7 @@
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
   let currentMap; // "home" | "land1" | "land2" | "homebase" | "generated"
   let currentGeneratedLandLayout = null; // { land, zones, worldWidth, dockX } — rebuilt whenever a generated land is entered
+  let lastGeneratedLandBiomeIds = []; // whichever biomes were visited last, so a fresh re-roll doesn't immediately repeat them
 
   /* ---------------- helpers ---------------- */
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -921,7 +923,7 @@
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
     const amuletStr = encodeAmulets();
     const homebaseStr = encodeHomebase();
-    const worldStr = player.worldSeed + "," + player.highestUnlockedLand;
+    const worldStr = "0," + player.highestUnlockedLand; // first slot is vestigial now that lands re-roll per visit instead of using a fixed seed
     // Silver accrues fractionally now (passive income), but the codex only
     // stores whole numbers — floor it here. The in-memory fractional part
     // just keeps accumulating during the session; only the saved snapshot
@@ -1086,7 +1088,7 @@
     if (loadedProgress.amuletEquippedKey) player.equippedAmulet = loadedProgress.amuletEquippedKey;
     HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
     player.castleRebuilt = loadedProgress.castleRebuilt;
-    if (loadedProgress.worldSeed) player.worldSeed = loadedProgress.worldSeed;
+    // worldSeed is no longer applied here — lands re-roll per visit now, not per player.
     player.highestUnlockedLand = loadedProgress.highestUnlockedLand;
     if (player.crewHired){
       const spawn = spawnPoint();
@@ -1149,7 +1151,7 @@
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
-    if (!player.worldSeed) player.worldSeed = Math.floor(Math.random() * 1000000000); // permanent per player once saved
+    // worldSeed is no longer generated/persisted per player — lands re-roll per visit now.
     player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
     activeSpell = null; // null = sword
     meleeCooldown = 0;
@@ -1165,6 +1167,7 @@
     wasInInnerCave = false;
     wasInBossArena = false;
     dockMenuUnlockFrame = 0;
+    lastGeneratedLandBiomeIds = [];
     nextSpawnFrame = 90;
     running = true;
   }
