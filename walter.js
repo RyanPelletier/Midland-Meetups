@@ -39,6 +39,13 @@
     skyInnerCave: "#0D0D0F",
     skyVillage: "#F5E6C8",
     skyCastleZone: "#EFD9A8",
+    skyGrasslandsGen: "#DCEFC4",
+    skyDesert: "#FCE3A1", duneColor: "#F2C777", cactusColor: "#3F7A3F", rockColor: "#8B6B4A", sunColor: "#FF9E4A",
+    skySwamp: "#8FA382", swampGround: "#4A3B2C", swampWater: "#5C6B4B", cattailStem: "#3A4A2A", cattailHead: "#6B4A2A", fogColor: "rgba(220,220,220,0.2)",
+    skyJungle: "#B4E0C5", jungleGround: "#2F5233", vineColor: "#3F7A3F", leafColor: "#3F8A4A", silhouetteColor: "#111111",
+    skyUnderwater: "#4BA3C3", underwaterGround: "#C2A878", kelpColor: "#2F6B4A", bubbleColor: "rgba(255,255,255,0.6)", lightRayColor: "rgba(255,255,255,0.1)",
+    treehousesSky: "#AEE2FF", trunkColor: "#6B4222", platformColor: "#8B5A2B", cloudColor: "rgba(255,255,255,0.85)",
+    bossArenaSky: "#3A2C4A",
     houseDecrepit: "#8A8378",
     houseDecrepitDark: "#5C574C",
     houseWall: "#E8C99B",
@@ -53,6 +60,14 @@
     grassBlade: "#4E8F35",
     cyclopsBody: "#6B5842",
     cyclopsEye: "#E14B3C",
+    sandwormBody: "#C9A45C", sandwormBodyDark: "#A9843C",
+    feyBody: "#7B5FBF", feyGlow: "#C9A9F0",
+    fairyBody: "#F6C945", fairyWing: "#FFF3C4",
+    sirenBody: "#2E8B8B", sirenHair: "#1B4F72",
+    mermaidBody: "#3AA6A6", mermaidTail: "#1B7A7A",
+    ogreBody: "#4B5D3A", ogreBodyDark: "#33421F",
+    snakeBody: "#5B8C3A", snakeBelly: "#C9D9A0",
+    bossBody: "#8B2F3A", bossTrim: "#D4AF37",
     water: "#2C6E8E",
     waterDeep: "#1B4F72",
     waterLine: "#F2F7FA",
@@ -251,7 +266,7 @@
     { id: "v2h2", x: HOMEBASE_VILLAGE1_END + 320, village: 2 },
     { id: "v2h3", x: HOMEBASE_VILLAGE1_END + 520, village: 2 }
   ];
-  const HOMEBASE_TOWNHALL_X = HOMEBASE_DOCK_END + 40;
+  const HOMEBASE_TOWNHALL_X = HOMEBASE_DOCK_END + 420; // middle of village 1, clear of the entrance and the houses
   const HOMEBASE_CASTLE_X = HOMEBASE_VILLAGE2_END + 180;
 
   // House economy — house upgrade cost is 200 * 2.5^(level-1); rent is
@@ -261,6 +276,187 @@
   const HOUSE_BASE_RENT_PER_MIN = 50;
   const HOUSE_RENT_MULTIPLIER = 1.5;
   const CASTLE_REBUILD_COST = 10000;
+
+  /* ==================== Land 3+: procedural biome generation ====================
+     Land 1 and Land 2 stay hand-built and untouched. Starting at Land 3,
+     lands are generated from a deterministic per-player seed: same
+     worldSeed + landNumber always produces the same layout, so a
+     player's world is permanent and learnable, not re-rolled per visit.
+     Ported from a standalone, dependency-free generator module — see
+     mulberry32/hashSeed below for the seeded RNG (no Math.random, so
+     results are reproducible). */
+  function mulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hashSeed(worldSeed, landNumber){
+    const str = String(worldSeed) + ":" + String(landNumber);
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = (Math.imul(h, 33) ^ str.charCodeAt(i)) >>> 0;
+    return h >>> 0;
+  }
+  function randInt(rng, n){ return Math.floor(rng() * n); }
+  function seededShuffle(arr, rng){
+    const out = arr.slice();
+    for (let i = out.length - 1; i > 0; i--){
+      const j = randInt(rng, i + 1);
+      const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+    }
+    return out;
+  }
+
+  // baseWidth values weren't specified in the design doc — sized to match
+  // the existing hand-built Land 1/2 zones (700-900px), scaling up
+  // slightly with danger for pacing.
+  const BIOME_DEFINITIONS = {
+    river:       { id: "river",       displayName: "River",        enemyPool: [],                            isCombatBiome: false, dangerWeight: 0, baseWidth: 500, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: false },
+    grasslands:  { id: "grasslands",  displayName: "Grasslands",   enemyPool: ["knight","archer","wizard"],  isCombatBiome: true,  dangerWeight: 1, baseWidth: 800, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: false }, // no boss defined yet, excluded from the pool below
+    village:     { id: "village",     displayName: "Village",      enemyPool: ["knight","archer","wizard"],  isCombatBiome: true,  dangerWeight: 1, baseWidth: 800, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    forest:      { id: "forest",      displayName: "Forest",       enemyPool: ["fey","fairy"],                isCombatBiome: true,  dangerWeight: 2, baseWidth: 850, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    treehouses:  { id: "treehouses",  displayName: "Treehouses",   enemyPool: ["fey","fairy"],                isCombatBiome: true,  dangerWeight: 2, baseWidth: 850, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    castlewalls: { id: "castlewalls", displayName: "Castle Walls", enemyPool: ["knight","archer","wizard"],  isCombatBiome: true,  dangerWeight: 3, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    swamp:       { id: "swamp",       displayName: "Swamp",        enemyPool: ["ogre"],                       isCombatBiome: true,  dangerWeight: 3, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    jungle:      { id: "jungle",      displayName: "Jungle",       enemyPool: ["snake"],                      isCombatBiome: true,  dangerWeight: 4, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    desert:      { id: "desert",      displayName: "Desert",       enemyPool: ["sandworm"],                   isCombatBiome: true,  dangerWeight: 4, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    underwater:  { id: "underwater",  displayName: "Under Water",  enemyPool: ["siren","mermaid"],            isCombatBiome: true,  dangerWeight: 5, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: "waterproof", bossEligible: true } // hard-locked without the trait
+  };
+  // Grasslands excluded — no boss defined for it yet. River is a
+  // transition, not a selectable slot.
+  const GENERATOR_BIOME_POOL = Object.keys(BIOME_DEFINITIONS).filter(id => id !== "river" && id !== "grasslands");
+  const GENERATED_BIOME_SKY_COLORS = {
+    village: COLORS.skyVillage, forest: COLORS.skyForest, treehouses: COLORS.treehousesSky,
+    castlewalls: COLORS.skyWall, swamp: COLORS.skySwamp, jungle: COLORS.skyJungle,
+    desert: COLORS.skyDesert, underwater: COLORS.skyUnderwater
+  };
+
+  const BOSS_ROSTER = {
+    village:     { name: "Commander",      amuletId: "banner_of_valor", hp: 1000, damage: 20, silverReward: 500, crystalReward: 5 },
+    castlewalls: { name: "Royal Champion", amuletId: "champions_crest", hp: 1050, damage: 22, silverReward: 550, crystalReward: 5 },
+    forest:      { name: "Fey Queen",      amuletId: "moon_blossom",    hp: 1100, damage: 18, silverReward: 550, crystalReward: 6 },
+    jungle:      { name: "Serpent King",   amuletId: "emerald_fang",    hp: 1150, damage: 16, silverReward: 600, crystalReward: 6 },
+    swamp:       { name: "Bog Titan",      amuletId: "bog_core",        hp: 1200, damage: 26, silverReward: 650, crystalReward: 6 },
+    desert:      { name: "Sand Colossus",  amuletId: "buried_heart",    hp: 1250, damage: 24, silverReward: 600, crystalReward: 7 },
+    treehouses:  { name: "Elder Dryad",    amuletId: "heartwood_seed",  hp: 1300, damage: 20, silverReward: 650, crystalReward: 7 },
+    underwater:  { name: "Leviathan",      amuletId: "leviathan_scale", hp: 1400, damage: 22, silverReward: 700, crystalReward: 8 }
+  };
+
+  const RIVER_INSERT_CHANCE = 0.6; // not specified — starting guess
+
+  function generateLand(worldSeed, landNumber, previousLandBiomeIds){
+    previousLandBiomeIds = previousLandBiomeIds || [];
+    const seed = hashSeed(worldSeed, landNumber);
+    const rng = mulberry32(seed);
+
+    let candidates = GENERATOR_BIOME_POOL.filter(id => !previousLandBiomeIds.includes(id));
+    if (candidates.length < 3) candidates = GENERATOR_BIOME_POOL.slice();
+
+    const chosen = seededShuffle(candidates, rng).slice(0, 3);
+    const withDanger = chosen.map(id => ({ id, danger: BIOME_DEFINITIONS[id].dangerWeight }));
+    withDanger.sort((a, b) => a.danger - b.danger);
+    for (let i = 0; i < withDanger.length; i++){
+      let j = i;
+      while (j + 1 < withDanger.length && withDanger[j+1].danger === withDanger[i].danger) j++;
+      if (j > i){
+        const tiedIds = withDanger.slice(i, j+1).map(e => e.id);
+        const reshuffled = seededShuffle(tiedIds, rng);
+        for (let k = i; k <= j; k++) withDanger[k] = { id: reshuffled[k-i], danger: withDanger[k].danger };
+      }
+      i = j;
+    }
+    const orderedBiomeIds = withDanger.map(e => e.id);
+
+    const widthMultiplier = 1.0 + landNumber * 0.04;
+    const biomes = orderedBiomeIds.map(id => {
+      const def = BIOME_DEFINITIONS[id];
+      const varianceRoll = (rng() * 2 - 1) * def.widthVariance;
+      const width = Math.round(def.baseWidth * widthMultiplier * (1 + varianceRoll));
+      return { id, displayName: def.displayName, dangerWeight: def.dangerWeight, width, enemyPool: def.enemyPool, requiredArmorTrait: def.requiredArmorTrait };
+    });
+
+    let riverTransition = null;
+    if (rng() < RIVER_INSERT_CHANCE){
+      const afterIndex = randInt(rng, 2);
+      const riverDef = BIOME_DEFINITIONS.river;
+      const varianceRoll = (rng() * 2 - 1) * riverDef.widthVariance;
+      riverTransition = { afterBiomeIndex: afterIndex, width: Math.round(riverDef.baseWidth * widthMultiplier * (1 + varianceRoll)) };
+    }
+
+    const finalBiomeId = biomes[biomes.length - 1].id;
+    const boss = BOSS_ROSTER[finalBiomeId];
+
+    return { landNumber, seed, biomes, riverTransition, boss: { biomeId: finalBiomeId, ...boss } };
+  }
+
+  const GENERATED_DOCK_WIDTH = 200;
+  const GENERATED_BOSS_ARENA_WIDTH = 500;
+  const GENERATED_DOCK_X = 90;
+
+  // Turns a generateLand() result into a flat, walkable zone list with
+  // absolute x-boundaries: dock -> biome -> [river] -> biome -> [river]
+  // -> biome -> boss arena. This is the one generic layout builder every
+  // generated land uses — no per-land hardcoding like Land 1/2 have.
+  function buildGeneratedLandLayout(land){
+    const zones = [];
+    let cursor = 0;
+    zones.push({ type: "dock", id: "dock", start: cursor, end: cursor + GENERATED_DOCK_WIDTH });
+    cursor += GENERATED_DOCK_WIDTH;
+
+    land.biomes.forEach((b, i) => {
+      zones.push({
+        type: "biome", id: b.id, displayName: b.displayName, enemyPool: b.enemyPool,
+        requiredArmorTrait: b.requiredArmorTrait, start: cursor, end: cursor + b.width
+      });
+      cursor += b.width;
+      if (land.riverTransition && land.riverTransition.afterBiomeIndex === i){
+        zones.push({ type: "river", id: "river", start: cursor, end: cursor + land.riverTransition.width });
+        cursor += land.riverTransition.width;
+      }
+    });
+
+    zones.push({ type: "bossArena", id: "bossArena", boss: land.boss, start: cursor, end: cursor + GENERATED_BOSS_ARENA_WIDTH });
+    cursor += GENERATED_BOSS_ARENA_WIDTH;
+
+    return { land, zones, worldWidth: cursor, dockX: GENERATED_DOCK_X };
+  }
+
+  function currentGeneratedZone(x){
+    if (!currentGeneratedLandLayout) return null;
+    const zones = currentGeneratedLandLayout.zones;
+    return zones.find(z => x >= z.start && x < z.end) || zones[zones.length - 1];
+  }
+
+  // Deterministically recovers what biomes an EARLIER generated land used,
+  // without storing full layouts — everything regenerates from the seed.
+  // Lands 1-2 are hand-built (outside this system), so recursion bottoms
+  // out there.
+  function computeGeneratedLandBiomeIds(landNumber){
+    if (landNumber <= 2) return [];
+    const prevIds = computeGeneratedLandBiomeIds(landNumber - 1);
+    const land = generateLand(player.worldSeed, landNumber, prevIds);
+    return land.biomes.map(b => b.id);
+  }
+
+  function loadGeneratedLand(landNumber){
+    const prevIds = computeGeneratedLandBiomeIds(landNumber - 1);
+    const land = generateLand(player.worldSeed, landNumber, prevIds);
+    currentGeneratedLandLayout = buildGeneratedLandLayout(land);
+  }
+
+  function sailToGeneratedLand(landNumber){
+    loadGeneratedLand(landNumber);
+    currentMap = "generated";
+    player.x = currentGeneratedLandLayout.dockX + 10;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    enemies = [];
+    enemyProjectiles = [];
+    if (DEBUG) console.log("[WvW] set sail for generated Land " + landNumber + " — biomes: " + currentGeneratedLandLayout.land.biomes.map(b => b.id).join(","));
+  }
 
   const CHESTS_HOMEBASE = [];
   const WALKUP_ALTARS_HOMEBASE = [
@@ -274,28 +470,34 @@
     if (currentMap === "land1") return LAND1_WORLD_WIDTH;
     if (currentMap === "land2") return LAND2_WORLD_WIDTH;
     if (currentMap === "homebase") return HOMEBASE_WORLD_WIDTH;
+    if (currentMap === "generated") return currentGeneratedLandLayout ? currentGeneratedLandLayout.worldWidth : 0;
     return WORLD_WIDTH;
   }
   function getChests(){
     if (currentMap === "land1") return CHESTS_LAND1;
     if (currentMap === "land2") return CHESTS_LAND2;
     if (currentMap === "homebase") return CHESTS_HOMEBASE;
+    if (currentMap === "generated") return [];
     return CHESTS_HOME;
   }
   function getWalkupAltars(){
     if (currentMap === "land1") return WALKUP_ALTARS_LAND1;
     if (currentMap === "land2") return WALKUP_ALTARS_LAND2;
     if (currentMap === "homebase") return WALKUP_ALTARS_HOMEBASE;
+    if (currentMap === "generated") return currentGeneratedLandLayout
+      ? [{ x: currentGeneratedLandLayout.dockX + 40, w: 40, h: 40, action: "map" }]
+      : [];
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
     if (currentMap === "land1") return CLIMB_POINTS_LAND1;
     if (currentMap === "land2") return CLIMB_POINTS_LAND2;
     if (currentMap === "homebase") return CLIMB_POINTS_HOMEBASE;
+    if (currentMap === "generated") return [];
     return CLIMB_POINTS_HOME;
   }
   function getTrees(){
-    return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2/homebase have no trees
+    return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2/homebase/generated have no trees yet
   }
 
   const PLAYER_W = 28, PLAYER_H = 42;
@@ -321,7 +523,18 @@
     // 3x a knight's size. HP is 6x a knight's baseline, then bumped 5x
     // further per feedback (30x total). Damage is 0 — the laser doesn't
     // deal a direct hit, the burn it sets is the entire attack.
-    cyclops: { hp: 900, speed: 0.8, damage: 0, attackCooldown: 70, preferredRange: 320, w: 78, h: 120 }
+    cyclops: { hp: 900, speed: 0.8, damage: 0, attackCooldown: 70, preferredRange: 320, w: 78, h: 120 },
+
+    // Land 3+ roster (Deliverable 1). Reuses existing movement archetypes
+    // where possible; novel mechanics (burrow, teleport, charm, poison)
+    // are called out in updateEnemies()/fireEnemyProjectile().
+    sandworm: { hp: 34, speed: 1.3, damage: 9,  attackCooldown: 55, contactRange: 30, burrowSpeed: 1.6, emergeDuration: 180, w: 30, h: 30, dropsSilver: true },
+    fey:      { hp: 24, speed: 0.9, damage: 13, attackCooldown: 80, preferredRange: 240, projectileSpeed: 6, teleportRange: 200, teleportCooldown: 300, contactRangeForTeleport: 60, w: 24, h: 38 },
+    fairy:    { hp: 16, speed: 1.6, damage: 7,  attackCooldown: 40, preferredRange: 200, projectileSpeed: 7, w: 16, h: 20 },
+    siren:    { hp: 28, speed: 1.0, damage: 8,  attackCooldown: 90, preferredRange: 240, projectileSpeed: 6, w: 24, h: 38, charmDuration: 150, charmSlowMultiplier: 0.65 },
+    mermaid:  { hp: 30, speed: 1.0, damage: 11, attackCooldown: 70, preferredRange: 240, projectileSpeed: 8.5, w: 24, h: 38, dropsSilver: true },
+    ogre:     { hp: 60, speed: 0.6, damage: 18, attackCooldown: 100, contactRange: 34, w: 34, h: 46, dropsSilver: true },
+    snake:    { hp: 20, speed: 1.3, damage: 6,  attackCooldown: 130, contactRange: 32, lungeRange: 140, poisonDuration: 300, poisonDps: 2, w: 22, h: 18 }
   };
 
   // Tougher wizard variants — same base stats as a regular wizard, just
@@ -341,6 +554,17 @@
       damage: Math.round(ENEMY_STATS.wizard.damage * tier.damageMultiplier),
       hp: Math.round(ENEMY_STATS.wizard.hp * tier.damageMultiplier)
     };
+  });
+
+  // Generic boss stats, merged into ENEMY_STATS so the existing pipeline
+  // (damageEnemy, drawEnemy, AI dispatch) handles boss types uniformly.
+  // Only Commander (Village) has its full unique mechanic built right
+  // now — every other boss uses the shared generic AI (see updateEnemies,
+  // isBoss branch) so every generated Land is still completable; their
+  // signature mechanics get built out when a Land actually reaches them.
+  Object.keys(BOSS_ROSTER).forEach(biomeId => {
+    const b = BOSS_ROSTER[biomeId];
+    ENEMY_STATS["boss_" + biomeId] = { hp: b.hp, damage: b.damage, speed: 0.7, attackCooldown: 90, contactRange: 55, w: 60, h: 92 };
   });
 
   const SPAWN_INTERVAL_MIN = 70;
@@ -440,13 +664,25 @@
      holds a spell key; the amulet's passive buff only applies while its
      specific buffSpell is actually sitting in one of the 9 slots.
      Only one amulet exists so far — the cyclops is the only boss. */
-  const AMULET_ORDER = ["cyclopsEye"];
+  const AMULET_ORDER = ["cyclopsEye", "banner_of_valor", "champions_crest", "moon_blossom", "emerald_fang", "bog_core", "buried_heart", "heartwood_seed", "leviathan_scale"];
   const AMULETS = {
-    cyclopsEye: {
-      label: "The Cyclops's Eye",
-      buffSpell: "fireball",
-      burnDurationMultiplier: 1.5 // level 1: +50% fireball burn duration while slotted
-    }
+    cyclopsEye:      { label: "The Cyclops's Eye", buffSpell: "fireball",  burnDurationMultiplier: 1.5 },
+    // Reinterpreted from spec: "fires one additional projectile" / "Chain
+    // Lightning jumps to one additional enemy" both map cleanly onto our
+    // existing Lightning chain — +1 link while slotted.
+    banner_of_valor: { label: "Banner of Valor",   buffSpell: "lightning", chainBonus: 1 },
+    emerald_fang:    { label: "Emerald Fang",      buffSpell: "lightning", chainBonus: 1 },
+    // These four reference spells we don't have (Shield, Blink, Earth
+    // Spike, Vine Root) or a mechanic that isn't a player spell (poison
+    // is an enemy attack, not something Walter casts). They still drop,
+    // are ownable/equippable with working slots — the passive buff itself
+    // is an intentional stub until a matching spell exists to hang it on.
+    champions_crest: { label: "Champion's Crest",  buffSpell: null },
+    moon_blossom:    { label: "Moon Blossom",      buffSpell: null },
+    bog_core:        { label: "Bog Core",          buffSpell: null },
+    buried_heart:    { label: "Buried Heart",      buffSpell: null },
+    heartwood_seed:  { label: "Heartwood Seed",    buffSpell: null },
+    leviathan_scale: { label: "Leviathan Scale",   buffSpell: null }
   };
 
   function isAmuletBuffActive(spellKey){
@@ -466,10 +702,11 @@
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
-  let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave;
+  let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave, wasInBossArena;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
-  let currentMap; // "home" | "land1"
+  let currentMap; // "home" | "land1" | "land2" | "homebase" | "generated"
+  let currentGeneratedLandLayout = null; // { land, zones, worldWidth, dockX } — rebuilt whenever a generated land is entered
 
   /* ---------------- helpers ---------------- */
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -497,6 +734,10 @@
       if (x < HOMEBASE_VILLAGE1_END) return "village1";
       if (x < HOMEBASE_VILLAGE2_END) return "village2";
       return "castlezone";
+    }
+    if (currentMap === "generated"){
+      const z = currentGeneratedZone(x);
+      return z ? z.type : "dock"; // "dock" | "biome" | "river" | "bossArena"
     }
     if (x < TOWER_END) return "tower";
     if (x < WALL_END) return "wall";
@@ -673,11 +914,12 @@
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
     const amuletStr = encodeAmulets();
     const homebaseStr = encodeHomebase();
+    const worldStr = player.worldSeed + "," + player.highestUnlockedLand;
     // Silver accrues fractionally now (passive income), but the codex only
     // stores whole numbers — floor it here. The in-memory fractional part
     // just keeps accumulating during the session; only the saved snapshot
     // is truncated.
-    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+";
+    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%";
   }
 
   function encodeHomebase(){
@@ -700,31 +942,70 @@
   // x = empty, reusing the same spell letters as everywhere else in the
   // codex>. Will need redesigning once a second amulet actually exists —
   // this doesn't try to generalize past that yet.
+  // Format: <9 ownedBits><equippedIndex>:<9-char slot block per OWNED
+  // amulet, in AMULET_ORDER sequence, x = empty slot>. Replaces the old
+  // single-amulet-only format (flagged in an earlier pass as needing a
+  // redesign once a second amulet existed — this is that redesign).
   function encodeAmulets(){
-    const key = "cyclopsEye";
-    const owned = player.amuletsOwned.has(key) ? "1" : "0";
-    const equipped = player.equippedAmulet === key ? "1" : "0";
-    const slots = player.amuletSlots[key] || new Array(9).fill(null);
-    const slotsStr = slots.map(s => {
-      if (!s) return "x";
-      const entry = ALL_SPELL_LETTERS.find(e => e.key === s);
-      return entry ? entry.letter : "x";
+    const ownedBits = AMULET_ORDER.map(k => player.amuletsOwned.has(k) ? "1" : "0").join("");
+    const equippedIndex = player.equippedAmulet ? AMULET_ORDER.indexOf(player.equippedAmulet) : -1;
+    const slotBlocks = AMULET_ORDER.filter(k => player.amuletsOwned.has(k)).map(k => {
+      const slots = player.amuletSlots[k] || new Array(9).fill(null);
+      return slots.map(s => {
+        if (!s) return "x";
+        const entry = ALL_SPELL_LETTERS.find(e => e.key === s);
+        return entry ? entry.letter : "x";
+      }).join("");
     }).join("");
-    return owned + equipped + slotsStr;
+    return ownedBits + equippedIndex + ":" + slotBlocks;
   }
 
   function decodeAmulets(str){
-    const result = { owned: false, equipped: false, slots: new Array(9).fill(null) };
-    if (!str || str.length < 11) return result;
-    result.owned = str[0] === "1";
-    result.equipped = str[1] === "1";
-    for (let i = 0; i < 9; i++){
-      const c = str[2 + i];
-      if (c && c !== "x"){
-        const entry = ALL_SPELL_LETTERS.find(e => e.letter.toUpperCase() === c.toUpperCase());
-        if (entry) result.slots[i] = entry.key;
+    const result = { ownedKeys: [], equippedKey: null, slotsByKey: {} };
+    if (!str) return result;
+    const colonIdx = str.indexOf(":");
+    if (colonIdx < 0){
+      // Old single-amulet format (owned/equipped/9 slots, no colon) —
+      // predates this redesign. Map it onto cyclopsEye specifically,
+      // since that was the only amulet that could exist back then.
+      if (str.length >= 11 && str[0] === "1"){
+        result.ownedKeys.push("cyclopsEye");
+        const slots = new Array(9).fill(null);
+        for (let j = 0; j < 9; j++){
+          const c = str[2 + j];
+          if (c && c !== "x"){
+            const entry = ALL_SPELL_LETTERS.find(e => e.letter.toUpperCase() === c.toUpperCase());
+            if (entry) slots[j] = entry.key;
+          }
+        }
+        result.slotsByKey.cyclopsEye = slots;
+        if (str[1] === "1") result.equippedKey = "cyclopsEye";
       }
+      return result;
     }
+    const header = str.slice(0, colonIdx);
+    const slotBlocks = str.slice(colonIdx + 1);
+    const ownedBits = header.slice(0, AMULET_ORDER.length);
+    const equippedIndex = parseInt(header.slice(AMULET_ORDER.length), 10);
+
+    let cursor = 0;
+    AMULET_ORDER.forEach((key, i) => {
+      if (ownedBits[i] === "1"){
+        result.ownedKeys.push(key);
+        const block = slotBlocks.slice(cursor, cursor + 9);
+        cursor += 9;
+        const slots = new Array(9).fill(null);
+        for (let j = 0; j < 9; j++){
+          const c = block[j];
+          if (c && c !== "x"){
+            const entry = ALL_SPELL_LETTERS.find(e => e.letter.toUpperCase() === c.toUpperCase());
+            if (entry) slots[j] = entry.key;
+          }
+        }
+        result.slotsByKey[key] = slots;
+      }
+    });
+    if (Number.isInteger(equippedIndex) && equippedIndex >= 0 && AMULET_ORDER[equippedIndex]) result.equippedKey = AMULET_ORDER[equippedIndex];
     return result;
   }
 
@@ -732,13 +1013,15 @@
     const result = {
       silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
       crewHired: false, land1ChestCollected: false,
-      amuletOwned: false, amuletEquipped: false, amuletSlots: new Array(9).fill(null),
-      houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false
+      amuletOwnedKeys: [], amuletEquippedKey: null, amuletSlotsByKey: {},
+      houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false,
+      worldSeed: null, highestUnlockedLand: 2
     };
     if (!str) return result;
-    // The #maxMana#, ~rare~, ^flags^, *amulet*, and +homebase+ segments are
-    // all optional so saves from before each feature existed still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([01x A-Za-z]*)\*)?(?:\+([\d,]*)\+)?/);
+    // The #maxMana#, ~rare~, ^flags^, *amulet*, +homebase+, and %world%
+    // segments are all optional so saves from before each feature existed
+    // still load fine.
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -760,13 +1043,17 @@
     result.land1ChestCollected = flags[1] === "1";
 
     const amuletData = decodeAmulets(m[8] || "");
-    result.amuletOwned = amuletData.owned;
-    result.amuletEquipped = amuletData.equipped;
-    result.amuletSlots = amuletData.slots;
+    result.amuletOwnedKeys = amuletData.ownedKeys;
+    result.amuletEquippedKey = amuletData.equippedKey;
+    result.amuletSlotsByKey = amuletData.slotsByKey;
 
     const homebaseData = decodeHomebase(m[9] || "");
     result.houseLevels = homebaseData.houseLevels;
     result.castleRebuilt = homebaseData.castleRebuilt;
+
+    const worldParts = (m[10] || "").split(",");
+    if (worldParts[0]) result.worldSeed = parseInt(worldParts[0], 10) || null;
+    if (worldParts[1]) result.highestUnlockedLand = Math.max(2, parseInt(worldParts[1], 10) || 2);
 
     return result;
   }
@@ -785,13 +1072,15 @@
       player.armorMaxHp = Math.round(PLAYER_MAX_HP * ARMOR[loadedProgress.armor].multiplier);
       player.armorHp = player.armorMaxHp;
     }
-    if (loadedProgress.amuletOwned){
-      player.amuletsOwned.add("cyclopsEye");
-      player.amuletSlots.cyclopsEye = loadedProgress.amuletSlots;
-      if (loadedProgress.amuletEquipped) player.equippedAmulet = "cyclopsEye";
-    }
+    loadedProgress.amuletOwnedKeys.forEach(key => {
+      player.amuletsOwned.add(key);
+      player.amuletSlots[key] = loadedProgress.amuletSlotsByKey[key] || new Array(9).fill(null);
+    });
+    if (loadedProgress.amuletEquippedKey) player.equippedAmulet = loadedProgress.amuletEquippedKey;
     HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
     player.castleRebuilt = loadedProgress.castleRebuilt;
+    if (loadedProgress.worldSeed) player.worldSeed = loadedProgress.worldSeed;
+    player.highestUnlockedLand = loadedProgress.highestUnlockedLand;
     if (player.crewHired){
       const spawn = spawnPoint();
       player.x = spawn.x;
@@ -831,6 +1120,8 @@
       crewHired: false, land1ChestCollected: false,
       equippedAmulet: null,
       burningFrames: 0,
+      charmFramesLeft: 0, charmSlowMultiplier: 1,
+      poisonFramesLeft: 0, poisonDps: 0,
       mysticArmorFramesLeft: 0,
       invulnFrames: RESPAWN_INVULN_FRAMES
     };
@@ -851,6 +1142,8 @@
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
+    if (!player.worldSeed) player.worldSeed = Math.floor(Math.random() * 1000000000); // permanent per player once saved
+    player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
     activeSpell = null; // null = sword
     meleeCooldown = 0;
     respawnMessageTimer = 0;
@@ -863,6 +1156,7 @@
     wasAtWalkupAltar = false;
     wasAtClimbTop = false;
     wasInInnerCave = false;
+    wasInBossArena = false;
     nextSpawnFrame = 90;
     running = true;
   }
@@ -920,6 +1214,7 @@
     updatePassiveIncome();
     updateWaveSpawning();
     updateCyclopsEncounter();
+    updateGeneratedBossEncounter();
     updateEnemies();
     updateProjectiles();
     updateAllies();
@@ -974,6 +1269,62 @@
     if (DEBUG) console.log("[WvW] cyclops spawned in the inner cave (power " + playerPower() + ", x" + mult.toFixed(2) + ")");
   }
 
+  // One boss per generated Land, spawned on entering its arena — same
+  // "edge-triggered, one per visit" pattern as the cyclops.
+  function updateGeneratedBossEncounter(){
+    if (currentMap !== "generated" || !currentGeneratedLandLayout) return;
+    const zone = currentGeneratedZone(player.x);
+    const inArena = !!zone && zone.type === "bossArena";
+    if (inArena && !wasInBossArena && !currentGeneratedLandLayout.bossDefeated){
+      const alreadyPresent = enemies.some(en => en.isBoss && en.hp > 0);
+      if (!alreadyPresent) spawnGeneratedBoss(zone);
+    }
+    wasInBossArena = inArena;
+  }
+
+  function spawnGeneratedBoss(zone){
+    const bossInfo = currentGeneratedLandLayout.land.boss;
+    const type = "boss_" + bossInfo.biomeId;
+    const stats = ENEMY_STATS[type];
+    const mult = difficultyMultiplier();
+    enemies.push({
+      type, x: zone.end - 160, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false]
+    });
+    if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
+  }
+
+  // Commander's (Village) signature mechanic — the one boss with its full
+  // unique behavior built out this round. Every other boss uses the
+  // shared generic AI in updateEnemies().
+  function updateCommanderRally(boss){
+    const thresholds = [0.75, 0.5, 0.25];
+    const hpFrac = boss.hp / boss.maxHp;
+    thresholds.forEach((t, i) => {
+      if (!boss.rallyTriggered[i] && hpFrac <= t){
+        boss.rallyTriggered[i] = true;
+        summonRallyGuards(boss);
+      }
+    });
+  }
+
+  function summonRallyGuards(boss){
+    const mult = difficultyMultiplier();
+    const bounds = combatZoneBounds();
+    [["knight", boss.x - 60], ["knight", boss.x - 30], ["archer", boss.x + boss.w + 30]].forEach(([type, x]) => {
+      const s = ENEMY_STATS[type];
+      enemies.push({
+        type, x: clamp(x, bounds.start, bounds.end - s.w), y: GROUND_Y - s.h, w: s.w, h: s.h,
+        hp: Math.round(s.hp * mult), maxHp: Math.round(s.hp * mult), scaledDamage: Math.round(s.damage * mult),
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      });
+    });
+    if (DEBUG) console.log("[WvW] Commander rallies the guard");
+  }
+
   function updateMana(){
     if (player.mana < player.maxMana){
       player.mana = Math.min(player.maxMana, player.mana + MANA_REGEN_PER_FRAME);
@@ -1004,6 +1355,14 @@
     // A passive trait of the material itself, independent of the armor's
     // HP buffer — works even if the buffer is currently broken.
     return player.armorType === "siren";
+  }
+
+  // Maps a generated biome's requiredArmorTrait to existing armor. Siren
+  // Scale Armor already grants water breathing (Phase 1) — Waterproof
+  // reuses that rather than inventing a new armor.
+  function hasArmorTrait(trait){
+    if (trait === "waterproof") return player.armorType === "siren";
+    return false;
   }
 
   function updatePlayerMovement(){
@@ -1047,9 +1406,18 @@
       }
     }
 
-    if (keysDown.has("ArrowLeft")){ player.x -= MOVE_SPEED; player.facing = -1; }
-    if (keysDown.has("ArrowRight")){ player.x += MOVE_SPEED; player.facing = 1; }
+    const effectiveMoveSpeed = MOVE_SPEED * (player.charmFramesLeft > 0 ? player.charmSlowMultiplier : 1);
+    if (keysDown.has("ArrowLeft")){ player.x -= effectiveMoveSpeed; player.facing = -1; }
+    if (keysDown.has("ArrowRight")){ player.x += effectiveMoveSpeed; player.facing = 1; }
     player.x = clamp(player.x, 0, currentWorldWidth() - PLAYER_W);
+
+    if (currentMap === "generated" && currentGeneratedLandLayout){
+      const targetZone = currentGeneratedZone(player.x);
+      if (targetZone && targetZone.type === "biome" && targetZone.requiredArmorTrait && !hasArmorTrait(targetZone.requiredArmorTrait)){
+        // Hard-locked, not a penalty — push back out of the zone entirely.
+        player.x = (player.x >= targetZone.start) ? targetZone.start - 2 : targetZone.end + 2;
+      }
+    }
 
     if (player.invulnFrames > 0) player.invulnFrames--;
   }
@@ -1083,6 +1451,8 @@
     SPELL_ORDER.concat(RARE_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
     updateMysticArmor();
     updatePlayerBurn();
+    updatePlayerCharm();
+    updatePlayerPoison();
     updateCloak();
   }
 
@@ -1119,6 +1489,32 @@
     damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true });
   }
 
+  // Siren's Charm: immediate damage + a slow, no damage-over-time. Doesn't
+  // stack — a fresh charm just refreshes the duration.
+  function applyCharmToPlayer(duration, slowMultiplier){
+    if (player.invulnFrames > 0) return;
+    player.charmFramesLeft = duration;
+    player.charmSlowMultiplier = slowMultiplier;
+    player.invulnFrames = HIT_INVULN_FRAMES;
+  }
+  function updatePlayerCharm(){
+    if (player.charmFramesLeft > 0) player.charmFramesLeft--;
+  }
+
+  // Snake's poison: damage-over-time, mirrors burn's pattern. Doesn't
+  // stack — refreshes duration instead.
+  function applyPoisonToPlayer(duration, dps){
+    if (player.invulnFrames > 0) return;
+    player.poisonFramesLeft = duration;
+    player.poisonDps = dps;
+    player.invulnFrames = HIT_INVULN_FRAMES;
+  }
+  function updatePlayerPoison(){
+    if (player.poisonFramesLeft <= 0) return;
+    player.poisonFramesLeft--;
+    damagePlayer(player.poisonDps / 60, { ignoreInvuln: true });
+  }
+
   /* ---------------- combat: player ---------------- */
   function meleeAttack(){
     if (meleeCooldown > 0) return;
@@ -1147,11 +1543,14 @@
     }else if (key === "lightning"){
       // Chain lightning: bridges from Walter to the nearest enemy, then from
       // that enemy to the next nearest (not yet hit), up to chainMax links.
+      // An equipped amulet (Banner of Valor / Emerald Fang) can extend that
+      // chain while Lightning is slotted in one of its 9 slots.
+      const chainMax = cfg.chainMax + (isAmuletBuffActive("lightning") ? (AMULETS[player.equippedAmulet].chainBonus || 0) : 0);
       const chainPoints = [{ x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2 }];
       const hitSoFar = [];
       let fromX = chainPoints[0].x, fromY = chainPoints[0].y;
 
-      for (let i = 0; i < cfg.chainMax; i++){
+      for (let i = 0; i < chainMax; i++){
         let nearest = null, nearestDist = Infinity;
         enemies.forEach(en => {
           if (en.hp <= 0 || hitSoFar.includes(en)) return;
@@ -1200,6 +1599,7 @@
   }
 
   function damageEnemy(en, amount){
+    if (en.burrowed) return; // sand worms take no damage while burrowed
     en.hp -= amount;
     if (en.hp <= 0 && !en.counted){
       en.counted = true;
@@ -1219,6 +1619,26 @@
         respawnMessageText = "The cyclops dropped " + AMULETS.cyclopsEye.label + "!";
         respawnMessageTimer = 180;
         if (DEBUG) console.log("[WvW] earned amulet: cyclopsEye");
+        saveProgress();
+      }
+      if (en.isBoss && currentGeneratedLandLayout && !currentGeneratedLandLayout.bossDefeated){
+        currentGeneratedLandLayout.bossDefeated = true;
+        const bossInfo = BOSS_ROSTER[en.bossBiomeId];
+        const amuletKey = bossInfo.amuletId;
+        player.silver += bossInfo.silverReward;
+        player.bankedCrystals += bossInfo.crystalReward;
+        let amuletMsg = "";
+        if (!player.amuletsOwned.has(amuletKey)){
+          player.amuletsOwned.add(amuletKey);
+          player.amuletSlots[amuletKey] = new Array(9).fill(null);
+          if (!player.equippedAmulet) player.equippedAmulet = amuletKey;
+          amuletMsg = " " + AMULETS[amuletKey].label + " earned.";
+        }
+        const landNumber = currentGeneratedLandLayout.land.landNumber;
+        player.highestUnlockedLand = Math.max(player.highestUnlockedLand, landNumber);
+        respawnMessageText = bossInfo.name + " defeated!" + amuletMsg;
+        respawnMessageTimer = 240;
+        if (DEBUG) console.log("[WvW] boss defeated: " + bossInfo.name + " — Land " + (landNumber + 1) + " unlocked");
         saveProgress();
       }
     }
@@ -1265,9 +1685,10 @@
   }
 
   /* ---------------- wave spawning ---------------- */
-  const PEACEFUL_ZONES = ["tower", "water", "dock", "innercave", "village1", "village2", "castlezone"]; // innercave uses its own single-cyclops spawn; homebase is entirely peaceful
+  const PEACEFUL_ZONES = ["tower", "water", "dock", "innercave", "village1", "village2", "castlezone", "river", "bossArena"]; // innercave/bossArena use their own single-encounter spawns; homebase is entirely peaceful
 
   function updateWaveSpawning(){
+    if (currentMap === "generated"){ updateGeneratedWaveSpawning(); return; }
     const zone = currentZone(player.x);
     if (PEACEFUL_ZONES.includes(zone)) return;
 
@@ -1275,6 +1696,35 @@
       spawnWaveEnemy(zone);
       nextSpawnFrame = frame + SPAWN_INTERVAL_MIN + Math.random() * (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN);
     }
+  }
+
+  function updateGeneratedWaveSpawning(){
+    const zone = currentGeneratedZone(player.x);
+    if (!zone || zone.type !== "biome") return; // only biome zones spawn regular waves
+    if (frame >= nextSpawnFrame){
+      spawnGeneratedWaveEnemy(zone);
+      nextSpawnFrame = frame + SPAWN_INTERVAL_MIN + Math.random() * (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN);
+    }
+  }
+
+  function spawnGeneratedWaveEnemy(zone){
+    if (!zone.enemyPool || zone.enemyPool.length === 0) return;
+    const type = zone.enemyPool[Math.floor(Math.random() * zone.enemyPool.length)];
+    const stats = ENEMY_STATS[type];
+    if (!stats) return;
+    const mult = difficultyMultiplier();
+    const x = Math.random() < 0.5 ? zone.start + 10 : zone.end - 10;
+    const en = {
+      type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+    };
+    if (type === "sandworm"){ en.burrowed = true; en.emergeFramesLeft = 0; }
+    if (type === "fey"){ en.teleportCooldown = 0; }
+    if (type === "snake"){ en.lunging = false; }
+    enemies.push(en);
+    if (DEBUG) console.log("[WvW] spawned " + type + " in generated biome " + zone.id);
   }
 
   // Bounds + which side enemies spawn from, per combat zone. The first
@@ -1300,6 +1750,11 @@
   function combatZoneBounds(){
     if (currentMap === "land1") return { start: LAND1_DOCK_END, end: LAND1_CASTLEWALL_END };
     if (currentMap === "land2") return { start: LAND2_DOCK_END, end: LAND2_INNERCAVE_END };
+    if (currentMap === "generated"){
+      if (!currentGeneratedLandLayout) return { start: 0, end: 0 };
+      const zones = currentGeneratedLandLayout.zones;
+      return { start: zones[0].end, end: zones[zones.length - 1].end };
+    }
     return { start: TOWER_END, end: FAIR_END };
   }
 
@@ -1359,7 +1814,7 @@
 
       if (en.attackCooldown > 0) en.attackCooldown--;
 
-      if (en.type === "knight"){
+      if (en.type === "knight" || en.type === "ogre"){
         if (Math.abs(dist) > stats.contactRange){
           en.x += Math.sign(dist) * stats.speed;
         }else if (en.attackCooldown <= 0){
@@ -1377,6 +1832,77 @@
           fireCyclopsBeam(en);
           en.attackCooldown = stats.attackCooldown;
         }
+      }else if (en.type === "sandworm"){
+        // Burrowed: invulnerable, untargetable, moves toward the player,
+        // can't attack. Emerges once in melee range; after a few seconds
+        // above ground (or if the player creates distance) it burrows
+        // again.
+        if (en.burrowed){
+          if (Math.abs(dist) > stats.contactRange){
+            en.x += Math.sign(dist) * stats.burrowSpeed;
+          }else{
+            en.burrowed = false;
+            en.emergeFramesLeft = stats.emergeDuration;
+          }
+        }else{
+          en.emergeFramesLeft--;
+          if (Math.abs(dist) > stats.contactRange * 2.5 || en.emergeFramesLeft <= 0){
+            en.burrowed = true;
+          }else if (Math.abs(dist) > stats.contactRange){
+            en.x += Math.sign(dist) * stats.speed;
+          }else if (en.attackCooldown <= 0){
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+        }
+      }else if (en.type === "fey"){
+        // Ranged kiting, same as archer/wizard, but instead of backing
+        // away when the player closes to melee range, it teleports.
+        if (Math.abs(dist) <= stats.contactRangeForTeleport && en.teleportCooldown <= 0){
+          const dir = Math.sign(dist) || 1;
+          const jump = stats.teleportRange * 0.5 + Math.random() * (stats.teleportRange * 0.5);
+          const bounds = combatZoneBounds();
+          en.x = clamp(en.x - dir * jump, bounds.start, bounds.end - en.w);
+          en.teleportCooldown = stats.teleportCooldown;
+        }else if (Math.abs(dist) > stats.preferredRange + 20){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          fireEnemyProjectile(en, Math.sign(dist) || 1);
+          en.attackCooldown = stats.attackCooldown;
+        }
+        if (en.teleportCooldown > 0) en.teleportCooldown--;
+      }else if (en.type === "snake"){
+        // Circles outside melee range, lunges in on a cooldown, applies
+        // poison on contact, then retreats back out to lunge range.
+        if (en.lunging){
+          en.x += Math.sign(dist) * stats.speed * 1.8;
+          if (Math.abs(dist) <= stats.contactRange && en.attackCooldown <= 0){
+            damagePlayer(en.scaledDamage);
+            applyPoisonToPlayer(stats.poisonDuration, stats.poisonDps);
+            en.attackCooldown = stats.attackCooldown;
+            en.lunging = false;
+          }else if (Math.abs(dist) > stats.lungeRange * 1.5){
+            en.lunging = false; // lost the target, stop committing
+          }
+        }else if (Math.abs(dist) <= stats.lungeRange && en.attackCooldown <= 0){
+          en.lunging = true;
+        }else if (Math.abs(dist) > stats.lungeRange + 30){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (Math.abs(dist) < stats.lungeRange - 20){
+          en.x -= Math.sign(dist) * stats.speed; // circles just outside lunge range
+        }
+      }else if (en.isBoss){
+        // Generic boss posture: always closes in, never retreats — same
+        // as the cyclops. Commander additionally rallies reinforcements
+        // at HP thresholds; every other boss uses just this shared AI
+        // until its own signature mechanic gets built.
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          damagePlayer(en.scaledDamage);
+          en.attackCooldown = stats.attackCooldown;
+        }
+        if (en.bossBiomeId === "village") updateCommanderRally(en);
       }else{
         if (Math.abs(dist) > stats.preferredRange + 20){
           en.x += Math.sign(dist) * stats.speed;
@@ -1400,10 +1926,13 @@
 
   function fireEnemyProjectile(en, dir){
     const stats = ENEMY_STATS[en.type];
-    const type = en.type === "archer" ? "arrow" : (Math.random() < 0.5 ? "lightning" : "fireball");
+    const type = en.type === "archer" ? "arrow"
+      : en.type === "fairy" ? "arrow"
+      : en.type === "siren" ? "charm"
+      : (Math.random() < 0.5 ? "lightning" : "fireball");
     enemyProjectiles.push({
       type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
-      damage: en.scaledDamage
+      damage: en.scaledDamage, sourceType: en.type
     });
   }
 
@@ -1469,6 +1998,10 @@
     enemyProjectiles.forEach(p => {
       if (p.hit) return;
       if (player.invulnFrames <= 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, player.x, player.y, PLAYER_W, PLAYER_H)){
+        if (p.type === "charm"){
+          const s = ENEMY_STATS.siren;
+          applyCharmToPlayer(s.charmDuration, s.charmSlowMultiplier); // before damagePlayer, which sets invuln
+        }
         damagePlayer(p.damage);
         p.hit = true;
       }
@@ -1569,6 +2102,10 @@
       drawHomebaseHouses();
       drawHomebaseTownHall();
       drawHomebaseCastle();
+    }else if (currentMap === "generated"){
+      drawGeneratedDock();
+      drawGeneratedBiomeDecorations();
+      drawGeneratedBossArena();
     }else{
       drawWater();
       drawCastleWalls();
@@ -1615,6 +2152,14 @@
         { from: HOMEBASE_VILLAGE1_END, to: HOMEBASE_VILLAGE2_END, color: COLORS.skyVillage },
         { from: HOMEBASE_VILLAGE2_END, to: HOMEBASE_CASTLE_END, color: COLORS.skyCastleZone }
       ];
+    }else if (currentMap === "generated" && currentGeneratedLandLayout){
+      bands = currentGeneratedLandLayout.zones.map(z => ({
+        from: z.start, to: z.end,
+        color: z.type === "dock" ? COLORS.skyDock
+          : z.type === "river" ? COLORS.skyWater
+          : z.type === "bossArena" ? COLORS.bossArenaSky
+          : (GENERATED_BIOME_SKY_COLORS[z.id] || COLORS.skyGrasslandsGen)
+      }));
     }else{
       bands = [
         { from: 0, to: TOWER_END, color: COLORS.skyTower },
@@ -1744,6 +2289,183 @@
   function drawLand1Dock(){ drawDockAt(LAND1_DOCK_X); }
   function drawLand2Dock(){ drawDockAt(LAND2_DOCK_X); }
   function drawHomebaseDock(){ drawDockAt(HOMEBASE_DOCK_X); }
+  function drawGeneratedDock(){
+    if (currentGeneratedLandLayout) drawDockAt(currentGeneratedLandLayout.dockX);
+  }
+
+  function drawGeneratedBossArena(){
+    if (!currentGeneratedLandLayout) return;
+    const arenaZone = currentGeneratedLandLayout.zones.find(z => z.type === "bossArena");
+    if (!arenaZone) return;
+    const gateX = worldToScreen(arenaZone.start);
+    if (gateX < -60 || gateX > CANVAS_W + 60) return;
+    ctx.fillStyle = COLORS.bossTrim;
+    ctx.fillRect(gateX - 4, GROUND_Y - 140, 8, 140);
+    ctx.fillRect(gateX - 4, GROUND_Y - 140, 90, 8);
+  }
+
+  // Biome decoration, per Gemini's visual spec doc. Each iterates world-x
+  // positions across its zone at fixed spacing, skipping anything not
+  // currently on screen. Flat canvas primitives only, no gradients/sprites.
+  function drawGeneratedBiomeDecorations(){
+    if (currentMap !== "generated" || !currentGeneratedLandLayout) return;
+    currentGeneratedLandLayout.zones.forEach(z => {
+      if (z.type !== "biome") return;
+      const left = worldToScreen(z.start), right = worldToScreen(z.end);
+      if (right < -100 || left > CANVAS_W + 100) return;
+      if (z.id === "desert") drawDesertZone(z);
+      else if (z.id === "underwater") drawUnderwaterZone(z);
+      else if (z.id === "swamp") drawSwampZone(z);
+      else if (z.id === "jungle") drawJungleZone(z);
+      else if (z.id === "treehouses") drawTreehousesZone(z);
+    });
+  }
+
+  function drawDesertZone(z){
+    // sun
+    const sunX = worldToScreen(z.start + 80);
+    if (sunX > -80 && sunX < CANVAS_W + 80){
+      ctx.fillStyle = COLORS.sunColor;
+      ctx.beginPath(); ctx.arc(sunX, 70, 40, 0, Math.PI * 2); ctx.fill();
+    }
+    // dunes: overlapping curved paths instead of a flat line
+    ctx.fillStyle = COLORS.duneColor;
+    for (let wx = z.start; wx < z.end; wx += 140){
+      const sx = worldToScreen(wx);
+      if (sx < -160 || sx > CANVAS_W + 160) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.quadraticCurveTo(sx + 70, GROUND_Y - 18, sx + 140, GROUND_Y);
+      ctx.lineTo(sx + 140, GROUND_Y + 20);
+      ctx.lineTo(sx, GROUND_Y + 20);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // cacti + rocks
+    for (let wx = z.start + 40; wx < z.end; wx += 220){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+      ctx.fillStyle = COLORS.cactusColor;
+      ctx.fillRect(sx, GROUND_Y - 40, 10, 40);
+      ctx.fillRect(sx - 8, GROUND_Y - 28, 8, 6);
+      ctx.fillRect(sx + 10, GROUND_Y - 22, 8, 6);
+    }
+    for (let wx = z.start + 130; wx < z.end; wx += 260){
+      const sx = worldToScreen(wx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      ctx.fillStyle = COLORS.rockColor;
+      ctx.beginPath(); ctx.arc(sx, GROUND_Y, 10, Math.PI, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function drawUnderwaterZone(z){
+    ctx.fillStyle = COLORS.underwaterGround;
+    ctx.fillRect(Math.max(0, worldToScreen(z.start)), GROUND_Y, Math.min(CANVAS_W, worldToScreen(z.end)) - Math.max(0, worldToScreen(z.start)), CANVAS_H - GROUND_Y);
+    for (let wx = z.start + 20; wx < z.end; wx += 90){
+      const sx = worldToScreen(wx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      ctx.strokeStyle = COLORS.kelpColor;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.quadraticCurveTo(sx + 8, GROUND_Y - 30, sx - 6, GROUND_Y - 60);
+      ctx.stroke();
+      ctx.strokeStyle = COLORS.bubbleColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sx + 12, GROUND_Y - 80 - (frame % 60), 3, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = "#FFFFFF";
+    for (let wx = z.start; wx < z.end; wx += 160){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, 0); ctx.lineTo(sx + 40, 0); ctx.lineTo(sx - 10, GROUND_Y); ctx.lineTo(sx - 40, GROUND_Y);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSwampZone(z){
+    ctx.fillStyle = COLORS.swampGround;
+    ctx.fillRect(Math.max(0, worldToScreen(z.start)), GROUND_Y, Math.min(CANVAS_W, worldToScreen(z.end)) - Math.max(0, worldToScreen(z.start)), 16);
+    for (let wx = z.start + 30; wx < z.end; wx += 180){
+      const sx = worldToScreen(wx);
+      if (sx < -70 || sx > CANVAS_W + 70) continue;
+      ctx.fillStyle = COLORS.swampWater;
+      ctx.fillRect(sx, GROUND_Y + 2, 70, 12);
+      ctx.fillStyle = COLORS.leafColor;
+      ctx.beginPath(); ctx.ellipse(sx + 35, GROUND_Y + 6, 14, 5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let wx = z.start + 100; wx < z.end; wx += 220){
+      const sx = worldToScreen(wx);
+      if (sx < -10 || sx > CANVAS_W + 10) continue;
+      ctx.strokeStyle = COLORS.cattailStem;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sx, GROUND_Y); ctx.lineTo(sx, GROUND_Y - 34); ctx.stroke();
+      ctx.fillStyle = COLORS.cattailHead;
+      ctx.beginPath(); ctx.ellipse(sx, GROUND_Y - 38, 3, 8, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = "#D8D8D8";
+    for (let wx = z.start; wx < z.end; wx += 100){
+      const sx = worldToScreen(wx);
+      if (sx < -60 || sx > CANVAS_W + 60) continue;
+      ctx.beginPath(); ctx.ellipse(sx, GROUND_Y - 6, 60, 10, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawJungleZone(z){
+    ctx.fillStyle = COLORS.jungleGround;
+    ctx.fillRect(Math.max(0, worldToScreen(z.start)), GROUND_Y - 8, Math.min(CANVAS_W, worldToScreen(z.end)) - Math.max(0, worldToScreen(z.start)), 8);
+    ctx.fillStyle = COLORS.jungleGround;
+    for (let wx = z.start; wx < z.end; wx += 14){
+      const sx = worldToScreen(wx);
+      if (sx < -14 || sx > CANVAS_W + 14) continue;
+      ctx.beginPath(); ctx.moveTo(sx, GROUND_Y - 8); ctx.lineTo(sx + 7, GROUND_Y - 16); ctx.lineTo(sx + 14, GROUND_Y - 8); ctx.closePath(); ctx.fill();
+    }
+    for (let wx = z.start + 20; wx < z.end; wx += 150){
+      const sx = worldToScreen(wx);
+      if (sx < -10 || sx > CANVAS_W + 10) continue;
+      ctx.strokeStyle = COLORS.vineColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, 60 + (wx % 3) * 20); ctx.stroke();
+      ctx.fillStyle = COLORS.leafColor;
+      [[-6,0],[6,0],[0,-8],[0,8]].forEach(([dx,dy]) => {
+        ctx.beginPath(); ctx.arc(sx + dx, 40 + dy, 7, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+    ctx.fillStyle = COLORS.silhouetteColor;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(60, 0); ctx.lineTo(0, 80); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(CANVAS_W, 0); ctx.lineTo(CANVAS_W - 60, 0); ctx.lineTo(CANVAS_W, 80); ctx.closePath(); ctx.fill();
+  }
+
+  function drawTreehousesZone(z){
+    for (let wx = z.start + 10; wx < z.end; wx += 130){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+      ctx.fillStyle = COLORS.trunkColor;
+      ctx.fillRect(sx, 0, 24, CANVAS_H);
+      ctx.fillStyle = COLORS.platformColor;
+      ctx.fillRect(sx - 30, GROUND_Y - 150, 90, 12);
+      ctx.strokeStyle = COLORS.trunkColor;
+      ctx.lineWidth = 2;
+      for (let ly = GROUND_Y - 150; ly < GROUND_Y; ly += 18){
+        ctx.beginPath(); ctx.moveTo(sx - 6, ly); ctx.lineTo(sx + 6, ly); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = COLORS.cloudColor;
+    for (let wx = z.start; wx < z.end; wx += 220){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+      [[0,0,14],[16,4,11],[-14,5,10]].forEach(([dx,dy,r]) => {
+        ctx.beginPath(); ctx.arc(sx + dx, 40 + dy, r, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+  }
 
   function drawHomebaseHouses(){
     HOMEBASE_HOUSES.forEach(h => {
@@ -2146,6 +2868,73 @@
       ctx.beginPath();
       ctx.arc(eyeCx, eyeCy, en.w * 0.11, 0, Math.PI * 2);
       ctx.fill();
+    }else if (en.type === "sandworm"){
+      if (en.burrowed){
+        // just a low sand mound while burrowed/untargetable
+        ctx.fillStyle = COLORS.sandwormBodyDark;
+        ctx.beginPath();
+        ctx.ellipse(x + en.w/2, GROUND_Y - 4, en.w * 0.6, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }else{
+        ctx.fillStyle = COLORS.sandwormBody;
+        ctx.beginPath();
+        ctx.ellipse(x + en.w/2, en.y + en.h/2, en.w/2, en.h/2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = COLORS.sandwormBodyDark;
+        ctx.beginPath();
+        ctx.arc(x + en.w/2, en.y + en.h * 0.3, en.w * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }else if (en.type === "fey"){
+      ctx.fillStyle = COLORS.feyBody;
+      ctx.fillRect(x + 3, en.y, en.w - 6, en.h);
+      ctx.fillStyle = COLORS.feyGlow;
+      ctx.beginPath();
+      ctx.arc(x + en.w/2, en.y + 6, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }else if (en.type === "fairy"){
+      ctx.fillStyle = COLORS.fairyWing;
+      ctx.beginPath();
+      ctx.ellipse(x + en.w/2 - 6, en.y + en.h/2, 8, 4, 0.4, 0, Math.PI * 2);
+      ctx.ellipse(x + en.w/2 + 6, en.y + en.h/2, 8, 4, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.fairyBody;
+      ctx.beginPath();
+      ctx.arc(x + en.w/2, en.y + en.h/2, en.w * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }else if (en.type === "siren"){
+      ctx.fillStyle = COLORS.sirenHair;
+      ctx.fillRect(x, en.y, en.w, 10);
+      ctx.fillStyle = COLORS.sirenBody;
+      ctx.fillRect(x + 2, en.y + 8, en.w - 4, en.h - 8);
+    }else if (en.type === "mermaid"){
+      ctx.fillStyle = COLORS.mermaidBody;
+      ctx.fillRect(x + 3, en.y, en.w - 6, en.h * 0.6);
+      ctx.fillStyle = COLORS.mermaidTail;
+      ctx.beginPath();
+      ctx.moveTo(x + 3, en.y + en.h * 0.6);
+      ctx.lineTo(x + en.w - 3, en.y + en.h * 0.6);
+      ctx.lineTo(x + en.w/2, en.y + en.h);
+      ctx.closePath();
+      ctx.fill();
+    }else if (en.type === "ogre"){
+      ctx.fillStyle = COLORS.ogreBody;
+      ctx.fillRect(x, en.y, en.w, en.h);
+      ctx.fillStyle = COLORS.ogreBodyDark;
+      ctx.fillRect(x, en.y + 8, en.w, 8);
+    }else if (en.type === "snake"){
+      ctx.fillStyle = COLORS.snakeBody;
+      ctx.beginPath();
+      ctx.ellipse(x + en.w/2, en.y + en.h/2, en.w/2, en.h/2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.snakeBelly;
+      ctx.fillRect(x + 4, en.y + en.h - 6, en.w - 8, 4);
+    }else if (en.isBoss){
+      ctx.fillStyle = COLORS.bossBody;
+      ctx.fillRect(x, en.y, en.w, en.h);
+      ctx.fillStyle = COLORS.bossTrim;
+      ctx.fillRect(x, en.y, en.w, 10);
+      ctx.fillRect(x, en.y + en.h - 10, en.w, 6);
     }else{
       const tier = WIZARD_TIERS.find(t => t.key === en.type);
       const cloakColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardCloak;
@@ -2204,6 +2993,11 @@
       ctx.moveTo(x - 10, p.y);
       ctx.lineTo(x + 10, p.y);
       ctx.stroke();
+    }else if (p.type === "charm"){
+      ctx.fillStyle = COLORS.sirenBody;
+      ctx.beginPath();
+      ctx.arc(x, p.y, 6, 0, Math.PI * 2);
+      ctx.fill();
     }else{
       ctx.fillStyle = COLORS.lightning;
       ctx.beginPath();
@@ -2637,7 +3431,7 @@
   }
 
   function renderMap(){
-    const onAnyLand = currentMap === "land1" || currentMap === "land2" || currentMap === "homebase";
+    const onAnyLand = currentMap === "land1" || currentMap === "land2" || currentMap === "homebase" || currentMap === "generated";
 
     let actionHTML;
     if (onAnyLand){
@@ -2649,10 +3443,22 @@
         <button type="button" class="btn" id="wvw-hire-crew-btn" ${affordable ? "" : "disabled"}>Hire a Crew (${HIRE_CREW_COST} silver)</button>
       `;
     }else{
+      const nextLand = player.highestUnlockedLand + 1;
+      const revisitOptions = [];
+      for (let n = 3; n <= player.highestUnlockedLand; n++) revisitOptions.push(n);
       actionHTML = `
         <button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Sail to the Second Land</button>
         <button type="button" class="btn" id="wvw-sail-homebase-btn" style="margin-left:8px;">Sail to Home Base</button>
+        <div style="margin-top:10px;">
+          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Sail to Land ${nextLand}</button>
+          ${revisitOptions.length ? `
+            <select id="wvw-revisit-select" style="margin-left:8px;">
+              ${revisitOptions.map(n => `<option value="${n}">Revisit Land ${n}</option>`).join("")}
+            </select>
+            <button type="button" class="btn light" id="wvw-sail-revisit-btn" style="padding:6px 12px;font-size:0.8rem;">Go</button>
+          ` : ""}
+        </div>
       `;
     }
 
@@ -2691,6 +3497,19 @@
     const sailHomebaseBtn = document.getElementById("wvw-sail-homebase-btn");
     if (sailHomebaseBtn) sailHomebaseBtn.addEventListener("click", () => {
       sailToHomebase();
+      closeMap();
+    });
+
+    const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
+    if (sailGeneratedBtn) sailGeneratedBtn.addEventListener("click", () => {
+      sailToGeneratedLand(Number(sailGeneratedBtn.dataset.land));
+      closeMap();
+    });
+
+    const sailRevisitBtn = document.getElementById("wvw-sail-revisit-btn");
+    if (sailRevisitBtn) sailRevisitBtn.addEventListener("click", () => {
+      const sel = document.getElementById("wvw-revisit-select");
+      sailToGeneratedLand(Number(sel.value));
       closeMap();
     });
 
