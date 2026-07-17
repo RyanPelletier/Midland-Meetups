@@ -62,6 +62,9 @@
     player: "#1B7A4A",
     playerLeather: "#8B5A2B",
     playerSteel: "#9CA3AF",
+    playerGoblin: "#5B7A3A",
+    playerSiren: "#2E8B8B",
+    playerCloak: "#5B4E77",
     playerSword: "#9CA3AF",
     swordHilt: "#6B4222",
     knight: "#5B6472",
@@ -249,9 +252,13 @@
     knight:  { hp: 30, speed: 1.4, damage: 8,  attackCooldown: 50, contactRange: 30, w: 26, h: 40, dropsSilver: true },
     archer:  { hp: 22, speed: 1.1, damage: 10, attackCooldown: 80, preferredRange: 220, projectileSpeed: 6,   w: 24, h: 38 },
     wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true },
-    // 3x a knight's size, doubled strength to 360 HP. Attack cooldown reduced to 60 for higher rate of fire.
-    // Damage is 0 — the laser doesn't deal a direct hit, the burn it sets is the entire attack.
-    cyclops: { hp: 360, speed: 0.8, damage: 0, attackCooldown: 60, preferredRange: 320, projectileSpeed: 5, w: 78, h: 120 }
+    // 3x a knight's size, 6x a knight's HP (30 HP / 26x40 taken as the
+    // "regular enemy" baseline). Damage is 0 — the laser doesn't deal a
+    // direct hit, the burn it sets is the entire attack.
+    // 3x a knight's size. HP is 6x a knight's baseline, then bumped 5x
+    // further per feedback (30x total). Damage is 0 — the laser doesn't
+    // deal a direct hit, the burn it sets is the entire attack.
+    cyclops: { hp: 900, speed: 0.8, damage: 0, attackCooldown: 70, preferredRange: 320, w: 78, h: 120 }
   };
 
   // Tougher wizard variants — same base stats as a regular wizard, just
@@ -308,10 +315,29 @@
   // from the crystal/spell economy. Damage drains armor before Walter's own HP.
   // Buying a new piece replaces whatever's left of the current one.
   const ARMOR = {
-    leather: { label: "Leather Armor", cost: 5,  multiplier: 1.5 },
-    steel:   { label: "Steel Armor",   cost: 10, multiplier: 2 }
+    leather: { label: "Leather Armor",      cost: 5,  multiplier: 1.5 },
+    steel:   { label: "Steel Armor",        cost: 10, multiplier: 2 },
+    // Trait armors. Costs weren't specified — picked to sit above steel
+    // since the value here is the trait, not raw buffer size.
+    goblin:  { label: "Goblin Armor",       cost: 12, multiplier: 1.5, trait: "pacifyGoblinOgre" },
+    siren:   { label: "Siren Scale Armor",  cost: 12, multiplier: 1.5, trait: "waterBreathing" },
+    // Tier-0 utility — no HP buffer at all (multiplier: 0). Its value is
+    // the activated ability, not damage soak.
+    cloak:   { label: "Invisibility Cloak", cost: 15, multiplier: 0,   trait: "cloak" }
   };
-  const ARMOR_ORDER = ["leather", "steel"];
+  const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "cloak"];
+  const ARMOR_REPAIR_COST = 20; // flat, regardless of remaining durability
+  // Letters for the save codex — S is already steel, so siren uses R.
+  const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C" };
+  const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak" };
+
+  // Enemy types Goblin Armor pacifies. Goblins/ogres don't exist in the game
+  // yet (Swamp biome, later phase) — this is wired and ready, just inert
+  // against everything currently in the game.
+  const GOBLIN_ARMOR_PACIFIES = new Set(["goblin", "ogre"]);
+
+  const INVIS_CLOAK_DURATION_FRAMES = 20 * 60;
+  const INVIS_CLOAK_COOLDOWN_FRAMES = 30 * 60;
 
   // Mana gates spell casting on top of each spell's own cooldown. Regen is
   // slow enough relative to cost that draining it acts as a natural extra
@@ -406,7 +432,18 @@
     player.armorType = key;
     player.armorMaxHp = Math.round(PLAYER_MAX_HP * cfg.multiplier);
     player.armorHp = player.armorMaxHp; // replaces whatever armor was left, if any
+    player.armorBroken = false;
     if (DEBUG) console.log("[WvW] bought " + key + " armor, armorHp=" + player.armorHp);
+    return true;
+  }
+
+  function repairArmor(){
+    if (!player.armorType || player.armorHp >= player.armorMaxHp) return false;
+    if (player.silver < ARMOR_REPAIR_COST) return false;
+    player.silver -= ARMOR_REPAIR_COST;
+    player.armorHp = player.armorMaxHp;
+    player.armorBroken = false;
+    if (DEBUG) console.log("[WvW] repaired " + player.armorType + " armor for " + ARMOR_REPAIR_COST + " silver");
     return true;
   }
 
@@ -476,7 +513,7 @@
     const rareStr = RARE_SPELL_LETTERS.map(({ key, letter }) =>
       spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
     ).join("");
-    const armorChar = player.armorType === "leather" ? "L" : player.armorType === "steel" ? "S" : "N";
+    const armorChar = ARMOR_LETTERS[player.armorType] || "N";
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
     return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^";
   }
@@ -489,11 +526,11 @@
     if (!str) return result;
     // The #maxMana#, ~rare~, and ^flags^ segments are all optional so saves
     // from before each feature existed still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSN])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?/);
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
-    result.armor = m[4] === "L" ? "leather" : m[4] === "S" ? "steel" : "none";
+    result.armor = ARMOR_LETTERS_REVERSE[m[4]] || "none";
     result.maxMana = m[5] ? (parseInt(m[5], 10) || MAX_MANA_START) : MAX_MANA_START;
 
     const spellChars = m[2] || "";
@@ -559,7 +596,8 @@
       x: TOWER_X, y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, onLadder: false,
       facing: 1, hp: PLAYER_MAX_HP,
       carriedCrystals: 0, bankedCrystals: 0, silver: 0,
-      armorType: null, armorHp: 0, armorMaxHp: 0,
+      armorType: null, armorHp: 0, armorMaxHp: 0, armorBroken: false,
+      cloakActiveFramesLeft: 0, cloakCooldownFramesLeft: 0,
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
       waterStrokeCooldown: 0,
       crewHired: false, land1ChestCollected: false,
@@ -606,6 +644,8 @@
       if (activeSpell) castSpell(activeSpell);
       else meleeAttack();
     }
+
+    if (e.code === "KeyC") activateCloak();
 
     if (e.code === "ArrowUp"){
       const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
@@ -694,6 +734,12 @@
     return !(center >= BOAT_X && center <= BOAT_X + BOAT_W); // false while standing on the boat itself
   }
 
+  function hasWaterBreathing(){
+    // A passive trait of the material itself, independent of the armor's
+    // HP buffer — works even if the buffer is currently broken.
+    return player.armorType === "siren";
+  }
+
   function updatePlayerMovement(){
     const climb = activeClimbPoint();
 
@@ -710,7 +756,7 @@
       player.y += player.vy;
 
       const floorY = GROUND_Y - PLAYER_H;
-      if (isOverOpenWater(player.x)){
+      if (isOverOpenWater(player.x) && !hasWaterBreathing()){
         const drownY = floorY + WATER_DROWN_DEPTH;
         const riseCeiling = floorY - WATER_MAX_RISE;
         if (player.y >= drownY){
@@ -744,7 +790,7 @@
 
   function jumpIfGrounded(){
     if (player.onLadder) return;
-    if (isOverOpenWater(player.x)){
+    if (isOverOpenWater(player.x) && !hasWaterBreathing()){
       // Both gates matter: the cooldown stops rapid-fire spam, but the real
       // fix is the velocity check — without it, a new stroke could fire
       // right as the previous one peaks (before it's fallen back down at
@@ -771,12 +817,26 @@
     SPELL_ORDER.concat(RARE_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
     updateMysticArmor();
     updatePlayerBurn();
+    updateCloak();
+  }
+
+  function activateCloak(){
+    if (player.armorType !== "cloak") return;
+    if (player.cloakActiveFramesLeft > 0 || player.cloakCooldownFramesLeft > 0) return;
+    player.cloakActiveFramesLeft = INVIS_CLOAK_DURATION_FRAMES;
+    player.cloakCooldownFramesLeft = INVIS_CLOAK_COOLDOWN_FRAMES; // starts now, not after the effect ends
+    if (DEBUG) console.log("[WvW] cloak activated");
+  }
+
+  function updateCloak(){
+    if (player.cloakActiveFramesLeft > 0) player.cloakActiveFramesLeft--;
+    if (player.cloakCooldownFramesLeft > 0) player.cloakCooldownFramesLeft--;
   }
 
   function updateMysticArmor(){
     if (player.mysticArmorFramesLeft <= 0) return;
     player.mysticArmorFramesLeft--;
-    if (player.armorType && player.armorHp < player.armorMaxHp){
+    if (player.armorType && !player.armorBroken && player.armorHp < player.armorMaxHp){
       player.armorHp = Math.min(player.armorMaxHp, player.armorHp + MYSTIC_ARMOR_REGEN_PER_FRAME);
     }
   }
@@ -900,8 +960,8 @@
       remaining -= absorbed;
       if (player.armorHp <= 0){
         player.armorHp = 0;
-        if (DEBUG) console.log("[WvW] " + player.armorType + " armor depleted and consumed");
-        player.armorType = null;
+        player.armorBroken = true; // depleted, not deleted — repairable at an altar
+        if (DEBUG) console.log("[WvW] " + player.armorType + " armor broke");
       }
     }
     if (remaining > 0) player.hp -= remaining;
@@ -1009,6 +1069,12 @@
         if (en.hp <= 0) return;
       }
 
+      // Global non-aggro while the Invisibility Cloak is active, and
+      // per-type pacification from Goblin Armor. Status effects (frozen,
+      // burning) still tick above — only aggro/movement/attack pauses.
+      if (player.cloakActiveFramesLeft > 0) return;
+      if (player.armorType === "goblin" && GOBLIN_ARMOR_PACIFIES.has(en.type)) return;
+
       const stats = ENEMY_STATS[en.type];
       const enCx = en.x + en.w/2;
       const playerCx = player.x + PLAYER_W/2;
@@ -1021,6 +1087,17 @@
           en.x += Math.sign(dist) * stats.speed;
         }else if (en.attackCooldown <= 0){
           damagePlayer(stats.damage);
+          en.attackCooldown = stats.attackCooldown;
+        }
+      }else if (en.type === "cyclops"){
+        // Always closes in, never retreats — unlike archer/wizard, a
+        // cyclops doesn't kite. It just stops advancing once in firing
+        // range rather than trying to hold a preferred distance.
+        if (Math.abs(dist) > stats.preferredRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }
+        if (Math.abs(dist) <= stats.preferredRange && en.attackCooldown <= 0){
+          fireCyclopsBeam(en);
           en.attackCooldown = stats.attackCooldown;
         }
       }else{
@@ -1045,63 +1122,30 @@
   }
 
   function fireEnemyProjectile(en, dir){
-    // Custom direct eye-to-player beam logic for the Cyclops
-    if (en.type === "cyclops") {
-      const eyeCx = en.x + en.w / 2;
-      const eyeCy = en.y + en.h * 0.32;
-      const playerCx = player.x + PLAYER_W / 2;
-      const playerCy = player.y + PLAYER_H / 2;
-
-      let blockedX = playerCx;
-      let blockedY = playerCy;
-      let blocked = false;
-      const dirX = Math.sign(playerCx - eyeCx);
-
-      // Check if any solid trees lie directly between the Cyclops eye and Walter
-      const sortedTrees = getTrees().slice().sort((a, b) => {
-        return Math.abs((a.x + a.w / 2) - eyeCx) - Math.abs((b.x + b.w / 2) - eyeCx);
-      });
-
-      for (let t of sortedTrees) {
-        const treeLeft = t.x;
-        const treeRight = t.x + t.w;
-        if ((dirX > 0 && treeLeft > eyeCx && treeLeft < playerCx) ||
-            (dirX < 0 && treeRight < eyeCx && treeRight > playerCx)) {
-          blockedX = dirX > 0 ? treeLeft : treeRight;
-          const tFactor = (blockedX - eyeCx) / (playerCx - eyeCx);
-          blockedY = eyeCy + (playerCy - eyeCy) * tFactor;
-          blocked = true;
-          break;
-        }
-      }
-
-      // Spawn visual eye-beam effect
-      effects.push({
-        type: "cyclops-beam",
-        sx: eyeCx, sy: eyeCy,
-        ex: blockedX, ey: blockedY,
-        life: 15
-      });
-
-      // If unobstructed, apply fire burn to Walter
-      if (!blocked) {
-        applyBurnToPlayer();
-      }
-      return;
-    }
-
     const stats = ENEMY_STATS[en.type];
-    const type = en.type === "archer" ? "arrow"
-      : (Math.random() < 0.5 ? "lightning" : "fireball");
+    const type = en.type === "archer" ? "arrow" : (Math.random() < 0.5 ? "lightning" : "fireball");
     enemyProjectiles.push({
       type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
       damage: stats.damage
     });
   }
 
+  // Instant hitscan, not a traveling projectile — a slow horizontal shot
+  // from a 3x-tall enemy would fly over the player's head most of the
+  // time. This draws (and hits) directly from the eye to wherever the
+  // player actually is the moment it fires, so it can't miss vertically.
+  function fireCyclopsBeam(en){
+    const eyeX = en.x + en.w / 2;
+    const eyeY = en.y + en.h * 0.32; // matches the eye's drawn position
+    const targetX = player.x + PLAYER_W / 2;
+    const targetY = player.y + PLAYER_H / 2;
+    effects.push({ type: "cyclops-beam", x1: eyeX, y1: eyeY, x2: targetX, y2: targetY, life: 12 });
+    applyBurnToPlayer();
+  }
+
   /* ---------------- projectiles ---------------- */
   function triggerFireSplash(x, y){
-    const cfg = SPELLS[fireball];
+    const cfg = SPELLS.fireball;
     enemies.forEach(en => {
       if (en.hp <= 0) return;
       const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
@@ -1266,7 +1310,7 @@
       bands = [
         { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
         { from: LAND1_DOCK_END, to: LAND1_GRASS_END, color: COLORS.skyGrass },
-        { from: LAND1_DOCK_END, to: LAND1_FOREST_END, color: COLORS.skyForest },
+        { from: LAND1_GRASS_END, to: LAND1_FOREST_END, color: COLORS.skyForest },
         { from: LAND1_FOREST_END, to: LAND1_CASTLEWALL_END, color: COLORS.skyWall }
       ];
     }else if (currentMap === "land2"){
@@ -1612,7 +1656,14 @@
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
     const bodyColor = player.armorType === "leather" ? COLORS.playerLeather
       : player.armorType === "steel" ? COLORS.playerSteel
+      : player.armorType === "goblin" ? COLORS.playerGoblin
+      : player.armorType === "siren" ? COLORS.playerSiren
+      : player.armorType === "cloak" ? COLORS.playerCloak
       : COLORS.player;
+
+    const wasCloaked = player.cloakActiveFramesLeft > 0;
+    if (wasCloaked) ctx.globalAlpha = 0.35; // visibly faded while invisible to enemies
+
     ctx.fillStyle = bodyColor;
     ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
 
@@ -1626,6 +1677,7 @@
     }
 
     if (!activeSpell) drawSword(x);
+    if (wasCloaked) ctx.globalAlpha = 1;
   }
 
   function drawSword(x){
@@ -1772,15 +1824,14 @@
   }
 
   function drawEffect(fx){
+    const x = worldToScreen(fx.x);
     if (fx.type === "freeze-burst"){
-      const x = worldToScreen(fx.x);
       ctx.strokeStyle = COLORS.freeze;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius * (1 - fx.life/20), 0, Math.PI*2);
       ctx.stroke();
     }else if (fx.type === "fire-burst"){
-      const x = worldToScreen(fx.x);
       ctx.strokeStyle = COLORS.fireball;
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -1796,8 +1847,21 @@
         else ctx.lineTo(sx, p.y);
       });
       ctx.stroke();
+    }else if (fx.type === "cyclops-beam"){
+      const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
+      ctx.strokeStyle = COLORS.cyclopsEye;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
+      ctx.stroke();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
+      ctx.stroke();
     }else if (fx.type === "black-hole"){
-      const x = worldToScreen(fx.x);
       ctx.fillStyle = COLORS.blackHole;
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius * 0.5, 0, Math.PI*2);
@@ -1806,25 +1870,6 @@
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius, 0, Math.PI*2);
-      ctx.stroke();
-    }else if (fx.type === "cyclops-beam"){
-      const sx = worldToScreen(fx.sx);
-      const ex = worldToScreen(fx.ex);
-      
-      // Draw outer glowing eye-beam path
-      ctx.strokeStyle = COLORS.cyclopsEye;
-      ctx.lineWidth = 5 * (fx.life / 15);
-      ctx.beginPath();
-      ctx.moveTo(sx, fx.sy);
-      ctx.lineTo(ex, fx.ey);
-      ctx.stroke();
-      
-      // Draw inner intense energy beam core
-      ctx.strokeStyle = "#FFFFFF";
-      ctx.lineWidth = 2 * (fx.life / 15);
-      ctx.beginPath();
-      ctx.moveTo(sx, fx.sy);
-      ctx.lineTo(ex, fx.ey);
       ctx.stroke();
     }
   }
@@ -1838,7 +1883,7 @@
     ctx.lineWidth = 1.5;
     ctx.strokeRect(12, 12, 120, 12);
 
-    if (player.armorType){
+    if (player.armorType && player.armorMaxHp > 0){
       ctx.fillStyle = COLORS.armorBg;
       ctx.fillRect(12, 27, 120, 7);
       ctx.fillStyle = COLORS.armor;
@@ -1846,6 +1891,12 @@
       ctx.strokeStyle = COLORS.hud;
       ctx.lineWidth = 1;
       ctx.strokeRect(12, 27, 120, 7);
+      if (player.armorBroken){
+        ctx.fillStyle = COLORS.hpBad;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "left";
+        ctx.fillText("broken — repair for " + ARMOR_REPAIR_COST + " silver", 138, 34);
+      }
     }
 
     ctx.fillStyle = COLORS.manaBg;
@@ -1870,6 +1921,18 @@
     if (player.mysticArmorFramesLeft > 0){
       ctx.fillStyle = COLORS.mana;
       ctx.fillText("MYSTIC ARMOR " + Math.ceil(player.mysticArmorFramesLeft / 60) + "s", CANVAS_W - 12, 40);
+    }
+    if (player.armorType === "cloak"){
+      if (player.cloakActiveFramesLeft > 0){
+        ctx.fillStyle = COLORS.playerCloak;
+        ctx.fillText("CLOAKED " + Math.ceil(player.cloakActiveFramesLeft / 60) + "s", CANVAS_W - 12, 40);
+      }else if (player.cloakCooldownFramesLeft > 0){
+        ctx.fillStyle = COLORS.hud;
+        ctx.fillText("cloak recharging " + Math.ceil(player.cloakCooldownFramesLeft / 60) + "s", CANVAS_W - 12, 40);
+      }else{
+        ctx.fillStyle = COLORS.hud;
+        ctx.fillText("[C] cloak ready", CANVAS_W - 12, 40);
+      }
     }
     if (player.burningFrames > 0){
       ctx.fillStyle = COLORS.fireball;
@@ -2019,6 +2082,10 @@
     altarOpen = false;
     hideOverlay();
     canvas.focus();
+    // NOTE: no loop() call here — the original requestAnimationFrame chain
+    // never stopped (it only skipped update() while altarOpen was true), so
+    // calling loop() again would spawn a second, parallel chain and the game
+    // would run 2x speed after every altar visit (3x after two visits, etc).
   }
 
   function openMap(){
@@ -2030,6 +2097,8 @@
     mapOpen = false;
     hideOverlay();
     canvas.focus();
+    // Same reasoning as closeAltar() — the requestAnimationFrame chain never
+    // stopped, it just skipped update() while mapOpen was true.
   }
 
   function openLand1Tower(){
@@ -2054,6 +2123,7 @@
     rareAltarOpen = false;
     hideOverlay();
     canvas.focus();
+    // Same reasoning as closeAltar() — no loop() call, the rAF chain never stopped.
   }
 
   function renderRareAltar(){
@@ -2180,8 +2250,17 @@
     }).join("");
 
     const armorStatus = player.armorType
-      ? `${ARMOR[player.armorType].label}: ${Math.ceil(player.armorHp)}/${player.armorMaxHp}`
+      ? `${ARMOR[player.armorType].label}: ${Math.ceil(player.armorHp)}/${player.armorMaxHp}${player.armorBroken ? " (broken)" : ""}`
       : "No armor equipped";
+
+    const repairEligible = player.armorType && player.armorHp < player.armorMaxHp;
+    const repairAffordable = player.silver >= ARMOR_REPAIR_COST;
+    const repairRow = repairEligible ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
+        <span>Repair ${ARMOR[player.armorType].label}</span>
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" id="wvw-repair-btn" ${repairAffordable ? "" : "disabled"}>Repair (${ARMOR_REPAIR_COST} silver)</button>
+      </div>
+    ` : "";
 
     const manaAffordable = player.silver >= MANA_UPGRADE_COST_SILVER;
     const manaRow = `
@@ -2198,62 +2277,74 @@
       <div style="text-align:left;">${spellRows}</div>
       <p style="font-weight:700;margin:14px 0 4px;">Armor (buying replaces your current piece)</p>
       <div style="text-align:left;">${armorRows}</div>
+      ${repairRow ? `<div style="text-align:left;">${repairRow}</div>` : ""}
       <p style="font-weight:700;margin:14px 0 4px;">Mana (repeatable)</p>
       <div style="text-align:left;">${manaRow}</div>
-      <button type="button" class="btn" id="wvw-altar-close" style="margin-top:14px;">Close</button>
+      <button type="button" class="btn light" id="wvw-altar-close" style="margin-top:14px;">Close</button>
     `;
 
     overlayInner.querySelectorAll("button[data-spell]").forEach(btn => {
       btn.addEventListener("click", () => {
-        const key = btn.getAttribute("data-spell");
+        const key = btn.dataset.spell;
         const cfg = SPELLS[key];
-        if (total >= cfg.cost && !spellUnlocked.has(key)){
+        if (totalCrystals() >= cfg.cost && !spellUnlocked.has(key)){
           spendCrystals(cfg.cost);
           spellUnlocked.add(key);
-          if (DEBUG) console.log("[WvW] unlocked " + key);
+          if (DEBUG) console.log("[WvW] unlocked spell " + key);
           renderAltar();
           saveProgress();
         }
       });
     });
-
     overlayInner.querySelectorAll("button[data-armor]").forEach(btn => {
       btn.addEventListener("click", () => {
-        const key = btn.getAttribute("data-armor");
-        if (buyArmor(key)){ renderAltar(); saveProgress(); }
+        if (buyArmor(btn.dataset.armor)){
+          renderAltar();
+          saveProgress();
+        }
       });
     });
-
     const manaBtn = document.getElementById("wvw-mana-upgrade-btn");
-    if (manaBtn) manaBtn.addEventListener("click", () => {
-      if (buyManaUpgrade()){ renderAltar(); saveProgress(); }
-    });
-
+    if (manaBtn){
+      manaBtn.addEventListener("click", () => {
+        if (buyManaUpgrade()){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    }
+    const repairBtn = document.getElementById("wvw-repair-btn");
+    if (repairBtn){
+      repairBtn.addEventListener("click", () => {
+        if (repairArmor()){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    }
     document.getElementById("wvw-altar-close").addEventListener("click", closeAltar);
   }
 
   /* ---------------- init ---------------- */
-  window.initWalterVsWizards = function(canvasId, overlayId, overlayInnerId){
-    canvas = document.getElementById(canvasId);
-    overlay = document.getElementById(overlayId);
-    overlayInner = document.getElementById(overlayInnerId);
-    if (!canvas || !overlay || !overlayInner) return;
+  function initGame(){
+    canvas = document.getElementById("walter-canvas");
+    overlay = document.getElementById("walter-overlay");
+    overlayInner = document.getElementById("walter-overlay-inner");
+    if (!canvas || !overlay) return;
 
     ctx = canvas.getContext("2d");
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
-
-    canvas.addEventListener("keydown", onKeyDown);
-    canvas.addEventListener("keyup", onKeyUp);
-    canvas.addEventListener("touchstart", (e) => {
-      if (e.touches && e.touches[0]) handleTap(e.touches[0].clientX);
-    });
-    canvas.addEventListener("mousedown", (e) => {
-      handleTap(e.clientX);
-    });
-
     resetState();
+    running = false;
+    loginComplete = false;
+    draw();
     showLoginOverlay();
-  };
 
+    canvas.addEventListener("click", (e) => { canvas.focus(); handleTap(e.clientX); });
+    canvas.addEventListener("touchstart", (e) => { e.preventDefault(); canvas.focus(); handleTap(e.touches[0].clientX); }, { passive: false });
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", (e) => { if (document.activeElement === canvas) onKeyUp(e); });
+  }
+
+  document.addEventListener("DOMContentLoaded", initGame);
 })();
