@@ -370,6 +370,29 @@
     { key: "angel",       letter: "A" },
     { key: "teleport",    letter: "T" }
   ];
+  const ALL_SPELL_LETTERS = SPELL_LETTERS.concat(RARE_SPELL_LETTERS); // 9 total — one per amulet slot
+
+  /* ==================== Amulets ====================
+     Boss-dropped, unique, 9 spell slots, no duplicates. A slot just
+     holds a spell key; the amulet's passive buff only applies while its
+     specific buffSpell is actually sitting in one of the 9 slots.
+     Only one amulet exists so far — the cyclops is the only boss. */
+  const AMULET_ORDER = ["cyclopsEye"];
+  const AMULETS = {
+    cyclopsEye: {
+      label: "The Cyclops's Eye",
+      buffSpell: "fireball",
+      burnDurationMultiplier: 1.5 // level 1: +50% fireball burn duration while slotted
+    }
+  };
+
+  function isAmuletBuffActive(spellKey){
+    if (!player.equippedAmulet) return false;
+    const amulet = AMULETS[player.equippedAmulet];
+    if (!amulet || amulet.buffSpell !== spellKey) return false;
+    const slots = player.amuletSlots[player.equippedAmulet];
+    return !!slots && slots.includes(spellKey);
+  }
 
   const DEBUG = true; // logs key events to the console — flip to false once things look right
   /* ==================== end config ==================== */
@@ -447,6 +470,25 @@
     return true;
   }
 
+  function assignAmuletSlot(amuletKey, slotIndex, spellKey){
+    if (!player.amuletsOwned.has(amuletKey)) return false;
+    if (slotIndex < 0 || slotIndex >= 9) return false;
+    if (spellKey && !spellUnlocked.has(spellKey)) return false; // can't slot a spell you don't have
+
+    const slots = player.amuletSlots[amuletKey];
+    if (!slots) return false;
+
+    // No duplicates: if this spell is already in another slot, clear it
+    // there first — each spell can only occupy one slot at a time.
+    if (spellKey){
+      for (let i = 0; i < slots.length; i++){
+        if (slots[i] === spellKey) slots[i] = null;
+      }
+    }
+    slots[slotIndex] = spellKey || null;
+    return true;
+  }
+
   function buyManaUpgrade(){
     if (player.silver < MANA_UPGRADE_COST_SILVER) return false;
     player.silver -= MANA_UPGRADE_COST_SILVER;
@@ -515,18 +557,52 @@
     ).join("");
     const armorChar = ARMOR_LETTERS[player.armorType] || "N";
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
-    return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^";
+    const amuletStr = encodeAmulets();
+    return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*";
+  }
+
+  // Single-amulet format for now: <owned 0/1><equipped 0/1><9 slot letters,
+  // x = empty, reusing the same spell letters as everywhere else in the
+  // codex>. Will need redesigning once a second amulet actually exists —
+  // this doesn't try to generalize past that yet.
+  function encodeAmulets(){
+    const key = "cyclopsEye";
+    const owned = player.amuletsOwned.has(key) ? "1" : "0";
+    const equipped = player.equippedAmulet === key ? "1" : "0";
+    const slots = player.amuletSlots[key] || new Array(9).fill(null);
+    const slotsStr = slots.map(s => {
+      if (!s) return "x";
+      const entry = ALL_SPELL_LETTERS.find(e => e.key === s);
+      return entry ? entry.letter : "x";
+    }).join("");
+    return owned + equipped + slotsStr;
+  }
+
+  function decodeAmulets(str){
+    const result = { owned: false, equipped: false, slots: new Array(9).fill(null) };
+    if (!str || str.length < 11) return result;
+    result.owned = str[0] === "1";
+    result.equipped = str[1] === "1";
+    for (let i = 0; i < 9; i++){
+      const c = str[2 + i];
+      if (c && c !== "x"){
+        const entry = ALL_SPELL_LETTERS.find(e => e.letter.toUpperCase() === c.toUpperCase());
+        if (entry) result.slots[i] = entry.key;
+      }
+    }
+    return result;
   }
 
   function decodeProgress(str){
     const result = {
       silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
-      crewHired: false, land1ChestCollected: false
+      crewHired: false, land1ChestCollected: false,
+      amuletOwned: false, amuletEquipped: false, amuletSlots: new Array(9).fill(null)
     };
     if (!str) return result;
-    // The #maxMana#, ~rare~, and ^flags^ segments are all optional so saves
-    // from before each feature existed still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?/);
+    // The #maxMana#, ~rare~, ^flags^, and *amulet* segments are all
+    // optional so saves from before each feature existed still load fine.
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([01x A-Za-z]*)\*)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -547,6 +623,11 @@
     result.crewHired = flags[0] === "1";
     result.land1ChestCollected = flags[1] === "1";
 
+    const amuletData = decodeAmulets(m[8] || "");
+    result.amuletOwned = amuletData.owned;
+    result.amuletEquipped = amuletData.equipped;
+    result.amuletSlots = amuletData.slots;
+
     return result;
   }
 
@@ -563,6 +644,11 @@
       player.armorType = loadedProgress.armor;
       player.armorMaxHp = Math.round(PLAYER_MAX_HP * ARMOR[loadedProgress.armor].multiplier);
       player.armorHp = player.armorMaxHp;
+    }
+    if (loadedProgress.amuletOwned){
+      player.amuletsOwned.add("cyclopsEye");
+      player.amuletSlots.cyclopsEye = loadedProgress.amuletSlots;
+      if (loadedProgress.amuletEquipped) player.equippedAmulet = "cyclopsEye";
     }
     if (player.crewHired){
       const spawn = spawnPoint();
@@ -601,6 +687,7 @@
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
       waterStrokeCooldown: 0,
       crewHired: false, land1ChestCollected: false,
+      equippedAmulet: null,
       burningFrames: 0,
       mysticArmorFramesLeft: 0,
       invulnFrames: RESPAWN_INVULN_FRAMES
@@ -617,6 +704,8 @@
     spellCooldowns = { fireball: 0, lightning: 0, freeze: 0, summonAlly: 0, blackHole: 0,
       mysticArmor: 0, demon: 0, angel: 0, teleport: 0 };
     spellUnlocked = new Set();
+    player.amuletsOwned = new Set();
+    player.amuletSlots = {}; // { amuletKey: [9 slots, spell key or null] }, populated as amulets are earned
     activeSpell = null; // null = sword
     meleeCooldown = 0;
     respawnMessageTimer = 0;
@@ -946,6 +1035,15 @@
         player.silver += SILVER_PER_KNIGHT;
         if (DEBUG) console.log("[WvW] knight defeated, silver=" + player.silver);
       }
+      if (en.type === "cyclops" && !player.amuletsOwned.has("cyclopsEye")){
+        player.amuletsOwned.add("cyclopsEye");
+        player.amuletSlots.cyclopsEye = new Array(9).fill(null);
+        if (!player.equippedAmulet) player.equippedAmulet = "cyclopsEye"; // auto-equip a first amulet
+        respawnMessageText = "The cyclops dropped " + AMULETS.cyclopsEye.label + "!";
+        respawnMessageTimer = 180;
+        if (DEBUG) console.log("[WvW] earned amulet: cyclopsEye");
+        saveProgress();
+      }
     }
   }
 
@@ -1146,11 +1244,15 @@
   /* ---------------- projectiles ---------------- */
   function triggerFireSplash(x, y){
     const cfg = SPELLS.fireball;
+    const buffed = isAmuletBuffActive("fireball");
+    const burnDuration = buffed
+      ? Math.round(cfg.burnDuration * AMULETS[player.equippedAmulet].burnDurationMultiplier)
+      : cfg.burnDuration;
     enemies.forEach(en => {
       if (en.hp <= 0) return;
       const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
       const dx = enCx - x, dy = enCy - y;
-      if (Math.sqrt(dx*dx + dy*dy) < cfg.splashRadius) en.burningFrames = cfg.burnDuration;
+      if (Math.sqrt(dx*dx + dy*dy) < cfg.splashRadius) en.burningFrames = burnDuration;
     });
     effects.push({ type: "fire-burst", x, y, radius: cfg.splashRadius, life: 20 });
   }
@@ -2220,6 +2322,38 @@
     document.getElementById("wvw-map-close").addEventListener("click", closeMap);
   }
 
+  function renderAmuletSection(){
+    if (player.amuletsOwned.size === 0) return "";
+
+    const amuletKey = player.equippedAmulet;
+    const amulet = AMULETS[amuletKey];
+    const slots = player.amuletSlots[amuletKey] || new Array(9).fill(null);
+    const buffActive = isAmuletBuffActive(amulet.buffSpell);
+    const buffSpellLabel = SPELLS[amulet.buffSpell] ? SPELLS[amulet.buffSpell].label : amulet.buffSpell;
+
+    const allSpellKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
+    const assignedElsewhere = new Set(slots.filter(Boolean));
+
+    const slotRows = slots.map((assigned, i) => {
+      const choices = allSpellKeys.filter(k => spellUnlocked.has(k) && (k === assigned || !assignedElsewhere.has(k)));
+      const options = ['<option value="">Empty</option>'].concat(
+        choices.map(k => `<option value="${k}" ${k === assigned ? "selected" : ""}>${SPELLS[k].label}</option>`)
+      ).join("");
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;">
+          <span style="font-size:0.78rem;opacity:0.75;min-width:48px;">Slot ${i + 1}</span>
+          <select data-amulet-slot="${i}" style="flex:1;">${options}</select>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <p style="font-weight:700;margin:14px 0 4px;">${amulet.label}${buffActive ? " — buff active" : ""}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-4px;">Slot ${buffSpellLabel} into any of the 9 slots to activate its passive (+50% Fireball burn duration).</p>
+      <div style="text-align:left;">${slotRows}</div>
+    `;
+  }
+
   function renderAltar(){
     const total = totalCrystals();
     const spellRows = SPELL_ORDER.map((key, i) => {
@@ -2270,6 +2404,8 @@
       </div>
     `;
 
+    const amuletSection = renderAmuletSection();
+
     overlayInner.innerHTML = `
       <h3>Wizard Skill Altar</h3>
       <p>You have ${total} crystal${total === 1 ? "" : "s"} to spend on spells (carried + banked), and ${player.silver} silver for armor and mana.</p>
@@ -2280,6 +2416,7 @@
       ${repairRow ? `<div style="text-align:left;">${repairRow}</div>` : ""}
       <p style="font-weight:700;margin:14px 0 4px;">Mana (repeatable)</p>
       <div style="text-align:left;">${manaRow}</div>
+      ${amuletSection}
       <button type="button" class="btn light" id="wvw-altar-close" style="margin-top:14px;">Close</button>
     `;
 
@@ -2322,6 +2459,15 @@
         }
       });
     }
+    overlayInner.querySelectorAll("select[data-amulet-slot]").forEach(sel => {
+      sel.addEventListener("change", () => {
+        const slotIndex = Number(sel.dataset.amuletSlot);
+        if (assignAmuletSlot(player.equippedAmulet, slotIndex, sel.value || null)){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    });
     document.getElementById("wvw-altar-close").addEventListener("click", closeAltar);
   }
 
