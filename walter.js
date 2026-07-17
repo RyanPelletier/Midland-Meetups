@@ -37,6 +37,19 @@
     skyForest: "#A9D48C",
     skyCaveEntrance: "#6B6355",
     skyInnerCave: "#0D0D0F",
+    skyVillage: "#F5E6C8",
+    skyCastleZone: "#EFD9A8",
+    houseDecrepit: "#8A8378",
+    houseDecrepitDark: "#5C574C",
+    houseWall: "#E8C99B",
+    houseRoof: "#B8543A",
+    houseDoor: "#6B4222",
+    townHallWall: "#D9C08A",
+    townHallRoof: "#8B5A2B",
+    castleDecrepit: "#7A7264",
+    castleDecrepitDark: "#5C564A",
+    castleRebuilt: "#D4AF37",
+    castleRebuiltDark: "#A8842A",
     grassBlade: "#4E8F35",
     cyclopsBody: "#6B5842",
     cyclopsEye: "#E14B3C",
@@ -211,28 +224,78 @@
   ];
   const CLIMB_POINTS_LAND2 = []; // no climbable structure on land 2 yet
 
+  /* ==================== Home Base: Village / Village / Castle ====================
+     A third sailable destination, entirely peaceful — no waves anywhere.
+     Starts fully decrepit. Houses are individually leveled but managed
+     from a single Town Hall interaction point in Village 1, rather than
+     requiring a walk-up trigger per house. The Castle is a one-time flat
+     remodel — the current endgame condition. */
+  const HOMEBASE_DOCK_WIDTH = 200;
+  const HOMEBASE_VILLAGE1_WIDTH = 700;
+  const HOMEBASE_VILLAGE2_WIDTH = 700;
+  const HOMEBASE_CASTLE_WIDTH = 500;
+  const HOMEBASE_DOCK_END = HOMEBASE_DOCK_WIDTH;
+  const HOMEBASE_VILLAGE1_END = HOMEBASE_DOCK_END + HOMEBASE_VILLAGE1_WIDTH;
+  const HOMEBASE_VILLAGE2_END = HOMEBASE_VILLAGE1_END + HOMEBASE_VILLAGE2_WIDTH;
+  const HOMEBASE_CASTLE_END = HOMEBASE_VILLAGE2_END + HOMEBASE_CASTLE_WIDTH;
+  const HOMEBASE_WORLD_WIDTH = HOMEBASE_CASTLE_END;
+  const HOMEBASE_DOCK_X = 90;
+
+  // 3 houses per village (6 total) — no count was specified in the design
+  // doc, this is a starting guess. Add more entries here to expand later.
+  const HOMEBASE_HOUSES = [
+    { id: "v1h1", x: HOMEBASE_DOCK_END + 120, village: 1 },
+    { id: "v1h2", x: HOMEBASE_DOCK_END + 320, village: 1 },
+    { id: "v1h3", x: HOMEBASE_DOCK_END + 520, village: 1 },
+    { id: "v2h1", x: HOMEBASE_VILLAGE1_END + 120, village: 2 },
+    { id: "v2h2", x: HOMEBASE_VILLAGE1_END + 320, village: 2 },
+    { id: "v2h3", x: HOMEBASE_VILLAGE1_END + 520, village: 2 }
+  ];
+  const HOMEBASE_TOWNHALL_X = HOMEBASE_DOCK_END + 40;
+  const HOMEBASE_CASTLE_X = HOMEBASE_VILLAGE2_END + 180;
+
+  // House economy — house upgrade cost is 200 * 2.5^(level-1); rent is
+  // 50 * 1.5^(level-1) silver/minute once occupied (level >= 1).
+  const HOUSE_BASE_COST = 200;
+  const HOUSE_COST_MULTIPLIER = 2.5;
+  const HOUSE_BASE_RENT_PER_MIN = 50;
+  const HOUSE_RENT_MULTIPLIER = 1.5;
+  const CASTLE_REBUILD_COST = 10000;
+
+  const CHESTS_HOMEBASE = [];
+  const WALKUP_ALTARS_HOMEBASE = [
+    { x: HOMEBASE_DOCK_X + 40, w: 40, h: 40, action: "map" },
+    { x: HOMEBASE_TOWNHALL_X, w: 40, h: 40, action: "townhall" },
+    { x: HOMEBASE_CASTLE_X, w: 60, h: 70, action: "castle" }
+  ];
+  const CLIMB_POINTS_HOMEBASE = [];
+
   function currentWorldWidth(){
     if (currentMap === "land1") return LAND1_WORLD_WIDTH;
     if (currentMap === "land2") return LAND2_WORLD_WIDTH;
+    if (currentMap === "homebase") return HOMEBASE_WORLD_WIDTH;
     return WORLD_WIDTH;
   }
   function getChests(){
     if (currentMap === "land1") return CHESTS_LAND1;
     if (currentMap === "land2") return CHESTS_LAND2;
+    if (currentMap === "homebase") return CHESTS_HOMEBASE;
     return CHESTS_HOME;
   }
   function getWalkupAltars(){
     if (currentMap === "land1") return WALKUP_ALTARS_LAND1;
     if (currentMap === "land2") return WALKUP_ALTARS_LAND2;
+    if (currentMap === "homebase") return WALKUP_ALTARS_HOMEBASE;
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
     if (currentMap === "land1") return CLIMB_POINTS_LAND1;
     if (currentMap === "land2") return CLIMB_POINTS_LAND2;
+    if (currentMap === "homebase") return CLIMB_POINTS_HOMEBASE;
     return CLIMB_POINTS_HOME;
   }
   function getTrees(){
-    return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2 has no trees (grass + cave)
+    return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2/homebase have no trees
   }
 
   const PLAYER_W = 28, PLAYER_H = 42;
@@ -402,7 +465,7 @@
   let cameraX, frame, totalKills, keysDown;
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
-  let altarOpen, mapOpen, rareAltarOpen, started, running;
+  let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
   let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave;
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
@@ -428,6 +491,12 @@
       if (x < LAND2_GRASS_END) return "l2grass";
       if (x < LAND2_CAVE_END) return "cave";
       return "innercave";
+    }
+    if (currentMap === "homebase"){
+      if (x < HOMEBASE_DOCK_END) return "dock";
+      if (x < HOMEBASE_VILLAGE1_END) return "village1";
+      if (x < HOMEBASE_VILLAGE2_END) return "village2";
+      return "castlezone";
     }
     if (x < TOWER_END) return "tower";
     if (x < WALL_END) return "wall";
@@ -467,6 +536,41 @@
     player.armorHp = player.armorMaxHp;
     player.armorBroken = false;
     if (DEBUG) console.log("[WvW] repaired " + player.armorType + " armor for " + ARMOR_REPAIR_COST + " silver");
+    return true;
+  }
+
+  function houseUpgradeCost(currentLevel){
+    // Level 0->1 costs the base; each level after that is 2.5x the
+    // previous level's cost.
+    return Math.round(HOUSE_BASE_COST * Math.pow(HOUSE_COST_MULTIPLIER, currentLevel));
+  }
+
+  function houseRentPerMinute(level){
+    if (level <= 0) return 0;
+    return HOUSE_BASE_RENT_PER_MIN * Math.pow(HOUSE_RENT_MULTIPLIER, level - 1);
+  }
+
+  function totalPassiveIncomePerMinute(){
+    return HOMEBASE_HOUSES.reduce((sum, h) => sum + houseRentPerMinute(player.houseLevels[h.id] || 0), 0);
+  }
+
+  function upgradeHouse(houseId){
+    const level = player.houseLevels[houseId] || 0;
+    const cost = houseUpgradeCost(level);
+    if (player.silver < cost) return false;
+    player.silver -= cost;
+    player.houseLevels[houseId] = level + 1;
+    if (DEBUG) console.log("[WvW] " + houseId + " upgraded to level " + (level + 1));
+    return true;
+  }
+
+  function rebuildCastle(){
+    if (player.castleRebuilt || player.silver < CASTLE_REBUILD_COST) return false;
+    player.silver -= CASTLE_REBUILD_COST;
+    player.castleRebuilt = true;
+    respawnMessageText = "The Castle stands rebuilt. Victory!";
+    respawnMessageTimer = 240;
+    if (DEBUG) console.log("[WvW] castle rebuilt — victory condition met");
     return true;
   }
 
@@ -531,6 +635,16 @@
     if (DEBUG) console.log("[WvW] set sail for the second land");
   }
 
+  function sailToHomebase(){
+    currentMap = "homebase";
+    player.x = HOMEBASE_DOCK_X + 10;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    enemies = [];
+    enemyProjectiles = [];
+    if (DEBUG) console.log("[WvW] set sail for home base");
+  }
+
   function sailHome(){
     currentMap = "home";
     const spawn = spawnPoint();
@@ -558,7 +672,28 @@
     const armorChar = ARMOR_LETTERS[player.armorType] || "N";
     const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
     const amuletStr = encodeAmulets();
-    return "$" + player.silver + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*";
+    const homebaseStr = encodeHomebase();
+    // Silver accrues fractionally now (passive income), but the codex only
+    // stores whole numbers — floor it here. The in-memory fractional part
+    // just keeps accumulating during the session; only the saved snapshot
+    // is truncated.
+    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+";
+  }
+
+  function encodeHomebase(){
+    const levels = HOMEBASE_HOUSES.map(h => player.houseLevels[h.id] || 0);
+    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0");
+  }
+
+  function decodeHomebase(str){
+    const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false };
+    if (!str) return result;
+    const parts = str.split(",").map(s => parseInt(s, 10));
+    HOMEBASE_HOUSES.forEach((h, i) => {
+      result.houseLevels[i] = Number.isFinite(parts[i]) ? Math.max(0, parts[i]) : 0;
+    });
+    result.castleRebuilt = parts[HOMEBASE_HOUSES.length] === 1;
+    return result;
   }
 
   // Single-amulet format for now: <owned 0/1><equipped 0/1><9 slot letters,
@@ -597,12 +732,13 @@
     const result = {
       silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
       crewHired: false, land1ChestCollected: false,
-      amuletOwned: false, amuletEquipped: false, amuletSlots: new Array(9).fill(null)
+      amuletOwned: false, amuletEquipped: false, amuletSlots: new Array(9).fill(null),
+      houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false
     };
     if (!str) return result;
-    // The #maxMana#, ~rare~, ^flags^, and *amulet* segments are all
-    // optional so saves from before each feature existed still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([01x A-Za-z]*)\*)?/);
+    // The #maxMana#, ~rare~, ^flags^, *amulet*, and +homebase+ segments are
+    // all optional so saves from before each feature existed still load fine.
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC])!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([01x A-Za-z]*)\*)?(?:\+([\d,]*)\+)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -628,6 +764,10 @@
     result.amuletEquipped = amuletData.equipped;
     result.amuletSlots = amuletData.slots;
 
+    const homebaseData = decodeHomebase(m[9] || "");
+    result.houseLevels = homebaseData.houseLevels;
+    result.castleRebuilt = homebaseData.castleRebuilt;
+
     return result;
   }
 
@@ -650,6 +790,8 @@
       player.amuletSlots.cyclopsEye = loadedProgress.amuletSlots;
       if (loadedProgress.amuletEquipped) player.equippedAmulet = "cyclopsEye";
     }
+    HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
+    player.castleRebuilt = loadedProgress.castleRebuilt;
     if (player.crewHired){
       const spawn = spawnPoint();
       player.x = spawn.x;
@@ -706,6 +848,9 @@
     spellUnlocked = new Set();
     player.amuletsOwned = new Set();
     player.amuletSlots = {}; // { amuletKey: [9 slots, spell key or null] }, populated as amulets are earned
+    player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
+    HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
+    player.castleRebuilt = false;
     activeSpell = null; // null = sword
     meleeCooldown = 0;
     respawnMessageTimer = 0;
@@ -713,6 +858,8 @@
     altarOpen = false;
     mapOpen = false;
     rareAltarOpen = false;
+    townHallOpen = false;
+    castleUiOpen = false;
     wasAtWalkupAltar = false;
     wasAtClimbTop = false;
     wasInInnerCave = false;
@@ -770,6 +917,7 @@
     updateCamera();
     updateCooldowns();
     updateMana();
+    updatePassiveIncome();
     updateWaveSpawning();
     updateCyclopsEncounter();
     updateEnemies();
@@ -807,6 +955,12 @@
     if (player.mana < player.maxMana){
       player.mana = Math.min(player.maxMana, player.mana + MANA_REGEN_PER_FRAME);
     }
+  }
+
+  function updatePassiveIncome(){
+    const perMinute = totalPassiveIncomePerMinute();
+    if (perMinute <= 0) return;
+    player.silver += perMinute / 60 / 60; // per-minute rate -> per-frame at 60fps, ticks regardless of current map
   }
 
   function activeClimbPoint(){
@@ -1088,7 +1242,7 @@
   }
 
   /* ---------------- wave spawning ---------------- */
-  const PEACEFUL_ZONES = ["tower", "water", "dock", "innercave"]; // innercave uses its own single-cyclops spawn, not the wave system
+  const PEACEFUL_ZONES = ["tower", "water", "dock", "innercave", "village1", "village2", "castlezone"]; // innercave uses its own single-cyclops spawn; homebase is entirely peaceful
 
   function updateWaveSpawning(){
     const zone = currentZone(player.x);
@@ -1359,6 +1513,8 @@
     if (walkupHit && !wasAtWalkupAltar){
       if (walkupHit.action === "map" && !mapOpen) openMap();
       else if (walkupHit.action === "altar" && !altarOpen) openAltar();
+      else if (walkupHit.action === "townhall" && !townHallOpen) openTownHall();
+      else if (walkupHit.action === "castle" && !castleUiOpen) openCastleUi();
     }
     wasAtWalkupAltar = !!walkupHit;
 
@@ -1383,6 +1539,11 @@
     }else if (currentMap === "land2"){
       drawLand2Dock();
       drawLand2Cave();
+    }else if (currentMap === "homebase"){
+      drawHomebaseDock();
+      drawHomebaseHouses();
+      drawHomebaseTownHall();
+      drawHomebaseCastle();
     }else{
       drawWater();
       drawCastleWalls();
@@ -1421,6 +1582,13 @@
         { from: LAND2_DOCK_END, to: LAND2_GRASS_END, color: COLORS.skyGrass },
         { from: LAND2_GRASS_END, to: LAND2_CAVE_END, color: COLORS.skyCaveEntrance },
         { from: LAND2_CAVE_END, to: LAND2_INNERCAVE_END, color: COLORS.skyInnerCave }
+      ];
+    }else if (currentMap === "homebase"){
+      bands = [
+        { from: 0, to: HOMEBASE_DOCK_END, color: COLORS.skyDock },
+        { from: HOMEBASE_DOCK_END, to: HOMEBASE_VILLAGE1_END, color: COLORS.skyVillage },
+        { from: HOMEBASE_VILLAGE1_END, to: HOMEBASE_VILLAGE2_END, color: COLORS.skyVillage },
+        { from: HOMEBASE_VILLAGE2_END, to: HOMEBASE_CASTLE_END, color: COLORS.skyCastleZone }
       ];
     }else{
       bands = [
@@ -1550,6 +1718,106 @@
 
   function drawLand1Dock(){ drawDockAt(LAND1_DOCK_X); }
   function drawLand2Dock(){ drawDockAt(LAND2_DOCK_X); }
+  function drawHomebaseDock(){ drawDockAt(HOMEBASE_DOCK_X); }
+
+  function drawHomebaseHouses(){
+    HOMEBASE_HOUSES.forEach(h => {
+      const x = worldToScreen(h.x);
+      if (x < -60 || x > CANVAS_W + 60) return;
+      const level = player.houseLevels[h.id] || 0;
+      const baseW = 50, baseH = 40;
+      const w = baseW + Math.min(level, 5) * 4; // grows slightly with level, then caps
+      const houseY = GROUND_Y - baseH;
+
+      if (level === 0){
+        ctx.fillStyle = COLORS.houseDecrepit;
+        ctx.fillRect(x, houseY, baseW, baseH);
+        ctx.strokeStyle = COLORS.houseDecrepitDark;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - 4, houseY + 6);
+        ctx.lineTo(x + baseW + 2, houseY - 6); // a broken, tilted roofline
+        ctx.stroke();
+      }else{
+        ctx.fillStyle = COLORS.houseWall;
+        ctx.fillRect(x, houseY + 10, w, baseH - 10);
+        ctx.fillStyle = COLORS.houseRoof;
+        ctx.beginPath();
+        ctx.moveTo(x - 4, houseY + 10);
+        ctx.lineTo(x + w / 2, houseY - 12);
+        ctx.lineTo(x + w + 4, houseY + 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = COLORS.houseDoor;
+        ctx.fillRect(x + w / 2 - 6, houseY + 20, 12, 20);
+
+        ctx.fillStyle = COLORS.hud;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("Lv" + level, x + w / 2, houseY - 16);
+      }
+    });
+  }
+
+  function drawHomebaseTownHall(){
+    const x = worldToScreen(HOMEBASE_TOWNHALL_X);
+    if (x < -60 || x > CANVAS_W + 60) return;
+    const w = 44, h = 60;
+    const y = GROUND_Y - h;
+    ctx.fillStyle = COLORS.townHallWall;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = COLORS.townHallRoof;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x + w / 2, y - 20);
+    ctx.lineTo(x + w + 6, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = COLORS.townHallRoof;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2, y - 20);
+    ctx.lineTo(x + w / 2, y - 34);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.hud;
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2, y - 34);
+    ctx.lineTo(x + w / 2 + 14, y - 28);
+    ctx.lineTo(x + w / 2, y - 22);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawHomebaseCastle(){
+    const x = worldToScreen(HOMEBASE_CASTLE_X);
+    if (x < -100 || x > CANVAS_W + 100) return;
+    const w = 120, h = 130;
+    const y = GROUND_Y - h;
+    const rebuilt = player.castleRebuilt;
+
+    ctx.fillStyle = rebuilt ? COLORS.castleRebuilt : COLORS.castleDecrepit;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = rebuilt ? COLORS.castleRebuiltDark : COLORS.castleDecrepitDark;
+    for (let cx = 0; cx < w; cx += 24){
+      ctx.fillRect(x + cx, y - 12, 14, 12);
+    }
+
+    if (rebuilt){
+      ctx.strokeStyle = COLORS.castleRebuiltDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, y - 12);
+      ctx.lineTo(x + w / 2, y - 40);
+      ctx.stroke();
+      ctx.fillStyle = COLORS.mana;
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, y - 40);
+      ctx.lineTo(x + w / 2 + 16, y - 33);
+      ctx.lineTo(x + w / 2, y - 26);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
 
   function drawLand2Cave(){
     // a simple rocky arch marking the mouth of the cave — the inner cave
@@ -2014,7 +2282,7 @@
     ctx.textAlign = "left";
     ctx.fillText("Crystals: " + player.carriedCrystals + " carried / " + player.bankedCrystals + " banked", 12, 64);
     ctx.fillStyle = COLORS.silver;
-    ctx.fillText("Silver: " + player.silver, 12, 80);
+    ctx.fillText("Silver: " + Math.floor(player.silver), 12, 80);
 
     ctx.textAlign = "right";
     ctx.fillStyle = COLORS.hud;
@@ -2055,7 +2323,7 @@
   /* ---------------- loop / lifecycle ---------------- */
   function loop(){
     if (!running) return;
-    if (!altarOpen && !mapOpen && !rareAltarOpen) update();
+    if (!altarOpen && !mapOpen && !rareAltarOpen && !townHallOpen && !castleUiOpen) update();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -2228,6 +2496,87 @@
     // Same reasoning as closeAltar() — no loop() call, the rAF chain never stopped.
   }
 
+  function openTownHall(){
+    townHallOpen = true;
+    renderTownHall();
+    overlay.style.display = "flex";
+  }
+  function closeTownHall(){
+    townHallOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+
+  function renderTownHall(){
+    const totalIncome = totalPassiveIncomePerMinute();
+    const houseRows = HOMEBASE_HOUSES.map(h => {
+      const level = player.houseLevels[h.id] || 0;
+      const cost = houseUpgradeCost(level);
+      const affordable = player.silver >= cost;
+      const rent = houseRentPerMinute(level);
+      const label = level === 0 ? "Decrepit House" : "House (Level " + level + ")";
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>Village ${h.village} — ${label}${level > 0 ? " — " + rent.toFixed(0) + "/min" : ""}</span>
+          <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-house="${h.id}" ${affordable ? "" : "disabled"}>${level === 0 ? "Remodel" : "Upgrade"} (${cost} silver)</button>
+        </div>
+      `;
+    }).join("");
+
+    overlayInner.innerHTML = `
+      <h3>Town Hall</h3>
+      <p>Total passive income: ${totalIncome.toFixed(0)} silver/minute — ticks while the game is open, no matter where you're exploring.</p>
+      <div style="text-align:left;">${houseRows}</div>
+      <button type="button" class="btn light" id="wvw-townhall-close" style="margin-top:14px;">Close</button>
+    `;
+
+    overlayInner.querySelectorAll("button[data-house]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (upgradeHouse(btn.dataset.house)){
+          renderTownHall();
+          saveProgress();
+        }
+      });
+    });
+    document.getElementById("wvw-townhall-close").addEventListener("click", closeTownHall);
+  }
+
+  function openCastleUi(){
+    castleUiOpen = true;
+    renderCastleUi();
+    overlay.style.display = "flex";
+  }
+  function closeCastleUi(){
+    castleUiOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+
+  function renderCastleUi(){
+    const affordable = player.silver >= CASTLE_REBUILD_COST;
+    const body = player.castleRebuilt
+      ? `<p>The Castle stands rebuilt, restored to its former glory.</p>`
+      : `
+        <p>A decrepit ruin. Rebuilding it costs a flat ${CASTLE_REBUILD_COST} silver.</p>
+        <button type="button" class="btn" id="wvw-castle-rebuild-btn" ${affordable ? "" : "disabled"}>Rebuild the Castle (${CASTLE_REBUILD_COST} silver)</button>
+      `;
+    overlayInner.innerHTML = `
+      <h3>The Castle</h3>
+      ${body}
+      <button type="button" class="btn light" id="wvw-castle-close" style="margin-top:14px;">Close</button>
+    `;
+    const rebuildBtn = document.getElementById("wvw-castle-rebuild-btn");
+    if (rebuildBtn){
+      rebuildBtn.addEventListener("click", () => {
+        if (rebuildCastle()){
+          renderCastleUi();
+          saveProgress();
+        }
+      });
+    }
+    document.getElementById("wvw-castle-close").addEventListener("click", closeCastleUi);
+  }
+
   function renderRareAltar(){
     const key = "mysticArmor"; // the only rare spell actually placed anywhere yet
     const cfg = RARE_SPELLS[key];
@@ -2263,7 +2612,7 @@
   }
 
   function renderMap(){
-    const onAnyLand = currentMap === "land1" || currentMap === "land2";
+    const onAnyLand = currentMap === "land1" || currentMap === "land2" || currentMap === "homebase";
 
     let actionHTML;
     if (onAnyLand){
@@ -2278,6 +2627,7 @@
       actionHTML = `
         <button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Sail to the Second Land</button>
+        <button type="button" class="btn" id="wvw-sail-homebase-btn" style="margin-left:8px;">Sail to Home Base</button>
       `;
     }
 
@@ -2310,6 +2660,12 @@
     const sailLand2Btn = document.getElementById("wvw-sail-land2-btn");
     if (sailLand2Btn) sailLand2Btn.addEventListener("click", () => {
       sailToLand2();
+      closeMap();
+    });
+
+    const sailHomebaseBtn = document.getElementById("wvw-sail-homebase-btn");
+    if (sailHomebaseBtn) sailHomebaseBtn.addEventListener("click", () => {
+      sailToHomebase();
       closeMap();
     });
 
@@ -2408,7 +2764,7 @@
 
     overlayInner.innerHTML = `
       <h3>Wizard Skill Altar</h3>
-      <p>You have ${total} crystal${total === 1 ? "" : "s"} to spend on spells (carried + banked), and ${player.silver} silver for armor and mana.</p>
+      <p>You have ${total} crystal${total === 1 ? "" : "s"} to spend on spells (carried + banked), and ${Math.floor(player.silver)} silver for armor and mana.</p>
       <p style="font-size:0.82rem;opacity:0.85;margin-top:-8px;">${armorStatus}</p>
       <div style="text-align:left;">${spellRows}</div>
       <p style="font-weight:700;margin:14px 0 4px;">Armor (buying replaces your current piece)</p>
