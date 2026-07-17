@@ -2870,13 +2870,23 @@
 
   function drawSword(x){
     const swordDir = player.facing > 0 ? 1 : -1;
-    const handX = player.facing > 0 ? x + PLAYER_W : x;
-    const handY = player.y + 14;
+    const cx = x + PLAYER_W / 2;
+    // Anchored to the humanoid figure's actual arm position now (was
+    // anchored to the old full-body-width edges, which reads as
+    // floating too far out once the body got real limbs).
+    const handX = cx + 9 * swordDir;
+    const handY = player.y + 15;
 
-    // direction from hand toward the tip
-    const tipX = handX + 20 * swordDir;
-    const tipY = player.y - 2;
-    const dx = tipX - handX, dy = tipY - handY;
+    // Quick swing: sweeps from a raised, wound-up pose down through to
+    // the normal ready position over the first part of the melee
+    // cooldown, then just holds there until the next swing is available.
+    const SWING_DURATION = 10;
+    const elapsed = MELEE_COOLDOWN - meleeCooldown;
+    const t = (elapsed >= 0 && elapsed < SWING_DURATION) ? elapsed / SWING_DURATION : 1;
+    const dx = (6 + (20 - 6) * t) * swordDir;
+    const dy = -20 + (-16 - -20) * t; // -20 (raised) eases down to -16 (ready)
+
+    const tipX = handX + dx, tipY = handY + dy;
     const len = Math.sqrt(dx*dx + dy*dy) || 1;
     const ux = dx / len, uy = dy / len;       // unit vector along the blade
     const nx = -uy, ny = ux;                  // perpendicular (blade width direction)
