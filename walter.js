@@ -51,6 +51,10 @@
     houseWall: "#E8C99B",
     houseRoof: "#B8543A",
     houseDoor: "#6B4222",
+    shrineDecrepit: "#8A8378",
+    shrineDecrepitDark: "#5C574C",
+    shrineStone: "#B8AFA0",
+    shrineStoneDark: "#8C8272",
     townHallWall: "#D9C08A",
     townHallRoof: "#8B5A2B",
     castleDecrepit: "#7A7264",
@@ -269,6 +273,8 @@
     { id: "v2h3", x: HOMEBASE_VILLAGE1_END + 520, village: 2 }
   ];
   const HOMEBASE_TOWNHALL_X = HOMEBASE_DOCK_END + 420; // middle of village 1, clear of the entrance and the houses
+  const HOMEBASE_SHRINE_X = HOMEBASE_DOCK_END + 255; // village 1, in the gap between the first two houses
+  const SHRINE_MANA_BONUS_PER_LEVEL = 0.20; // +20% mana regen per remodel level, stacking (not compounding)
   const HOMEBASE_CASTLE_X = HOMEBASE_VILLAGE2_END + 180;
 
   // House economy — house upgrade cost is 200 * 2.5^(level-1); rent is
@@ -812,6 +818,19 @@
     return true;
   }
 
+  function upgradeShrine(){
+    const cost = houseUpgradeCost(player.shrineLevel); // same cost curve as houses — no separate price was specified
+    if (player.silver < cost) return false;
+    player.silver -= cost;
+    player.shrineLevel++;
+    if (DEBUG) console.log("[WvW] shrine remodeled to level " + player.shrineLevel + " — mana regen now +" + (player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL * 100) + "%");
+    return true;
+  }
+
+  function manaRegenMultiplier(){
+    return 1 + player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL;
+  }
+
   function rebuildCastle(){
     if (player.castleRebuilt || player.silver < CASTLE_REBUILD_COST) return false;
     player.silver -= CASTLE_REBUILD_COST;
@@ -935,17 +954,18 @@
 
   function encodeHomebase(){
     const levels = HOMEBASE_HOUSES.map(h => player.houseLevels[h.id] || 0);
-    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0");
+    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0") + "," + player.shrineLevel;
   }
 
   function decodeHomebase(str){
-    const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false };
+    const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0 };
     if (!str) return result;
     const parts = str.split(",").map(s => parseInt(s, 10));
     HOMEBASE_HOUSES.forEach((h, i) => {
       result.houseLevels[i] = Number.isFinite(parts[i]) ? Math.max(0, parts[i]) : 0;
     });
     result.castleRebuilt = parts[HOMEBASE_HOUSES.length] === 1;
+    result.shrineLevel = Number.isFinite(parts[HOMEBASE_HOUSES.length + 1]) ? Math.max(0, parts[HOMEBASE_HOUSES.length + 1]) : 0;
     return result;
   }
 
@@ -1025,7 +1045,7 @@
       silver: 0, crystals: 0, armor: "none", spells: new Set(), maxMana: MAX_MANA_START,
       crewHired: false, land1ChestCollected: false,
       amuletOwnedKeys: [], amuletEquippedKey: null, amuletSlotsByKey: {},
-      houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false,
+      houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0,
       worldSeed: null, highestUnlockedLand: 2
     };
     if (!str) return result;
@@ -1061,6 +1081,7 @@
     const homebaseData = decodeHomebase(m[9] || "");
     result.houseLevels = homebaseData.houseLevels;
     result.castleRebuilt = homebaseData.castleRebuilt;
+    result.shrineLevel = homebaseData.shrineLevel;
 
     const worldParts = (m[10] || "").split(",");
     if (worldParts[0]) result.worldSeed = parseInt(worldParts[0], 10) || null;
@@ -1090,6 +1111,7 @@
     if (loadedProgress.amuletEquippedKey) player.equippedAmulet = loadedProgress.amuletEquippedKey;
     HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
     player.castleRebuilt = loadedProgress.castleRebuilt;
+    player.shrineLevel = loadedProgress.shrineLevel || 0;
     // worldSeed is no longer applied here — lands re-roll per visit now, not per player.
     player.highestUnlockedLand = loadedProgress.highestUnlockedLand;
     if (player.crewHired){
@@ -1153,6 +1175,7 @@
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
+    player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
     // worldSeed is no longer generated/persisted per player — lands re-roll per visit now.
     player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
     activeSpell = null; // null = sword
@@ -1340,7 +1363,7 @@
 
   function updateMana(){
     if (player.mana < player.maxMana){
-      player.mana = Math.min(player.maxMana, player.mana + MANA_REGEN_PER_FRAME);
+      player.mana = Math.min(player.maxMana, player.mana + MANA_REGEN_PER_FRAME * manaRegenMultiplier());
     }
   }
 
@@ -2113,6 +2136,7 @@
     }else if (currentMap === "homebase"){
       drawHomebaseDock();
       drawHomebaseHouses();
+      drawHomebaseShrine();
       drawHomebaseTownHall();
       drawHomebaseCastle();
     }else if (currentMap === "generated"){
@@ -2517,6 +2541,48 @@
         ctx.fillText("Lv" + level, x + w / 2, houseY - 16);
       }
     });
+  }
+
+  function drawHomebaseShrine(){
+    const x = worldToScreen(HOMEBASE_SHRINE_X);
+    if (x < -40 || x > CANVAS_W + 40) return;
+    const level = player.shrineLevel;
+
+    if (level === 0){
+      ctx.fillStyle = COLORS.shrineDecrepit;
+      ctx.beginPath();
+      ctx.moveTo(x - 14, GROUND_Y);
+      ctx.lineTo(x - 6, GROUND_Y - 18);
+      ctx.lineTo(x + 8, GROUND_Y - 10);
+      ctx.lineTo(x + 16, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = COLORS.shrineDecrepitDark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, GROUND_Y - 6);
+      ctx.lineTo(x + 4, GROUND_Y - 14);
+      ctx.stroke();
+    }else{
+      const h = 30 + Math.min(level, 5) * 4; // grows slightly with level, then caps
+      ctx.fillStyle = COLORS.shrineStone;
+      ctx.fillRect(x - 6, GROUND_Y - h, 12, h);
+      ctx.fillStyle = COLORS.shrineStoneDark;
+      ctx.fillRect(x - 10, GROUND_Y - 6, 20, 6); // base
+      // pulsing mana glow on top, matching the mana bar's color
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.08);
+      ctx.fillStyle = COLORS.mana;
+      ctx.globalAlpha = 0.6 + 0.3 * pulse;
+      ctx.beginPath();
+      ctx.arc(x, GROUND_Y - h - 4, 6 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 10px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("Lv" + level, x, GROUND_Y - h - 16);
+    }
   }
 
   function drawHomebaseTownHall(){
@@ -3423,10 +3489,21 @@
       `;
     }).join("");
 
+    const shrineCost = houseUpgradeCost(player.shrineLevel);
+    const shrineAffordable = player.silver >= shrineCost;
+    const shrineLabel = player.shrineLevel === 0 ? "Decrepit Shrine" : "Shrine (Level " + player.shrineLevel + ")";
+    const shrineBonusPct = Math.round(player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL * 100);
+    const shrineRow = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+        <span>${shrineLabel}${player.shrineLevel > 0 ? " — +" + shrineBonusPct + "% mana regen" : ""}</span>
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" id="wvw-shrine-btn" ${shrineAffordable ? "" : "disabled"}>${player.shrineLevel === 0 ? "Remodel" : "Upgrade"} (${shrineCost} silver)</button>
+      </div>
+    `;
+
     overlayInner.innerHTML = `
       <h3>Town Hall</h3>
       <p>Total passive income: ${totalIncome.toFixed(0)} silver/minute — ticks while the game is open, no matter where you're exploring.</p>
-      <div style="text-align:left;">${houseRows}</div>
+      <div style="text-align:left;">${houseRows}${shrineRow}</div>
       <button type="button" class="btn light" id="wvw-townhall-close" style="margin-top:14px;">Close</button>
     `;
 
@@ -3438,6 +3515,15 @@
         }
       });
     });
+    const shrineBtn = document.getElementById("wvw-shrine-btn");
+    if (shrineBtn){
+      shrineBtn.addEventListener("click", () => {
+        if (upgradeShrine()){
+          renderTownHall();
+          saveProgress();
+        }
+      });
+    }
     document.getElementById("wvw-townhall-close").addEventListener("click", closeTownHall);
   }
 
