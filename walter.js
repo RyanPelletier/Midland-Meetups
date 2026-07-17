@@ -940,15 +940,38 @@
     wasInInnerCave = inInnerCave;
   }
 
+  // Player Power drives enemy scaling. No exact formula was specified, so:
+  // spell count (unlocked, standard + rare) + filled amulet slots (0-9,
+  // the only real "amulet progression" that exists yet) + armor tier
+  // weight (reusing each armor's existing HP multiplier rather than
+  // inventing new numbers). +5% enemy HP/damage per power point — also
+  // not specified, easy to retune via POWER_SCALING_FACTOR.
+  const POWER_SCALING_FACTOR = 0.05;
+
+  function playerPower(){
+    const spellCount = spellUnlocked.size;
+    const amuletSlotsFilled = player.equippedAmulet
+      ? (player.amuletSlots[player.equippedAmulet] || []).filter(Boolean).length
+      : 0;
+    const armorPower = (player.armorType && ARMOR[player.armorType]) ? (ARMOR[player.armorType].multiplier || 0) : 0;
+    return spellCount + amuletSlotsFilled + armorPower;
+  }
+
+  function difficultyMultiplier(){
+    return 1 + playerPower() * POWER_SCALING_FACTOR;
+  }
+
   function spawnCyclops(){
     const stats = ENEMY_STATS.cyclops;
+    const mult = difficultyMultiplier();
     const x = LAND2_INNERCAVE_END - 180;
     enemies.push({
       type: "cyclops", x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
-      hp: stats.hp, maxHp: stats.hp,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
     });
-    if (DEBUG) console.log("[WvW] cyclops spawned in the inner cave");
+    if (DEBUG) console.log("[WvW] cyclops spawned in the inner cave (power " + playerPower() + ", x" + mult.toFixed(2) + ")");
   }
 
   function updateMana(){
@@ -1293,6 +1316,7 @@
     else if (roll > r.knight) type = "archer";
 
     const stats = ENEMY_STATS[type];
+    const mult = difficultyMultiplier();
     const bounds = zoneCombatBounds(zone);
     let x;
     if (bounds.spawnSide === "right"){
@@ -1303,10 +1327,11 @@
 
     enemies.push({
       type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
-      hp: stats.hp, maxHp: stats.hp,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
     });
-    if (DEBUG) console.log("[WvW] spawned " + type + " in " + zone + " zone");
+    if (DEBUG) console.log("[WvW] spawned " + type + " in " + zone + " zone (power " + playerPower() + ", x" + mult.toFixed(2) + ")");
   }
 
   /* ---------------- enemies ---------------- */
@@ -1338,7 +1363,7 @@
         if (Math.abs(dist) > stats.contactRange){
           en.x += Math.sign(dist) * stats.speed;
         }else if (en.attackCooldown <= 0){
-          damagePlayer(stats.damage);
+          damagePlayer(en.scaledDamage);
           en.attackCooldown = stats.attackCooldown;
         }
       }else if (en.type === "cyclops"){
@@ -1378,7 +1403,7 @@
     const type = en.type === "archer" ? "arrow" : (Math.random() < 0.5 ? "lightning" : "fireball");
     enemyProjectiles.push({
       type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
-      damage: stats.damage
+      damage: en.scaledDamage
     });
   }
 
