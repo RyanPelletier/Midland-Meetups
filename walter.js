@@ -3458,17 +3458,19 @@
       const revisitOptions = [];
       for (let n = 3; n <= player.highestUnlockedLand; n++) revisitOptions.push(n);
       actionHTML = `
-        <button type="button" class="btn" id="wvw-sail-land1-btn">Sail to the First Land</button>
-        <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Sail to the Second Land</button>
-        <button type="button" class="btn" id="wvw-sail-homebase-btn" style="margin-left:8px;">Sail to Home Base</button>
+        <button type="button" class="btn" id="wvw-sail-land1-btn">Grasslands</button>
+        <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
         <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Sail to Land ${nextLand}</button>
+          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
           ${revisitOptions.length ? `
             <select id="wvw-revisit-select" style="margin-left:8px;">
               ${revisitOptions.map(n => `<option value="${n}">Revisit Land ${n}</option>`).join("")}
             </select>
             <button type="button" class="btn light" id="wvw-sail-revisit-btn" style="padding:6px 12px;font-size:0.8rem;">Go</button>
           ` : ""}
+        </div>
+        <div style="margin-top:10px;">
+          <button type="button" class="btn" id="wvw-sail-homebase-btn">Home Village</button>
         </div>
       `;
     }
