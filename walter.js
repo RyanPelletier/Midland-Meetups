@@ -93,6 +93,8 @@
     playerGoblin: "#5B7A3A",
     playerSiren: "#2E8B8B",
     playerCloak: "#5B4E77",
+    playerSkin: "#E0AD7D",
+    playerLegs: "#3D3226",
     playerSword: "#9CA3AF",
     swordHilt: "#6B4222",
     knight: "#5B6472",
@@ -2779,6 +2781,65 @@
     });
   }
 
+  // A real humanoid figure (head/torso/arms/legs) instead of a flat
+  // rectangle, all still flat canvas primitives — no images/sprite
+  // sheets, consistent with the rest of the game. Legs animate with a
+  // walking gait while moving on the ground, tuck into a jump pose while
+  // airborne, and alternate in a simple climbing motion on a ladder.
+  // Fits inside the exact same PLAYER_W x PLAYER_H box, so hitboxes and
+  // collision are completely untouched by this — purely visual.
+  function drawWalterFigure(x, bodyColor){
+    const cx = x + PLAYER_W / 2;
+    const moving = (keysDown.has("ArrowLeft") || keysDown.has("ArrowRight")) && player.onGround && !player.onLadder;
+    const airborne = !player.onGround && !player.onLadder;
+    const climbing = player.onLadder;
+
+    let legSwing = 0, armSwing = 0;
+    if (moving){
+      const phase = Math.sin(frame * 0.35);
+      legSwing = phase * 5;
+      armSwing = -phase * 3;
+    }else if (climbing){
+      const phase = Math.sin(frame * 0.3);
+      legSwing = phase * 3;
+    }
+
+    const headR = 6;
+    const headCy = player.y + headR + 1;
+    const torsoTop = player.y + headR * 2 + 2;
+    const torsoH = 14;
+    const torsoBottom = torsoTop + torsoH;
+    const torsoW = 12;
+    const legW = 4;
+    const legTop = torsoBottom;
+    const legBottom = player.y + PLAYER_H;
+
+    // legs first, so the torso overlaps their tops cleanly
+    ctx.fillStyle = COLORS.playerLegs;
+    if (airborne){
+      ctx.fillRect(cx - torsoW/2 + 1, legTop, legW, legBottom - legTop - 4);
+      ctx.fillRect(cx + torsoW/2 - legW - 1, legTop, legW, legBottom - legTop - 4);
+    }else{
+      ctx.fillRect(cx - torsoW/2 + 1 + legSwing, legTop, legW, legBottom - legTop);
+      ctx.fillRect(cx + torsoW/2 - legW - 1 - legSwing, legTop, legW, legBottom - legTop);
+    }
+
+    // arms, behind the torso
+    ctx.fillStyle = bodyColor;
+    const armW = 3, armH = 12;
+    ctx.fillRect(cx - torsoW/2 - armW + 1 + armSwing, torsoTop + 1, armW, armH);
+    ctx.fillRect(cx + torsoW/2 - 1 - armSwing, torsoTop + 1, armW, armH);
+
+    // torso
+    ctx.fillRect(cx - torsoW/2, torsoTop, torsoW, torsoH);
+
+    // head
+    ctx.fillStyle = COLORS.playerSkin;
+    ctx.beginPath();
+    ctx.arc(cx, headCy, headR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawPlayer(){
     const x = worldToScreen(player.x);
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
@@ -2792,8 +2853,7 @@
     const wasCloaked = player.cloakActiveFramesLeft > 0;
     if (wasCloaked) ctx.globalAlpha = 0.35; // visibly faded while invisible to enemies
 
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
+    drawWalterFigure(x, bodyColor);
 
     if (isOverOpenWater(player.x) && player.y > GROUND_Y - PLAYER_H){
       ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
