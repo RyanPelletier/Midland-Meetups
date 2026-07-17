@@ -1,5 +1,5 @@
 /* =====================================================================
-   WALTER VS WIZARDS
+   And So I Wander
    A 2D wave-based brawler. Same mid-century modern visual language as
    Wizards & Waffles (bold primary colors, simple flat shapes), but a
    different genre: free-roam movement + climbing across a scrolling
@@ -3393,7 +3393,7 @@
   function showStartOverlay(){
     overlay.style.display = "flex";
     overlayInner.innerHTML = `
-      <h3>Walter vs Wizards</h3>
+      <h3>And So I Wander</h3>
       <p>Arrow keys to move, Up to jump or climb the tower ladder, Space to swing your sword (or cast your active spell). Number keys switch spells once you've unlocked them at the altar.</p>
       ${progressSummaryHTML()}
       <button type="button" class="btn" id="wvw-play-btn">Play</button>
@@ -3404,7 +3404,7 @@
   function showLoginOverlay(){
     overlay.style.display = "flex";
     overlayInner.innerHTML = `
-      <h3>Walter vs Wizards</h3>
+      <h3>And So I Wander</h3>
       <p>Log in with a name and password to save your spells, armor, silver, and crystals. First time using a name creates a fresh save automatically — just remember the password.</p>
       <div class="form-row"><input type="text" id="wvw-login-name" placeholder="Name" maxlength="40"></div>
       <div class="form-row"><input type="password" id="wvw-login-password" placeholder="Password" maxlength="40"></div>
