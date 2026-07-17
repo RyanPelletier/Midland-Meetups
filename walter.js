@@ -455,6 +455,7 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
+    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for generated Land " + landNumber + " — biomes: " + currentGeneratedLandLayout.land.biomes.map(b => b.id).join(","));
   }
 
@@ -637,6 +638,7 @@
   const MANA_UPGRADE_COST_SILVER = 100;
   const MANA_UPGRADE_AMOUNT = 10;
   const HIRE_CREW_COST = 500; // silver, one-time — unlocks sailing to new lands from the map
+  const DOCK_MENU_DELAY_FRAMES = 15 * 60; // the dock's map trigger stays inert for 15s after arriving anywhere via sailing
 
   // Letter code for each spell in the progress-save string (F/L/Z/S/B),
   // uppercase = unlocked, lowercase = locked. "fireball" and "freeze" both
@@ -703,6 +705,7 @@
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
   let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave, wasInBossArena;
+  let dockMenuUnlockFrame; // the dock's map trigger stays inert until this frame, so it doesn't pop up the instant you step off the boat
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
   let currentMap; // "home" | "land1" | "land2" | "homebase" | "generated"
@@ -863,6 +866,7 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
+    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for the first land");
   }
 
@@ -873,6 +877,7 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
+    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for the second land");
   }
 
@@ -883,6 +888,7 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
+    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for home base");
   }
 
@@ -894,6 +900,7 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
+    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] sailed home");
   }
 
@@ -1157,6 +1164,7 @@
     wasAtClimbTop = false;
     wasInInnerCave = false;
     wasInBossArena = false;
+    dockMenuUnlockFrame = 0;
     nextSpawnFrame = 90;
     running = true;
   }
@@ -2069,7 +2077,7 @@
       rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)
     );
     if (walkupHit && !wasAtWalkupAltar){
-      if (walkupHit.action === "map" && !mapOpen) openMap();
+      if (walkupHit.action === "map" && !mapOpen && frame >= dockMenuUnlockFrame) openMap();
       else if (walkupHit.action === "altar" && !altarOpen) openAltar();
       else if (walkupHit.action === "townhall" && !townHallOpen) openTownHall();
       else if (walkupHit.action === "castle" && !castleUiOpen) openCastleUi();
@@ -3435,7 +3443,7 @@
 
     let actionHTML;
     if (onAnyLand){
-      actionHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Sail Home</button>`;
+      actionHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Set Sail</button>`;
     }else if (!player.crewHired){
       const affordable = player.silver >= HIRE_CREW_COST;
       actionHTML = `
