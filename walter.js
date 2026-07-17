@@ -3859,6 +3859,45 @@
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", (e) => { if (document.activeElement === canvas) onKeyUp(e); });
+
+    setupFullscreenButton();
+  }
+
+  function setupFullscreenButton(){
+    // Skip gracefully on browsers without Fullscreen API support, rather
+    // than showing a button that does nothing.
+    if (!document.fullscreenEnabled && !canvas.requestFullscreen) return;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn light";
+    btn.textContent = "⛶ Fullscreen";
+    btn.style.display = "block";
+    btn.style.marginTop = "8px";
+
+    btn.addEventListener("click", () => {
+      if (document.fullscreenElement){
+        document.exitFullscreen();
+      }else{
+        canvas.requestFullscreen().catch(() => {}); // silently ignore if the browser denies it
+      }
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+      const isFull = !!document.fullscreenElement;
+      btn.textContent = isFull ? "✕ Exit Fullscreen" : "⛶ Fullscreen";
+      if (isFull){
+        canvas.style.width = "100vw";
+        canvas.style.height = "100vh";
+        canvas.style.objectFit = "contain";
+      }else{
+        canvas.style.width = "";
+        canvas.style.height = "";
+        canvas.style.objectFit = "";
+      }
+    });
+
+    if (canvas.parentNode) canvas.parentNode.insertBefore(btn, canvas.nextSibling);
   }
 
   document.addEventListener("DOMContentLoaded", initGame);
