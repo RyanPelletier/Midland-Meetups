@@ -73,6 +73,14 @@
     ogreBody: "#4B5D3A", ogreBodyDark: "#33421F",
     snakeBody: "#5B8C3A", snakeBelly: "#C9D9A0",
     bossBody: "#8B2F3A", bossTrim: "#D4AF37",
+    commanderArmor: "#8A8FA0", commanderCape: "#A8283A",
+    championArmor: "#B8BCC8", championShield: "#C9A45C", championShieldRim: "#D4AF37",
+    feyQueenRobe: "#3A8F5C", feyQueenAntler: "#D9C08A",
+    serpentKingScale: "#4A6B2A", serpentKingHood: "#A8283A", serpentKingCrown: "#D4AF37",
+    bogTitanMoss: "#4A6B3A", bogTitanMossDark: "#2F4A26", bogTitanStone: "#7A7264",
+    sandColossusBody: "#C9A45C", sandColossusDark: "#A9843C", sandColossusShard: "#8B6B4A",
+    elderDryadTrunk: "#6B4222", elderDryadLeaf: "#3F8A4A",
+    leviathanBody: "#1B6B7A", leviathanBodyDark: "#134F5C", leviathanFin: "#0F3A44",
     water: "#2C6E8E",
     waterDeep: "#1B4F72",
     waterLine: "#F2F7FA",
@@ -117,6 +125,7 @@
     freeze: "#8FE3F0",
     blackHole: "#2B1B4A",
     ally: "#F6A93B",
+    ghostBody: "#C8D8E8",
     hud: "#1F2430",
     hpGood: "#12B76A",
     hpBad: "#E14B3C",
@@ -492,7 +501,6 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
-    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for generated Land " + landNumber + " — biomes: " + currentGeneratedLandLayout.land.biomes.map(b => b.id).join(","));
   }
 
@@ -640,6 +648,21 @@
   const MYSTIC_ARMOR_REGEN_PER_FRAME = 1.5; // fast enough to top off even steel armor (200) in ~2 seconds
   Object.assign(SPELLS, RARE_SPELLS);
 
+  // Ghost Army ("And So I Wander" Phase 4). Deliberately NOT part of
+  // SPELL_ORDER/RARE_SPELL_ORDER — those two arrays are exactly 9 long,
+  // matching the 9 number keys and the amulet system's fixed 9 slots.
+  // Adding a 10th spell there would break both. It still unlocks the same
+  // way as any other spell (crystals, shown in the Spells tab), but casts
+  // from its own dedicated key (G), same pattern as the Cloak's C key.
+  const SPECIAL_SPELL_ORDER = ["ghostArmy"];
+  const SPECIAL_SPELLS = {
+    // Cost/mana/cooldown weren't specified — priced near the rare spells
+    // given how powerful "summon your whole fallen crew" reads.
+    ghostArmy: { label: "Ghost Army", cost: 30, manaCost: 30, cooldown: 3600, duration: 15 * 60 }
+  };
+  Object.assign(SPELLS, SPECIAL_SPELLS);
+  let ghosts; // temporary combat allies, one per dead crew member, cleared on cast expiry — never persisted (transient, like any other active effect)
+
   // Armor is a consumable HP buffer bought with silver (from knights), separate
   // from the crystal/spell economy. Damage drains armor before Walter's own HP.
   // Buying a new piece replaces whatever's left of the current one.
@@ -715,7 +738,6 @@
   const MANA_UPGRADE_COST_SILVER = 100;
   const MANA_UPGRADE_AMOUNT = 10;
   const HIRE_CREW_COST = 500; // silver, one-time — unlocks sailing to new lands from the map
-  const DOCK_MENU_DELAY_FRAMES = 15 * 60; // the dock's map trigger stays inert for 15s after arriving anywhere via sailing
 
   // Letter code for each spell in the progress-save string (F/L/Z/S/B),
   // uppercase = unlocked, lowercase = locked. "fireball" and "freeze" both
@@ -786,8 +808,8 @@
   let villagerMenuOpen = false;
   let altarActiveTab = "spells"; // "spells" | "inventory" | "shops" | "amulets"
   let amuletViewKey = null; // which amulet's sub-tab is currently shown in the Amulets tab
-  let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave, wasInBossArena;
-  let dockMenuUnlockFrame; // the dock's map trigger stays inert until this frame, so it doesn't pop up the instant you step off the boat
+  let wasInInnerCave, wasInBossArena;
+  let nearMenuAction = null; // whichever walkup/climb menu the player is currently near, opened via M
   let animId, nextSpawnFrame;
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
   let currentMap; // "home" | "land1" | "land2" | "homebase" | "generated"
@@ -1152,7 +1174,6 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
-    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for the first land");
   }
 
@@ -1163,7 +1184,6 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
-    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for the second land");
   }
 
@@ -1174,7 +1194,6 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
-    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] set sail for home base");
   }
 
@@ -1186,7 +1205,6 @@
     player.vy = 0;
     enemies = [];
     enemyProjectiles = [];
-    dockMenuUnlockFrame = frame + DOCK_MENU_DELAY_FRAMES;
     if (DEBUG) console.log("[WvW] sailed home");
   }
 
@@ -1213,7 +1231,8 @@
     // stores whole numbers — floor it here. The in-memory fractional part
     // just keeps accumulating during the session; only the saved snapshot
     // is truncated.
-    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%=" + crewStr + "=";
+    const ghostArmyChar = spellUnlocked.has("ghostArmy") ? "1" : "0";
+    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%=" + crewStr + "=;" + ghostArmyChar + ";";
   }
 
   const CREW_STATUS_LETTERS = { training: "T", idle: "I", library: "L", blacksmith: "B", dead: "D" };
@@ -1337,14 +1356,14 @@
       crewHired: false, land1ChestCollected: false,
       amuletOwnedKeys: [], amuletEquippedKey: null, amuletSlotsByKey: {},
       houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0,
-      libraryLevel: 0, blacksmithBuilt: false, trainingGroundsBuilt: false, crew: [],
+      libraryLevel: 0, blacksmithBuilt: false, trainingGroundsBuilt: false, crew: [], ghostArmyUnlocked: false,
       worldSeed: null, highestUnlockedLand: 2
     };
     if (!str) return result;
     // The #maxMana#, ~rare~, ^flags^, *amulet*, +homebase+, and %world%
     // segments are all optional so saves from before each feature existed
     // still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?(?:=([0-9|\-A-Za-z]*)=)?/);
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?(?:=([0-9|\-A-Za-z]*)=)?(?:;(\d*);)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -1381,6 +1400,7 @@
     result.blacksmithBuilt = homebaseData.blacksmithBuilt;
     result.trainingGroundsBuilt = homebaseData.trainingGroundsBuilt;
     result.crew = decodeCrew(m[11] || "");
+    result.ghostArmyUnlocked = m[12] === "1";
 
     const worldParts = (m[10] || "").split(",");
     if (worldParts[0]) result.worldSeed = parseInt(worldParts[0], 10) || null;
@@ -1419,6 +1439,7 @@
     player.blacksmithBuilt = !!loadedProgress.blacksmithBuilt;
     player.trainingGroundsBuilt = !!loadedProgress.trainingGroundsBuilt;
     player.crew = loadedProgress.crew || [];
+    if (loadedProgress.ghostArmyUnlocked) spellUnlocked.add("ghostArmy");
     const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
     player.nextCrewId = maxLoadedCrewId + 1;
     // worldSeed is no longer applied here — lands re-roll per visit now, not per player.
@@ -1477,8 +1498,9 @@
     totalKills = 0;
     keysDown = new Set();
     spellCooldowns = { fireball: 0, lightning: 0, freeze: 0, summonAlly: 0, blackHole: 0,
-      mysticArmor: 0, demon: 0, angel: 0, teleport: 0 };
+      mysticArmor: 0, demon: 0, angel: 0, teleport: 0, ghostArmy: 0 };
     spellUnlocked = new Set();
+    ghosts = [];
     player.amuletsOwned = new Set();
     player.armorInventory = {}; // { [armorType]: { owned: bool, broken: bool } } — persists per-piece, independent of what's currently worn
     ARMOR_ORDER.forEach(key => { player.armorInventory[key] = { owned: false, broken: false }; });
@@ -1510,11 +1532,9 @@
     rareAltarOpen = false;
     townHallOpen = false;
     castleUiOpen = false;
-    wasAtWalkupAltar = false;
-    wasAtClimbTop = false;
     wasInInnerCave = false;
     wasInBossArena = false;
-    dockMenuUnlockFrame = 0;
+    nearMenuAction = null;
     lastGeneratedLandBiomeIds = [];
     nextSpawnFrame = 90;
     running = true;
@@ -1535,8 +1555,10 @@
     }
 
     if (e.code === "KeyC") activateCloak();
+    if (e.code === "KeyG") castGhostArmy();
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
+    if (e.code === "KeyM" && nearMenuAction) openMenuForAction(nearMenuAction);
 
     if (e.code === "ArrowUp"){
       const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
@@ -1584,6 +1606,7 @@
     updateEnemies();
     updateProjectiles();
     updateAllies();
+    updateGhosts();
     updateEffects();
     checkChestAndAltar();
     if (respawnMessageTimer > 0) respawnMessageTimer--;
@@ -1814,7 +1837,7 @@
   function updateCooldowns(){
     if (meleeCooldown > 0) meleeCooldown--;
     if (player.waterStrokeCooldown > 0) player.waterStrokeCooldown--;
-    SPELL_ORDER.concat(RARE_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
+    SPELL_ORDER.concat(RARE_SPELL_ORDER).concat(SPECIAL_SPELL_ORDER).forEach(k => { if (spellCooldowns[k] > 0) spellCooldowns[k]--; });
     updateMysticArmor();
     updatePlayerBurn();
     updatePlayerCharm();
@@ -2396,6 +2419,43 @@
     allies = allies.filter(a => a.life > 0 && a.hp > 0);
   }
 
+  function updateGhosts(){
+    if (ghosts.length === 0) return;
+    ghosts.forEach(g => {
+      g.life--;
+      if (g.cooldown > 0) g.cooldown--;
+      const alive = enemies.filter(en => en.hp > 0);
+      const target = alive.sort((p, q) => Math.abs(p.x - g.x) - Math.abs(q.x - g.x))[0];
+      if (target){
+        const dist = (target.x + target.w/2) - (g.x + PLAYER_W/2);
+        if (Math.abs(dist) > 30){
+          g.x += Math.sign(dist) * 2.2;
+        }else if (g.cooldown <= 0){
+          damageEnemy(target, g.damage);
+          g.cooldown = 40;
+        }
+      }
+    });
+    ghosts = ghosts.filter(g => g.life > 0);
+  }
+
+  function castGhostArmy(){
+    const cfg = SPELLS.ghostArmy;
+    if (!spellUnlocked.has("ghostArmy") || spellCooldowns.ghostArmy > 0) return;
+    if (player.mana < cfg.manaCost) return;
+    const fallen = player.crew.filter(c => c.status === "dead");
+    if (fallen.length === 0) return; // nothing to summon
+    player.mana -= cfg.manaCost;
+    spellCooldowns.ghostArmy = cfg.cooldown;
+    fallen.forEach((c, i) => {
+      ghosts.push({
+        x: player.x - 30 * player.facing - i * 20, y: player.y,
+        life: cfg.duration, damage: c.strength, cooldown: 0
+      });
+    });
+    if (DEBUG) console.log("[WvW] Ghost Army summoned — " + fallen.length + " fallen crew, " + (cfg.duration/60) + "s");
+  }
+
   /* ---------------- effects ---------------- */
   function updateEffects(){
     effects.forEach(fx => {
@@ -2417,6 +2477,15 @@
   }
 
   /* ---------------- chest / altar ---------------- */
+  function drawMenuPrompt(){
+    if (!nearMenuAction) return;
+    const x = worldToScreen(player.x);
+    ctx.fillStyle = COLORS.hud;
+    ctx.font = "700 10px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("[M] Open", x + PLAYER_W / 2, player.y - 10);
+  }
+
   function checkChestAndAltar(){
     getChests().forEach(chest => {
       if (rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, chest.x, GROUND_Y - chest.h, chest.w, chest.h)){
@@ -2429,32 +2498,29 @@
       }
     });
 
-    // Edge-triggered: only fires on the transition into the zone, not every
-    // frame you happen to be standing in it — otherwise clicking Close
-    // while still standing there reopens it again on the very next frame.
+    // Proximity only — no auto-open. Pressing M (like T for villagers)
+    // does the actual opening, so walking through the village doesn't
+    // mean constantly dismissing menus that pop up on their own.
     const walkupHit = getWalkupAltars().find(a =>
       rectsOverlap(player.x, player.y, PLAYER_W, PLAYER_H, a.x, GROUND_Y - a.h, a.w, a.h)
     );
-    if (walkupHit && !wasAtWalkupAltar){
-      if (walkupHit.action === "map" && !mapOpen && frame >= dockMenuUnlockFrame) openMap();
-      else if (walkupHit.action === "altar" && !altarOpen) openAltar();
-      else if (walkupHit.action === "townhall" && !townHallOpen) openTownHall();
-      else if (walkupHit.action === "castle" && !castleUiOpen) openCastleUi();
-      else if (walkupHit.action === "library" && !libraryUiOpen) openLibraryUi();
-      else if (walkupHit.action === "blacksmith" && !blacksmithUiOpen) openBlacksmithUi();
-      else if (walkupHit.action === "training" && !trainingUiOpen) openTrainingUi();
-      else if (walkupHit.action === "graveyard" && !graveyardUiOpen) openGraveyardUi();
-    }
-    wasAtWalkupAltar = !!walkupHit;
 
     const climb = activeClimbPoint();
     const atClimbTop = !!climb && player.y <= climb.topY - PLAYER_H + 20;
-    if (atClimbTop && !wasAtClimbTop){
-      if (climb.action === "altar" && !altarOpen) openAltar();
-      if (climb.action === "map" && !mapOpen) openMap();
-      if (climb.action === "land1Tower") openLand1Tower();
-    }
-    wasAtClimbTop = atClimbTop;
+
+    nearMenuAction = walkupHit ? walkupHit.action : (atClimbTop ? climb.action : null);
+  }
+
+  function openMenuForAction(action){
+    if (action === "map" && !mapOpen) openMap();
+    else if (action === "altar" && !altarOpen) openAltar();
+    else if (action === "townhall" && !townHallOpen) openTownHall();
+    else if (action === "castle" && !castleUiOpen) openCastleUi();
+    else if (action === "library" && !libraryUiOpen) openLibraryUi();
+    else if (action === "blacksmith" && !blacksmithUiOpen) openBlacksmithUi();
+    else if (action === "training" && !trainingUiOpen) openTrainingUi();
+    else if (action === "graveyard" && !graveyardUiOpen) openGraveyardUi();
+    else if (action === "land1Tower") openLand1Tower();
   }
 
   /* ---------------- draw ---------------- */
@@ -2493,10 +2559,12 @@
     drawTrees();
     enemies.forEach(drawEnemy);
     allies.forEach(drawAlly);
+    ghosts.forEach(drawGhost);
     effects.forEach(drawEffect);
     enemyProjectiles.forEach(p => drawProjectile(p));
     playerProjectiles.forEach(p => drawProjectile(p));
     drawPlayer();
+    drawMenuPrompt();
     drawHud();
     drawRespawnMessage();
   }
@@ -3458,6 +3526,178 @@
     ctx.fill();
   }
 
+  // Eight distinct boss silhouettes, per the visual design brief. All
+  // still flat canvas primitives — no images — sized within the same
+  // bounding box as the generic boss stats (w:60 h:92), so none of this
+  // touches hitboxes or combat balance, purely the art on top of it.
+  function drawBossFigure(en, x){
+    const w = en.w, h = en.h, y = en.y;
+    const cx = x + w / 2;
+    if (en.bossBiomeId === "village"){
+      // Commander — broad armored knight with a crimson cape
+      ctx.fillStyle = COLORS.commanderCape;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + 14);
+      ctx.lineTo(x - 6, y + h);
+      ctx.lineTo(x + w * 0.4, y + h);
+      ctx.lineTo(x + w * 0.3, y + 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.commanderArmor;
+      ctx.fillRect(x + w * 0.15, y, w * 0.7, h * 0.85);
+      ctx.fillRect(x + w * 0.25, y - 10, w * 0.5, 14); // helm
+      ctx.fillStyle = COLORS.commanderCape;
+      ctx.fillRect(x + w * 0.15, y + h * 0.3, w * 0.7, 6); // trim band
+
+    }else if (en.bossBiomeId === "castlewalls"){
+      // Royal Champion — slim duelist with an oversized kite shield
+      ctx.fillStyle = COLORS.championArmor;
+      ctx.fillRect(x + w * 0.32, y, w * 0.36, h * 0.85);
+      ctx.fillRect(x + w * 0.36, y - 8, w * 0.28, 10); // helm
+      ctx.fillStyle = COLORS.championShield;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 10);
+      ctx.lineTo(x + w * 0.42, y + 4);
+      ctx.lineTo(x + w * 0.42, y + h * 0.7);
+      ctx.lineTo(x + w * 0.2, y + h);
+      ctx.lineTo(x, y + h * 0.65);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = COLORS.championShieldRim;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+    }else if (en.bossBiomeId === "forest"){
+      // Fey Queen — floating green robe, antler crown
+      const hover = Math.sin(frame * 0.05) * 4;
+      ctx.fillStyle = COLORS.feyQueenRobe;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.2, y + h * 0.3 + hover);
+      ctx.lineTo(x + w * 0.8, y + h * 0.3 + hover);
+      ctx.lineTo(x + w, y + h * 0.9 + hover);
+      ctx.lineTo(x, y + h * 0.9 + hover);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x + w * 0.3, y + hover, w * 0.4, h * 0.35); // torso/head block
+      ctx.strokeStyle = COLORS.feyQueenAntler;
+      ctx.lineWidth = 2;
+      [-1, 1].forEach(dir => {
+        ctx.beginPath();
+        ctx.moveTo(cx + dir * 6, y + hover);
+        ctx.lineTo(cx + dir * 16, y - 14 + hover);
+        ctx.moveTo(cx + dir * 10, y - 4 + hover);
+        ctx.lineTo(cx + dir * 20, y - 8 + hover);
+        ctx.stroke();
+      });
+
+    }else if (en.bossBiomeId === "jungle"){
+      // Serpent King — coiled cobra with hood and crown
+      ctx.fillStyle = COLORS.serpentKingScale;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.5, y + h);
+      ctx.quadraticCurveTo(x, y + h * 0.7, x + w * 0.3, y + h * 0.4);
+      ctx.quadraticCurveTo(x + w * 0.5, y + h * 0.15, x + w * 0.5, y + 10);
+      ctx.quadraticCurveTo(x + w * 0.7, y + h * 0.4, x + w * 0.5, y + h * 0.55);
+      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.75, x + w * 0.5, y + h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.serpentKingHood;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.2, y + 6);
+      ctx.lineTo(x + w * 0.5, y - 8);
+      ctx.lineTo(x + w * 0.8, y + 6);
+      ctx.lineTo(x + w * 0.5, y + 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.serpentKingCrown;
+      ctx.fillRect(x + w * 0.42, y - 16, w * 0.16, 8);
+
+    }else if (en.bossBiomeId === "swamp"){
+      // Bog Titan — huge moss brute with a stone shoulder
+      ctx.fillStyle = COLORS.bogTitanMoss;
+      ctx.fillRect(x - 4, y, w + 8, h); // extra-wide, bulky
+      ctx.fillStyle = COLORS.bogTitanMossDark;
+      ctx.fillRect(x - 4, y + h * 0.55, w + 8, 10);
+      ctx.fillStyle = COLORS.bogTitanStone;
+      ctx.beginPath();
+      ctx.arc(x + w * 0.78, y + h * 0.18, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+    }else if (en.bossBiomeId === "desert"){
+      // Sand Colossus — blocky sandstone giant with orbiting shards
+      ctx.fillStyle = COLORS.sandColossusBody;
+      ctx.fillRect(x, y, w, h * 0.4);
+      ctx.fillRect(x + 4, y + h * 0.4, w - 8, h * 0.3);
+      ctx.fillRect(x + 8, y + h * 0.7, w - 16, h * 0.3);
+      ctx.fillStyle = COLORS.sandColossusDark;
+      ctx.fillRect(x, y + h * 0.38, w, 4);
+      ctx.fillRect(x + 4, y + h * 0.68, w - 8, 4);
+      for (let i = 0; i < 3; i++){
+        const angle = frame * 0.03 + i * (Math.PI * 2 / 3);
+        const ox = cx + Math.cos(angle) * (w * 0.75);
+        const oy = y + h * 0.4 + Math.sin(angle) * 14;
+        ctx.fillStyle = COLORS.sandColossusShard;
+        ctx.fillRect(ox - 3, oy - 3, 6, 6);
+      }
+
+    }else if (en.bossBiomeId === "treehouses"){
+      // Elder Dryad — floating tree spirit with a leaf halo
+      const hover = Math.sin(frame * 0.05) * 4;
+      ctx.fillStyle = COLORS.elderDryadTrunk;
+      ctx.fillRect(x + w * 0.3, y + 12 + hover, w * 0.4, h * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.15, y + h + hover);
+      ctx.lineTo(x + w * 0.3, y + h * 0.75 + hover);
+      ctx.lineTo(x + w * 0.4, y + h + hover);
+      ctx.moveTo(x + w * 0.85, y + h + hover);
+      ctx.lineTo(x + w * 0.7, y + h * 0.75 + hover);
+      ctx.lineTo(x + w * 0.6, y + h + hover);
+      ctx.fill();
+      ctx.fillStyle = COLORS.elderDryadLeaf;
+      for (let i = 0; i < 8; i++){
+        const angle = (i / 8) * Math.PI * 2;
+        const lx = cx + Math.cos(angle) * 20;
+        const ly = y + hover + Math.sin(angle) * 14;
+        ctx.beginPath();
+        ctx.arc(lx, ly, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+    }else if (en.bossBiomeId === "underwater"){
+      // Leviathan — giant sea serpent with a towering dorsal fin
+      ctx.fillStyle = COLORS.leviathanBody;
+      ctx.beginPath();
+      ctx.moveTo(x, y + h);
+      ctx.quadraticCurveTo(x + w * 0.2, y + h * 0.3, x + w * 0.5, y + h * 0.5);
+      ctx.quadraticCurveTo(x + w * 0.8, y + h * 0.7, x + w, y + h * 0.2);
+      ctx.lineTo(x + w, y + h * 0.45);
+      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.85, x + w * 0.45, y + h * 0.65);
+      ctx.quadraticCurveTo(x + w * 0.25, y + h * 0.5, x + w * 0.15, y + h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.leviathanFin;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.35, y + h * 0.4);
+      ctx.lineTo(x + w * 0.5, y - 22);
+      ctx.lineTo(x + w * 0.6, y + h * 0.35);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.leviathanBodyDark;
+      ctx.beginPath();
+      ctx.arc(x + w * 0.85, y + h * 0.35, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+    }else{
+      // Fallback — any future boss without a bespoke design yet still
+      // reads clearly as a boss rather than breaking.
+      ctx.fillStyle = COLORS.bossBody;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = COLORS.bossTrim;
+      ctx.fillRect(x, y, w, 10);
+      ctx.fillRect(x, y + h - 10, w, 6);
+    }
+  }
+
   function drawEnemy(en){
     if (en.hp <= 0) return;
     const x = worldToScreen(en.x);
@@ -3550,11 +3790,7 @@
       ctx.fillStyle = COLORS.snakeBelly;
       ctx.fillRect(x + 4, en.y + en.h - 6, en.w - 8, 4);
     }else if (en.isBoss){
-      ctx.fillStyle = COLORS.bossBody;
-      ctx.fillRect(x, en.y, en.w, en.h);
-      ctx.fillStyle = COLORS.bossTrim;
-      ctx.fillRect(x, en.y, en.w, 10);
-      ctx.fillRect(x, en.y + en.h - 10, en.w, 6);
+      drawBossFigure(en, x);
     }else{
       const tier = WIZARD_TIERS.find(t => t.key === en.type);
       const cloakColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardCloak;
@@ -3599,6 +3835,13 @@
     const x = worldToScreen(a.x);
     ctx.fillStyle = COLORS.ally;
     ctx.fillRect(x, a.y, PLAYER_W - 4, PLAYER_H - 6);
+  }
+
+  function drawGhost(g){
+    const x = worldToScreen(g.x);
+    ctx.globalAlpha = 0.55;
+    drawWalterFigure(x, g.y, COLORS.ghostBody, { moving: true, airborne: false, climbing: false }, null);
+    ctx.globalAlpha = 1;
   }
 
   function drawProjectile(p){
@@ -4496,7 +4739,7 @@
 
   function renderSpellsTab(){
     const total = totalCrystals();
-    const allKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
+    const allKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER).concat(SPECIAL_SPELL_ORDER);
     const mastered = allKeys.filter(k => spellUnlocked.has(k));
     const discovered = allKeys.filter(k => !spellUnlocked.has(k));
 
@@ -4504,10 +4747,11 @@
       const cfg = SPELLS[key];
       const owned = spellUnlocked.has(key);
       const isRare = RARE_SPELL_ORDER.includes(key);
+      const isSpecial = SPECIAL_SPELL_ORDER.includes(key);
       const affordable = total >= cfg.cost;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-          <span>${cfg.label}${isRare ? " (rare)" : ""}</span>
+          <span>${cfg.label}${isRare ? " (rare)" : ""}${isSpecial ? " (press G to cast)" : ""}</span>
           ${owned
             ? `<span style="opacity:0.7;font-size:0.8rem;">Mastered</span>`
             : `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-spell="${key}" ${affordable ? "" : "disabled"}>Master (${cfg.cost} crystals)</button>`
