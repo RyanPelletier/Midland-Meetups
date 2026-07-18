@@ -3484,7 +3484,7 @@
     // anchored to the old full-body-width edges, which reads as
     // floating too far out once the body got real limbs).
     const handX = cx + 9 * swordDir;
-    const handY = player.y + 15;
+    const handY = player.y + 23;
 
     // Quick swing: sweeps from a raised, wound-up pose down through to
     // the normal ready position over the first part of the melee
