@@ -2225,9 +2225,13 @@
       if (en.type === "knight" || en.type === "ogre"){
         if (Math.abs(dist) > stats.contactRange){
           en.x += Math.sign(dist) * stats.speed;
-        }else if (en.attackCooldown <= 0){
-          damagePlayer(en.scaledDamage);
-          en.attackCooldown = stats.attackCooldown;
+          en.moving = true;
+        }else{
+          en.moving = false;
+          if (en.attackCooldown <= 0){
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
         }
       }else if (en.type === "cyclops"){
         // Always closes in, never retreats — unlike archer/wizard, a
@@ -3723,10 +3727,12 @@
 
     if (en.type === "knight"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // legs
+      // legs, with a walking swing while approaching (same pattern as
+      // the player/villager rig) — still while attacking or idle
+      const legSwing = en.moving ? Math.sin(frame * 0.35) * 3 : 0;
       ctx.fillStyle = COLORS.knightPauldron;
-      ctx.fillRect(x + 4, y + h - 10, 6, 10);
-      ctx.fillRect(x + w - 10, y + h - 10, 6, 10);
+      ctx.fillRect(x + 4 + legSwing, y + h - 10, 6, 10);
+      ctx.fillRect(x + w - 10 - legSwing, y + h - 10, 6, 10);
       // torso
       ctx.fillStyle = COLORS.knight;
       ctx.fillRect(x + 4, y + 14, w - 8, h - 24);
