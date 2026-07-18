@@ -952,18 +952,30 @@
   function updateVillagers(){
     if (currentMap !== "homebase") return;
     const bounds = { start: HOMEBASE_DOCK_END + 20, end: HOMEBASE_VILLAGE2_END - 20 };
-    player.villagers.forEach(v => {
-      if (v.wanderPauseFrames > 0){
-        v.wanderPauseFrames--;
+    const wanderStep = (entity) => {
+      if (entity.wanderPauseFrames > 0){
+        entity.wanderPauseFrames--;
         return;
       }
-      const dist = v.wanderTargetX - v.x;
+      const dist = entity.wanderTargetX - entity.x;
       if (Math.abs(dist) < 2){
-        v.wanderPauseFrames = 60 + Math.floor(Math.random() * 180); // pause 1-4s between walks
-        v.wanderTargetX = clamp(v.x + (Math.random() * 240 - 120), bounds.start, bounds.end);
+        entity.wanderPauseFrames = 60 + Math.floor(Math.random() * 180); // pause 1-4s between walks
+        entity.wanderTargetX = clamp(entity.x + (Math.random() * 240 - 120), bounds.start, bounds.end);
       }else{
-        v.x += Math.sign(dist) * 0.6;
+        entity.x += Math.sign(dist) * 0.6;
       }
+    };
+    player.villagers.forEach(wanderStep);
+    // Idle trained crew wander the village too, same as untrained
+    // villagers — "reappear in the village" once training finishes.
+    player.crew.forEach(c => {
+      if (c.status !== "idle") return;
+      if (c.x === undefined){
+        c.x = HOMEBASE_DOCK_END + 40 + Math.random() * (HOMEBASE_VILLAGE2_END - HOMEBASE_DOCK_END - 80);
+        c.wanderTargetX = c.x;
+        c.wanderPauseFrames = 0;
+      }
+      wanderStep(c);
     });
   }
 
@@ -976,7 +988,35 @@
       const dist = Math.abs(v.x - playerCx);
       if (dist < range && dist < closestDist){ closest = v; closestDist = dist; }
     });
+    // Idle/following crew wander the village too, once trained — T works
+    // on them the same way, offering Assign/Unassign instead of Recruit.
+    player.crew.forEach(c => {
+      if ((c.status !== "idle" && c.status !== "following") || c.x === undefined) return;
+      const dist = Math.abs(c.x - playerCx);
+      if (dist < range && dist < closestDist){ closest = c; closestDist = dist; }
+    });
     nearVillagerId = closest ? closest.id : null;
+  }
+
+  function assignCrewToFollow(crewId){
+    const c = player.crew.find(x => x.id === crewId && x.status === "idle");
+    if (!c) return false;
+    c.status = "following";
+    c.attackCooldown = 0;
+    c.spellCooldown = 0;
+    return true;
+  }
+
+  function unassignCrewFromFollow(crewId){
+    const c = player.crew.find(x => x.id === crewId && x.status === "following");
+    if (!c) return false;
+    c.status = "idle";
+    // Reappear wandering the village near wherever the player currently
+    // is, rather than snapping back to a stale old village position.
+    c.x = clamp(player.x, HOMEBASE_DOCK_END + 20, HOMEBASE_VILLAGE2_END - 20);
+    c.wanderTargetX = c.x;
+    c.wanderPauseFrames = 60;
+    return true;
   }
 
   function recruitVillager(villagerId){
@@ -1006,9 +1046,15 @@
             c.status = "idle";
             if (DEBUG) console.log("[WvW] " + c.id + " finished training");
           }else{
-            c.spellsLearned = (c.spellsLearned || 0) + 1;
+            c.spellsKnown = c.spellsKnown || [];
+            const learnable = SPELL_ORDER.concat(RARE_SPELL_ORDER).filter(k => spellUnlocked.has(k) && !c.spellsKnown.includes(k));
+            if (learnable.length > 0){
+              const learned = learnable[Math.floor(Math.random() * learnable.length)];
+              c.spellsKnown.push(learned);
+              c.spellsLearned = c.spellsKnown.length;
+              if (DEBUG) console.log("[WvW] " + c.id + " learned " + learned + " (" + c.spellsLearned + " total)");
+            }
             c.status = "idle";
-            if (DEBUG) console.log("[WvW] " + c.id + " learned a spell (" + c.spellsLearned + " total)");
           }
         }
       }
@@ -1256,25 +1302,34 @@
     return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%=" + crewStr + "=;" + ghostArmyChar + ";";
   }
 
-  const CREW_STATUS_LETTERS = { training: "T", idle: "I", library: "L", blacksmith: "B", dead: "D" };
-  const CREW_STATUS_LETTERS_REVERSE = { T: "training", I: "idle", L: "library", B: "blacksmith", D: "dead" };
+  const CREW_STATUS_LETTERS = { training: "T", idle: "I", library: "L", blacksmith: "B", dead: "D", following: "F" };
+  const CREW_STATUS_LETTERS_REVERSE = { T: "training", I: "idle", L: "library", B: "blacksmith", D: "dead", F: "following" };
   function encodeCrew(){
     return player.crew.map(c => {
       const idNum = c.id.replace("c", "");
       const statusCode = CREW_STATUS_LETTERS[c.status] || "I";
-      return idNum + "-" + c.strength + "-" + statusCode + "-" + Math.round(c.framesRemaining || 0) + "-" + (c.spellsLearned || 0);
+      const knownStr = (c.spellsKnown || []).map(k => {
+        const entry = ALL_SPELL_LETTERS.find(e => e.key === k);
+        return entry ? entry.letter : "";
+      }).filter(Boolean).join(".");
+      return idNum + "-" + c.strength + "-" + statusCode + "-" + Math.round(c.framesRemaining || 0) + "-" + (c.spellsLearned || 0) + "-" + knownStr;
     }).join("|");
   }
   function decodeCrew(str){
     if (!str) return [];
     return str.split("|").filter(Boolean).map(entry => {
       const parts = entry.split("-");
+      const spellsKnown = (parts[5] || "").split(".").filter(Boolean).map(letter => {
+        const entry = ALL_SPELL_LETTERS.find(e => e.letter === letter);
+        return entry ? entry.key : null;
+      }).filter(Boolean);
       return {
         id: "c" + parts[0],
         strength: parseInt(parts[1], 10) || 0,
         status: CREW_STATUS_LETTERS_REVERSE[parts[2]] || "idle",
         framesRemaining: parseInt(parts[3], 10) || 0,
-        spellsLearned: parseInt(parts[4], 10) || 0
+        spellsLearned: parseInt(parts[4], 10) || 0,
+        spellsKnown
       };
     });
   }
@@ -1384,7 +1439,7 @@
     // The #maxMana#, ~rare~, ^flags^, *amulet*, +homebase+, and %world%
     // segments are all optional so saves from before each feature existed
     // still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?(?:=([0-9|\-A-Za-z]*)=)?(?:;(\d*);)?/);
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?(?:=([0-9|.\-A-Za-z]*)=)?(?:;(\d*);)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -1626,6 +1681,7 @@
     updateEnemies();
     updateProjectiles();
     updateAllies();
+    updateFollowingCrew();
     updateGhosts();
     updateEffects();
     checkChestAndAltar();
@@ -2468,6 +2524,82 @@
   }
 
   /* ---------------- allies ---------------- */
+  function updateFollowingCrew(){
+    const followers = player.crew.filter(c => c.status === "following");
+    followers.forEach((c, i) => {
+      if (c.x === undefined){
+        c.x = player.x - 40 - i * 24;
+        c.y = player.y;
+        c.facing = 1;
+        c.attackCooldown = 0;
+        c.spellCooldown = 0;
+      }
+      // Catch up instantly on a map change or if left far behind — avoids
+      // needing to hook every single sail/teleport/respawn function
+      // individually; "following" just means always effectively with you.
+      if (c.lastMap !== currentMap || Math.abs(c.x - player.x) > 400){
+        c.x = player.x - 40 - i * 24;
+        c.y = player.y;
+      }
+      c.lastMap = currentMap;
+      c.y = GROUND_Y - PLAYER_H; // stays grounded, same as allies/ghosts — no jump/climb/swim simulation for followers
+
+      if (c.attackCooldown > 0) c.attackCooldown--;
+      if (c.spellCooldown > 0) c.spellCooldown--;
+
+      const alive = enemies.filter(en => en.hp > 0 && Math.abs(en.x - c.x) < 280);
+      const target = alive.sort((p, q) => Math.abs(p.x - c.x) - Math.abs(q.x - c.x))[0];
+
+      if (target){
+        const dist = (target.x + target.w/2) - (c.x + PLAYER_W/2);
+        c.facing = dist >= 0 ? 1 : -1;
+        if (Math.abs(dist) > 30){
+          c.x += Math.sign(dist) * 2.4;
+          c.moving = true;
+        }else{
+          c.moving = false;
+          if (c.attackCooldown <= 0){
+            damageEnemy(target, c.strength); // sword — always available, "sword to start"
+            c.attackCooldown = MELEE_COOLDOWN;
+          }
+        }
+        // spells, if any are known — an additional ranged option layered
+        // on top of the sword, not a replacement for it
+        if (c.spellsKnown && c.spellsKnown.length > 0 && c.spellCooldown <= 0){
+          const spellKey = c.spellsKnown[Math.floor(Math.random() * c.spellsKnown.length)];
+          const spellCfg = SPELLS[spellKey];
+          playerProjectiles.push({
+            type: "crewBolt", x: c.x + PLAYER_W/2, y: c.y + PLAYER_H/2,
+            vx: 7 * (Math.sign(dist) || c.facing), damage: Math.round((spellCfg.damage || c.strength) * 0.6)
+          });
+          c.spellCooldown = 180; // 3s between casts
+        }
+      }else{
+        // nothing nearby to fight — follow the player, staggered so
+        // multiple followers don't stack on the exact same spot
+        const followTargetX = player.x - 40 - i * 24;
+        const followDist = followTargetX - c.x;
+        if (Math.abs(followDist) > 10){
+          c.x += Math.sign(followDist) * Math.min(3, Math.abs(followDist) * 0.1);
+          c.facing = followDist >= 0 ? 1 : -1;
+          c.moving = true;
+        }else{
+          c.moving = false;
+        }
+      }
+    });
+  }
+
+  function drawFollowingCrew(){
+    player.crew.forEach(c => {
+      if (c.status !== "following" || c.x === undefined) return;
+      const sx = worldToScreen(c.x);
+      if (sx < -40 || sx > CANVAS_W + 40) return;
+      drawWalterFigure(sx, c.y, COLORS.playerSteel, { moving: !!c.moving, airborne: false, climbing: false }, "crewHelmet");
+      drawSword(sx, c.y, c.facing || 1, c.attackCooldown || 0, MELEE_COOLDOWN); // same sword + swing as the player, always available
+    });
+  }
+
   function updateAllies(){
     allies.forEach(a => {
       a.life--;
@@ -2635,6 +2767,7 @@
     drawTrees();
     enemies.forEach(drawEnemy);
     allies.forEach(drawAlly);
+    drawFollowingCrew();
     ghosts.forEach(drawGhost);
     effects.forEach(drawEffect);
     enemyProjectiles.forEach(p => drawProjectile(p));
@@ -3148,6 +3281,20 @@
     const libraryWorkerX = HOMEBASE_LIBRARY_X - 20;
     const blacksmithWorkerX = HOMEBASE_BLACKSMITH_X - 20;
     player.crew.forEach(c => {
+      if (c.status === "idle" && c.x !== undefined){
+        // wandering, same as untrained villagers, but in their crew look
+        const sx = worldToScreen(c.x) - PLAYER_W / 2;
+        if (sx < -30 || sx > CANVAS_W + 30) return;
+        const moving = c.wanderPauseFrames <= 0;
+        drawWalterFigure(sx, GROUND_Y - PLAYER_H, COLORS.playerSteel, { moving, airborne: false, climbing: false }, "crewHelmet");
+        if (c.id === nearVillagerId){
+          ctx.fillStyle = COLORS.hud;
+          ctx.font = "700 10px 'JetBrains Mono', monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("[T] Talk", sx + PLAYER_W / 2, GROUND_Y - PLAYER_H - 10);
+        }
+        return;
+      }
       let wx = null;
       if (c.status === "library") wx = libraryWorkerX;
       else if (c.status === "blacksmith") wx = blacksmithWorkerX;
@@ -3547,24 +3694,24 @@
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
 
-    if (!activeSpell) drawSword(x);
+    if (!activeSpell) drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN);
     if (wasCloaked) ctx.globalAlpha = 1;
   }
 
-  function drawSword(x){
-    const swordDir = player.facing > 0 ? 1 : -1;
+  function drawSword(x, y, facing, attackCooldown, maxCooldown){
+    const swordDir = facing > 0 ? 1 : -1;
     const cx = x + PLAYER_W / 2;
     // Anchored to the humanoid figure's actual arm position now (was
     // anchored to the old full-body-width edges, which reads as
     // floating too far out once the body got real limbs).
     const handX = cx + 9 * swordDir;
-    const handY = player.y + 23;
+    const handY = y + 23;
 
     // Quick swing: sweeps from a raised, wound-up pose down through to
     // the normal ready position over the first part of the melee
     // cooldown, then just holds there until the next swing is available.
     const SWING_DURATION = 10;
-    const elapsed = MELEE_COOLDOWN - meleeCooldown;
+    const elapsed = maxCooldown - attackCooldown;
     const t = (elapsed >= 0 && elapsed < SWING_DURATION) ? elapsed / SWING_DURATION : 1;
     const dx = (6 + (20 - 6) * t) * swordDir;
     const dy = -20 + (-16 - -20) * t; // -20 (raised) eases down to -16 (ready)
@@ -4135,6 +4282,9 @@
     if (p.type === "fireball"){
       ctx.fillStyle = COLORS.fireball;
       ctx.beginPath(); ctx.arc(x, p.y, 7, 0, Math.PI*2); ctx.fill();
+    }else if (p.type === "crewBolt"){
+      ctx.fillStyle = COLORS.playerSteel;
+      ctx.beginPath(); ctx.arc(x, p.y, 4, 0, Math.PI*2); ctx.fill();
     }else if (p.type === "demonBolt"){
       ctx.fillStyle = COLORS.demonBody;
       ctx.beginPath(); ctx.arc(x, p.y, 5, 0, Math.PI*2); ctx.fill();
@@ -4552,21 +4702,44 @@
   }
   function renderVillagerMenu(villagerId){
     const v = player.villagers.find(x => x.id === villagerId);
-    if (!v){ closeVillagerMenu(); return; }
-    const canRecruit = player.trainingGroundsBuilt;
-    const affordable = player.silver >= RECRUIT_COST_SILVER;
+    if (v){
+      const canRecruit = player.trainingGroundsBuilt;
+      const affordable = player.silver >= RECRUIT_COST_SILVER;
+      overlayInner.innerHTML = `
+        <h3>A Villager</h3>
+        <p>Strength: ${v.strength} (potential damage/sec once trained)</p>
+        ${canRecruit
+          ? `<button type="button" class="btn" id="wvw-recruit-btn" ${affordable ? "" : "disabled"}>Recruit (${RECRUIT_COST_SILVER} silver)</button>`
+          : `<p style="opacity:0.7;font-size:0.85rem;">Training Grounds must be built before villagers can be recruited.</p>`
+        }
+        <button type="button" class="btn light" id="wvw-villager-close" style="margin-top:10px;">Close</button>
+      `;
+      const recruitBtn = document.getElementById("wvw-recruit-btn");
+      if (recruitBtn) recruitBtn.addEventListener("click", () => {
+        if (recruitVillager(villagerId)){
+          closeVillagerMenu();
+          saveProgress();
+        }
+      });
+      document.getElementById("wvw-villager-close").addEventListener("click", closeVillagerMenu);
+      return;
+    }
+
+    const c = player.crew.find(x => x.id === villagerId);
+    if (!c){ closeVillagerMenu(); return; }
+    const following = c.status === "following";
+    const knownLabel = (c.spellsKnown && c.spellsKnown.length)
+      ? c.spellsKnown.map(k => SPELLS[k] ? SPELLS[k].label : k).join(", ")
+      : "None yet — assign them to the Library to learn some.";
     overlayInner.innerHTML = `
-      <h3>A Villager</h3>
-      <p>Strength: ${v.strength} (potential damage/sec once trained)</p>
-      ${canRecruit
-        ? `<button type="button" class="btn" id="wvw-recruit-btn" ${affordable ? "" : "disabled"}>Recruit (${RECRUIT_COST_SILVER} silver)</button>`
-        : `<p style="opacity:0.7;font-size:0.85rem;">Training Grounds must be built before villagers can be recruited.</p>`
-      }
+      <h3>Trained Crew — ${c.id}</h3>
+      <p>Strength: ${c.strength} (sword damage). Spells known: ${knownLabel}</p>
+      <button type="button" class="btn ${following ? "light" : ""}" id="wvw-crew-follow-toggle">${following ? "Unassign" : "Assign to follow you"}</button>
       <button type="button" class="btn light" id="wvw-villager-close" style="margin-top:10px;">Close</button>
     `;
-    const recruitBtn = document.getElementById("wvw-recruit-btn");
-    if (recruitBtn) recruitBtn.addEventListener("click", () => {
-      if (recruitVillager(villagerId)){
+    document.getElementById("wvw-crew-follow-toggle").addEventListener("click", () => {
+      const ok = following ? unassignCrewFromFollow(c.id) : assignCrewToFollow(c.id);
+      if (ok){
         closeVillagerMenu();
         saveProgress();
       }
@@ -4783,7 +4956,8 @@
         training: "Training (" + Math.ceil(c.framesRemaining / FRAMES_PER_MINUTE) + " min left)",
         idle: "Idle, unassigned",
         library: "Studying at the Library",
-        blacksmith: "Working the Blacksmith"
+        blacksmith: "Working the Blacksmith",
+        following: "Following you"
       }[c.status] || c.status;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
