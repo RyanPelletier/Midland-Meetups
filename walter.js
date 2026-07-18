@@ -65,13 +65,15 @@
     grassBlade: "#4E8F35",
     cyclopsBody: "#6B5842",
     cyclopsEye: "#E14B3C",
-    sandwormBody: "#C9A45C", sandwormBodyDark: "#A9843C",
-    feyBody: "#7B5FBF", feyGlow: "#C9A9F0",
-    fairyBody: "#F6C945", fairyWing: "#FFF3C4",
-    sirenBody: "#2E8B8B", sirenHair: "#1B4F72",
-    mermaidBody: "#3AA6A6", mermaidTail: "#1B7A7A",
-    ogreBody: "#4B5D3A", ogreBodyDark: "#33421F",
-    snakeBody: "#5B8C3A", snakeBelly: "#C9D9A0",
+    sandwormBody: "#C9A45C", sandwormBodyDark: "#A9843C", sandwormMouth: "#5C3A1E",
+    feyBody: "#7B5FBF", feyGlow: "#C9A9F0", feyArm: "#5B4394",
+    fairyBody: "#F6C945", fairyWing: "#FFF3C4", fairyLeg: "#C9962E",
+    sirenBody: "#2E8B8B", sirenHair: "#1B4F72", sirenShell: "#E8C99B",
+    mermaidBody: "#3AA6A6", mermaidTail: "#1B7A7A", mermaidFin: "#134F5C",
+    ogreBody: "#4B5D3A", ogreBodyDark: "#33421F", ogreFist: "#3A4A2C", ogreTusk: "#E8E0C8",
+    snakeBody: "#5B8C3A", snakeBelly: "#C9D9A0", snakeTongue: "#B8283A",
+    knightPauldron: "#3F4652", knightVisor: "#1A1E24", knightSword: "#9CA3AF",
+    archerTunic: "#2D7A3A", archerHood: "#1F5A2A",
     bossBody: "#8B2F3A", bossTrim: "#D4AF37",
     commanderArmor: "#8A8FA0", commanderCape: "#A8283A",
     championArmor: "#B8BCC8", championShield: "#C9A45C", championShieldRim: "#D4AF37",
@@ -3704,18 +3706,61 @@
     if (x < -40 || x > CANVAS_W + 40) return;
 
     if (en.type === "knight"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // legs
+      ctx.fillStyle = COLORS.knightPauldron;
+      ctx.fillRect(x + 4, y + h - 10, 6, 10);
+      ctx.fillRect(x + w - 10, y + h - 10, 6, 10);
+      // torso
       ctx.fillStyle = COLORS.knight;
-      ctx.fillRect(x, en.y, en.w, en.h);
-      ctx.fillStyle = COLORS.knightTrim;
-      ctx.fillRect(x, en.y + 6, en.w, 6);
+      ctx.fillRect(x + 4, y + 14, w - 8, h - 24);
+      // oversized pauldrons, widening the shoulders past the torso
+      ctx.fillStyle = COLORS.knightPauldron;
+      ctx.fillRect(x - 3, y + 12, 10, 8);
+      ctx.fillRect(x + w - 7, y + 12, 10, 8);
+      // helmet with a T-shaped visor
+      ctx.fillStyle = COLORS.knight;
+      ctx.beginPath();
+      ctx.arc(cx, y + 8, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.knightVisor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + 2); ctx.lineTo(cx, y + 12);
+      ctx.moveTo(cx - 4, y + 7); ctx.lineTo(cx + 4, y + 7);
+      ctx.stroke();
+      // short sword at the hip
+      ctx.fillStyle = COLORS.knightSword;
+      ctx.fillRect(x + w - 4, y + h * 0.45, 3, 12);
+
     }else if (en.type === "archer"){
-      ctx.fillStyle = COLORS.archer;
-      ctx.fillRect(x, en.y, en.w, en.h);
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // thin legs
+      ctx.fillStyle = COLORS.archerHood;
+      ctx.fillRect(cx - 5, y + h - 10, 4, 10);
+      ctx.fillRect(cx + 1, y + h - 10, 4, 10);
+      // tunic
+      ctx.fillStyle = COLORS.archerTunic;
+      ctx.fillRect(cx - 6, y + 10, 12, h - 20);
+      // hood, a rounded arc over the head
+      ctx.fillStyle = COLORS.archerHood;
+      ctx.beginPath();
+      ctx.arc(cx, y + 8, 7, Math.PI, 0);
+      ctx.fill();
+      ctx.fillRect(cx - 7, y + 8, 14, 5);
+      // tall bow spanning nearly the full height, with a straight string
       ctx.strokeStyle = COLORS.archerBow;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(x + en.w/2, en.y + en.h/2, 12, -Math.PI/2.2, Math.PI/2.2);
+      ctx.arc(x + w - 2, y + h/2, h/2 - 2, -Math.PI/2.3, Math.PI/2.3);
       ctx.stroke();
+      ctx.strokeStyle = COLORS.archerHood;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + w - 2, y + 4);
+      ctx.lineTo(x + w - 2, y + h - 4);
+      ctx.stroke();
+
     }else if (en.type === "cyclops"){
       ctx.fillStyle = COLORS.cyclopsBody;
       ctx.fillRect(x, en.y, en.w, en.h);
@@ -3729,66 +3774,206 @@
       ctx.arc(eyeCx, eyeCy, en.w * 0.11, 0, Math.PI * 2);
       ctx.fill();
     }else if (en.type === "sandworm"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
       if (en.burrowed){
-        // just a low sand mound while burrowed/untargetable
+        // low sand mound with the wedge head poking through
         ctx.fillStyle = COLORS.sandwormBodyDark;
         ctx.beginPath();
-        ctx.ellipse(x + en.w/2, GROUND_Y - 4, en.w * 0.6, 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, GROUND_Y - 4, w * 0.6, 6, 0, 0, Math.PI * 2);
         ctx.fill();
-      }else{
         ctx.fillStyle = COLORS.sandwormBody;
         ctx.beginPath();
-        ctx.ellipse(x + en.w/2, en.y + en.h/2, en.w/2, en.h/2, 0, 0, Math.PI * 2);
+        ctx.moveTo(cx - 6, GROUND_Y - 4);
+        ctx.lineTo(cx, GROUND_Y - 16);
+        ctx.lineTo(cx + 6, GROUND_Y - 4);
+        ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = COLORS.sandwormBodyDark;
+      }else{
+        // 3-4 overlapping segments tapering toward the tail
+        const segments = 4;
+        for (let i = segments - 1; i >= 0; i--){
+          const t = i / (segments - 1); // 0 = head, 1 = tail
+          const segY = y + h * 0.35 + t * h * 0.5;
+          const segR = (w * 0.42) * (1 - t * 0.45);
+          ctx.fillStyle = i === 0 ? COLORS.sandwormBody : COLORS.sandwormBodyDark;
+          ctx.beginPath();
+          ctx.arc(cx, segY, segR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // wedge-shaped head rising above the segments
+        ctx.fillStyle = COLORS.sandwormBody;
         ctx.beginPath();
-        ctx.arc(x + en.w/2, en.y + en.h * 0.3, en.w * 0.28, 0, Math.PI * 2);
+        ctx.moveTo(cx - w * 0.3, y + h * 0.35);
+        ctx.lineTo(cx, y);
+        ctx.lineTo(cx + w * 0.3, y + h * 0.35);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = COLORS.sandwormMouth;
+        ctx.beginPath();
+        ctx.arc(cx, y + h * 0.18, w * 0.14, 0, Math.PI * 2);
         ctx.fill();
       }
     }else if (en.type === "fey"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // narrow robe, a trapezoid tapering to a point instead of legs
       ctx.fillStyle = COLORS.feyBody;
-      ctx.fillRect(x + 3, en.y, en.w - 6, en.h);
-      ctx.fillStyle = COLORS.feyGlow;
       ctx.beginPath();
-      ctx.arc(x + en.w/2, en.y + 6, 5, 0, Math.PI * 2);
-      ctx.fill();
-    }else if (en.type === "fairy"){
-      ctx.fillStyle = COLORS.fairyWing;
-      ctx.beginPath();
-      ctx.ellipse(x + en.w/2 - 6, en.y + en.h/2, 8, 4, 0.4, 0, Math.PI * 2);
-      ctx.ellipse(x + en.w/2 + 6, en.y + en.h/2, 8, 4, -0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = COLORS.fairyBody;
-      ctx.beginPath();
-      ctx.arc(x + en.w/2, en.y + en.h/2, en.w * 0.35, 0, Math.PI * 2);
-      ctx.fill();
-    }else if (en.type === "siren"){
-      ctx.fillStyle = COLORS.sirenHair;
-      ctx.fillRect(x, en.y, en.w, 10);
-      ctx.fillStyle = COLORS.sirenBody;
-      ctx.fillRect(x + 2, en.y + 8, en.w - 4, en.h - 8);
-    }else if (en.type === "mermaid"){
-      ctx.fillStyle = COLORS.mermaidBody;
-      ctx.fillRect(x + 3, en.y, en.w - 6, en.h * 0.6);
-      ctx.fillStyle = COLORS.mermaidTail;
-      ctx.beginPath();
-      ctx.moveTo(x + 3, en.y + en.h * 0.6);
-      ctx.lineTo(x + en.w - 3, en.y + en.h * 0.6);
-      ctx.lineTo(x + en.w/2, en.y + en.h);
+      ctx.moveTo(cx - w * 0.32, y + h * 0.3);
+      ctx.lineTo(cx + w * 0.32, y + h * 0.3);
+      ctx.lineTo(cx, y + h);
       ctx.closePath();
       ctx.fill();
+      ctx.fillRect(cx - w * 0.2, y, w * 0.4, h * 0.32); // head/torso block
+      // small leaf-like arms
+      ctx.fillStyle = COLORS.feyArm;
+      ctx.beginPath();
+      ctx.ellipse(cx - w * 0.38, y + h * 0.35, 5, 2.5, 0.6, 0, Math.PI * 2);
+      ctx.ellipse(cx + w * 0.38, y + h * 0.35, 5, 2.5, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      // floating orb — the signature cue
+      ctx.fillStyle = COLORS.feyGlow;
+      ctx.beginPath();
+      ctx.arc(cx + w * 0.42, y + h * 0.25 + Math.sin(frame * 0.1) * 2, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+    }else if (en.type === "fairy"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // oversized teardrop wings, extending well past the tiny body
+      ctx.fillStyle = COLORS.fairyWing;
+      [-1, 1].forEach(dir => {
+        ctx.beginPath();
+        ctx.moveTo(cx, y + h * 0.35);
+        ctx.quadraticCurveTo(cx + dir * w * 1.1, y - h * 0.1, cx + dir * w * 0.9, y + h * 0.45);
+        ctx.quadraticCurveTo(cx + dir * w * 0.5, y + h * 0.55, cx, y + h * 0.5);
+        ctx.closePath();
+        ctx.fill();
+      });
+      // tiny round body + head
+      ctx.fillStyle = COLORS.fairyBody;
+      ctx.beginPath();
+      ctx.arc(cx, y + h * 0.4, w * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      // short dangling legs
+      ctx.strokeStyle = COLORS.fairyLeg;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 2, y + h * 0.55); ctx.lineTo(cx - 3, y + h * 0.8);
+      ctx.moveTo(cx + 2, y + h * 0.55); ctx.lineTo(cx + 3, y + h * 0.8);
+      ctx.stroke();
+
+    }else if (en.type === "siren"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // lower body, mostly hidden beneath the hair cloak
+      ctx.fillStyle = COLORS.sirenBody;
+      ctx.fillRect(cx - w * 0.2, y + h * 0.55, w * 0.4, h * 0.45);
+      // dramatic triangular hair cloak reaching to the waist
+      ctx.fillStyle = COLORS.sirenHair;
+      ctx.beginPath();
+      ctx.moveTo(cx, y);
+      ctx.lineTo(cx - w * 0.4, y + h * 0.6);
+      ctx.lineTo(cx + w * 0.4, y + h * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      // extended arm holding a fan-shaped shell
+      ctx.strokeStyle = COLORS.sirenBody;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx + w * 0.2, y + h * 0.4);
+      ctx.lineTo(x + w + 4, y + h * 0.3);
+      ctx.stroke();
+      ctx.fillStyle = COLORS.sirenShell;
+      ctx.beginPath();
+      ctx.arc(x + w + 6, y + h * 0.3, 6, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+
+    }else if (en.type === "mermaid"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // upper torso
+      ctx.fillStyle = COLORS.mermaidBody;
+      ctx.fillRect(cx - w * 0.22, y, w * 0.44, h * 0.4);
+      // long sweeping tail curving to one side rather than straight down
+      ctx.fillStyle = COLORS.mermaidTail;
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.2, y + h * 0.35);
+      ctx.quadraticCurveTo(cx + w * 0.5, y + h * 0.6, cx + w * 0.15, y + h * 0.85);
+      ctx.quadraticCurveTo(cx + w * 0.05, y + h * 0.95, cx - w * 0.15, y + h * 0.8);
+      ctx.quadraticCurveTo(cx + w * 0.15, y + h * 0.55, cx - w * 0.05, y + h * 0.35);
+      ctx.closePath();
+      ctx.fill();
+      // small hip fins
+      ctx.fillStyle = COLORS.mermaidFin;
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.22, y + h * 0.4); ctx.lineTo(cx - w * 0.4, y + h * 0.45); ctx.lineTo(cx - w * 0.18, y + h * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      // broad V-shaped fin at the tail's end
+      ctx.beginPath();
+      ctx.moveTo(cx + w * 0.05, y + h * 0.8);
+      ctx.lineTo(cx + w * 0.32, y + h * 0.72);
+      ctx.lineTo(cx + w * 0.1, y + h);
+      ctx.lineTo(cx - w * 0.05, y + h * 0.9);
+      ctx.closePath();
+      ctx.fill();
+
     }else if (en.type === "ogre"){
+      const w = en.w, h = en.h, y = en.y;
+      // small head
       ctx.fillStyle = COLORS.ogreBody;
-      ctx.fillRect(x, en.y, en.w, en.h);
+      ctx.beginPath();
+      ctx.arc(x + w/2, y + 7, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // tusks
+      ctx.fillStyle = COLORS.ogreTusk;
+      ctx.beginPath();
+      ctx.moveTo(x + w/2 - 5, y + 9); ctx.lineTo(x + w/2 - 8, y + 14); ctx.lineTo(x + w/2 - 3, y + 11);
+      ctx.moveTo(x + w/2 + 5, y + 9); ctx.lineTo(x + w/2 + 8, y + 14); ctx.lineTo(x + w/2 + 3, y + 11);
+      ctx.fill();
+      // huge torso
+      ctx.fillStyle = COLORS.ogreBody;
+      ctx.fillRect(x, y + 14, w, h * 0.6);
       ctx.fillStyle = COLORS.ogreBodyDark;
-      ctx.fillRect(x, en.y + 8, en.w, 8);
+      ctx.fillRect(x, y + 22, w, 8);
+      // oversized fists hanging below the knees — the defining feature
+      ctx.fillStyle = COLORS.ogreFist;
+      ctx.beginPath();
+      ctx.arc(x - 2, y + h - 6, 8, 0, Math.PI * 2);
+      ctx.arc(x + w + 2, y + h - 6, 8, 0, Math.PI * 2);
+      ctx.fill();
+
     }else if (en.type === "snake"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      // winding S-shaped body from overlapping circles instead of one oval
+      ctx.fillStyle = COLORS.snakeBody;
+      const bodyPts = [
+        [cx - w * 0.35, y + h * 0.75], [cx - w * 0.1, y + h * 0.55], [cx + w * 0.2, y + h * 0.5],
+        [cx + w * 0.35, y + h * 0.3], [cx + w * 0.15, y + h * 0.15]
+      ];
+      bodyPts.forEach(([px, py], i) => {
+        ctx.beginPath();
+        ctx.arc(px, py, w * 0.22 * (1 - i * 0.08), 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.fillStyle = COLORS.snakeBelly;
+      bodyPts.slice(0, 3).forEach(([px, py]) => {
+        ctx.beginPath();
+        ctx.arc(px, py + 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      // broad triangular raised head with a forked tongue
+      const [hx, hy] = bodyPts[bodyPts.length - 1];
       ctx.fillStyle = COLORS.snakeBody;
       ctx.beginPath();
-      ctx.ellipse(x + en.w/2, en.y + en.h/2, en.w/2, en.h/2, 0, 0, Math.PI * 2);
+      ctx.moveTo(hx - 6, hy + 2); ctx.lineTo(hx + 7, hy - 2); ctx.lineTo(hx - 2, hy - 6);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = COLORS.snakeBelly;
-      ctx.fillRect(x + 4, en.y + en.h - 6, en.w - 8, 4);
+      ctx.strokeStyle = COLORS.snakeTongue;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hx + 6, hy - 1); ctx.lineTo(hx + 11, hy - 3);
+      ctx.moveTo(hx + 9, hy - 2); ctx.lineTo(hx + 11, hy);
+      ctx.stroke();
+
     }else if (en.isBoss){
       drawBossFigure(en, x);
     }else{
