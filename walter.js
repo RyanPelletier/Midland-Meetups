@@ -796,6 +796,22 @@
     return !!slots && slots.includes(spellKey);
   }
 
+  // Number keys 1-9 normally cast spells in a fixed default order. But
+  // with an amulet equipped, its 9 slots (the same ones that control the
+  // amulet's passive buff) take over as the actual key bindings — slot
+  // index N becomes key N. This lets the player build their own layout
+  // rather than being stuck with the default, which is the point: an
+  // empty slot means that key does nothing while this amulet is worn,
+  // and a spell not slotted anywhere isn't reachable by number key at
+  // all until it's placed in one.
+  function resolveSpellForKeySlot(idx){
+    if (player.equippedAmulet){
+      const slots = player.amuletSlots[player.equippedAmulet];
+      return (slots && slots[idx]) || null;
+    }
+    return SPELL_ORDER.concat(RARE_SPELL_ORDER)[idx] || null;
+  }
+
   const DEBUG = true; // logs key events to the console — flip to false once things look right
   /* ==================== end config ==================== */
 
@@ -1570,7 +1586,7 @@
     const numMatch = e.code.match(/^Digit([1-9])$/);
     if (numMatch){
       const idx = Number(numMatch[1]) - 1;
-      const key = SPELL_ORDER.concat(RARE_SPELL_ORDER)[idx]; // 1-5 standard, 6-9 rare
+      const key = resolveSpellForKeySlot(idx);
       if (key && spellUnlocked.has(key)){
         activeSpell = (activeSpell === key) ? null : key;
       }
@@ -5028,28 +5044,27 @@
     const slots = player.amuletSlots[amuletViewKey] || new Array(9).fill(null);
     const buffActive = isAmuletBuffActive(amulet.buffSpell);
     const buffSpellLabel = amulet.buffSpell ? (SPELLS[amulet.buffSpell] ? SPELLS[amulet.buffSpell].label : amulet.buffSpell) : null;
-
     const allSpellKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
     const assignedElsewhere = new Set(slots.filter(Boolean));
-    const slotRows = slots.map((assigned, i) => {
-      const choices = allSpellKeys.filter(k => spellUnlocked.has(k) && (k === assigned || !assignedElsewhere.has(k)));
-      const options = ['<option value="">Empty</option>'].concat(
-        choices.map(k => `<option value="${k}" ${k === assigned ? "selected" : ""}>${SPELLS[k].label}</option>`)
-      ).join("");
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;">
-          <span style="font-size:0.78rem;opacity:0.75;min-width:48px;">Slot ${i + 1}</span>
-          <select data-amulet-slot="${i}" style="flex:1;">${options}</select>
-        </div>
-      `;
-    }).join("");
 
     return `
       <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">${subTabs}</div>
       <p style="font-weight:700;margin:4px 0 4px;">${amulet.label}${buffActive ? " — buff active" : ""}</p>
-      <p style="font-size:0.78rem;opacity:0.8;margin-top:-4px;">${buffSpellLabel ? `Slot ${buffSpellLabel} into any of the 9 slots to activate its passive.` : "Passive not yet implemented — no matching spell exists for this one yet."}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-4px;">${buffSpellLabel ? `Slot ${buffSpellLabel} into any key to activate its passive.` : "Passive not yet implemented — no matching spell exists for this one yet."}</p>
+      <p style="font-size:0.78rem;opacity:0.8;">${equipped ? "This amulet is equipped — number keys 1-9 now cast whatever's bound below, not the default spell order." : "Equip this amulet to make these key bindings active. While unequipped, number keys use the default order."}</p>
       <button type="button" class="btn ${equipped ? "light" : ""}" style="padding:6px 12px;font-size:0.8rem;margin-bottom:10px;" id="wvw-amulet-equip-toggle" data-amulet-key="${amuletViewKey}">${equipped ? "Unequip" : "Equip"}</button>
-      <div style="text-align:left;">${slotRows}</div>
+      <div style="text-align:left;">${slots.map((assigned, i) => {
+        const choices = allSpellKeys.filter(k => spellUnlocked.has(k) && (k === assigned || !assignedElsewhere.has(k)));
+        const options = ['<option value="">Empty (key does nothing)</option>'].concat(
+          choices.map(k => `<option value="${k}" ${k === assigned ? "selected" : ""}>${SPELLS[k].label}</option>`)
+        ).join("");
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;">
+            <span style="font-size:0.78rem;opacity:0.75;min-width:48px;">Key ${i + 1}</span>
+            <select data-amulet-slot="${i}" style="flex:1;">${options}</select>
+          </div>
+        `;
+      }).join("")}</div>
     `;
   }
 
