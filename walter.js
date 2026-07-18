@@ -127,6 +127,9 @@
     freeze: "#8FE3F0",
     blackHole: "#2B1B4A",
     ally: "#F6A93B",
+    allyYellow: "#F5D742",
+    demonBody: "#B8283A", demonWing: "#7A1420",
+    angelBody: "#F5F0E6", angelWing: "#C9D8E8",
     ghostBody: "#C8D8E8",
     hud: "#1F2430",
     hpGood: "#12B76A",
@@ -643,9 +646,9 @@
   const RARE_SPELL_ORDER = ["mysticArmor", "demon", "angel", "teleport"];
   const RARE_SPELLS = {
     mysticArmor: { label: "Mystic Armor", cost: 25, duration: 900, cooldown: 600 },
-    demon:       { label: "Demon",        cost: 25, cooldown: 400 },   // TODO: summon a red ally that shoots fireballs
-    angel:       { label: "Angel",        cost: 25, cooldown: 400 },   // TODO: summon a white ally that shoots white lightning
-    teleport:    { label: "Teleport",     cost: 25, cooldown: 900 }    // TODO: safe respawn, keeps everything carried
+    demon:       { label: "Demon",        cost: 25, allyDuration: 900, allyDamage: 10, allyHp: 30, preferredRange: 200, projectileSpeed: 7, attackCooldown: 60, cooldown: 400 },
+    angel:       { label: "Angel",        cost: 25, allyDuration: 900, allyDamage: 10, allyHp: 30, preferredRange: 200, projectileSpeed: 7, attackCooldown: 60, cooldown: 400 },
+    teleport:    { label: "Teleport",     cost: 25, cooldown: 900 } // safe respawn — keeps everything carried, unlike dying
   };
   const MYSTIC_ARMOR_REGEN_PER_FRAME = 1.5; // fast enough to top off even steel armor (200) in ~2 seconds
   Object.assign(SPELLS, RARE_SPELLS);
@@ -1991,11 +1994,20 @@
       player.burningFrames = 0; // ice puts out fire — extinguishes an active cyclops burn early
       effects.push({ type: "freeze-burst", x: originX, y: originY, radius: cfg.radius, life: 20 });
     }else if (key === "summonAlly"){
-      allies = []; // only one ally at a time — casting again replaces it
+      allies = []; // only one summoned creature at a time — casting any summon spell replaces it
       allies.push({
-        x: player.x - 30 * player.facing, y: player.y, hp: cfg.allyHp,
+        kind: "melee", x: player.x - 30 * player.facing, y: player.y, hp: cfg.allyHp,
         life: cfg.allyDuration, damage: cfg.allyDamage * spellDamageMultiplier(), cooldown: 0
       });
+    }else if (key === "demon" || key === "angel"){
+      allies = []; // same one-summon-at-a-time rule as summonAlly
+      allies.push({
+        kind: key, x: player.x - 30 * player.facing, y: player.y - 20, hp: cfg.allyHp,
+        life: cfg.allyDuration, damage: cfg.allyDamage * spellDamageMultiplier(), cooldown: 0,
+        flyPhase: Math.random() * Math.PI * 2
+      });
+    }else if (key === "teleport"){
+      teleportToSafety();
     }else if (key === "blackHole"){
       const cx = player.x + PLAYER_W/2 + 90 * player.facing;
       effects.push({
@@ -2084,6 +2096,22 @@
 
     if (!opts.ignoreInvuln) player.invulnFrames = HIT_INVULN_FRAMES;
     if (player.hp <= 0) respawnPlayer();
+  }
+
+  // Teleport spell: same destination logic as a death respawn, but
+  // nothing is lost and it isn't treated as going down — no crystal
+  // loss, no "you went down" message, no burn/HP reset since the player
+  // wasn't actually hurt.
+  function teleportToSafety(){
+    currentMap = "home";
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    player.invulnFrames = RESPAWN_INVULN_FRAMES;
+    respawnMessageText = "Teleported to safety.";
+    respawnMessageTimer = 180;
+    if (DEBUG) console.log("[WvW] teleported — kept " + player.carriedCrystals + " carried crystals");
   }
 
   function respawnPlayer(reason){
@@ -2331,11 +2359,16 @@
       }else{
         if (Math.abs(dist) > stats.preferredRange + 20){
           en.x += Math.sign(dist) * stats.speed;
+          en.moving = true;
         }else if (Math.abs(dist) < stats.preferredRange - 20){
           en.x -= Math.sign(dist) * stats.speed;
-        }else if (en.attackCooldown <= 0){
-          fireEnemyProjectile(en, Math.sign(dist) || 1);
-          en.attackCooldown = stats.attackCooldown;
+          en.moving = true;
+        }else{
+          en.moving = false;
+          if (en.attackCooldown <= 0){
+            fireEnemyProjectile(en, Math.sign(dist) || 1);
+            en.attackCooldown = stats.attackCooldown;
+          }
         }
       }
 
@@ -2441,14 +2474,39 @@
       if (a.cooldown > 0) a.cooldown--;
       const alive = enemies.filter(en => en.hp > 0);
       const target = alive.sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x))[0];
-      if (target){
+      if (a.kind === "demon" || a.kind === "angel"){
+        a.flyPhase = (a.flyPhase || 0) + 0.08;
+        a.y = player.y - 20 + Math.sin(a.flyPhase) * 4; // gentle hover bob
+        if (target){
+          const dist = (target.x + target.w/2) - (a.x + PLAYER_W/2);
+          const cfg = SPELLS[a.kind];
+          if (Math.abs(dist) > cfg.preferredRange + 20){
+            a.x += Math.sign(dist) * 2.4;
+          }else if (Math.abs(dist) < cfg.preferredRange - 20){
+            a.x -= Math.sign(dist) * 2.4;
+          }else if (a.cooldown <= 0){
+            playerProjectiles.push({
+              type: a.kind === "demon" ? "demonBolt" : "angelBolt",
+              x: a.x + PLAYER_W/2, y: a.y + PLAYER_H/2,
+              vx: cfg.projectileSpeed * Math.sign(dist), damage: a.damage
+            });
+            a.cooldown = cfg.attackCooldown;
+          }
+        }
+      }else if (target){
         const dist = (target.x + target.w/2) - (a.x + PLAYER_W/2);
         if (Math.abs(dist) > 30){
           a.x += Math.sign(dist) * 2.2;
-        }else if (a.cooldown <= 0){
-          damageEnemy(target, a.damage);
-          a.cooldown = 40;
+          a.moving = true;
+        }else{
+          a.moving = false;
+          if (a.cooldown <= 0){
+            damageEnemy(target, a.damage);
+            a.cooldown = 40;
+          }
         }
+      }else{
+        a.moving = false;
       }
     });
     allies = allies.filter(a => a.life > 0 && a.hp > 0);
@@ -3753,10 +3811,12 @@
 
     }else if (en.type === "archer"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // thin legs
+      // thin legs, with the same walking swing while moving (approach
+      // or backing off) as the knight uses, still while firing
+      const legSwing = en.moving ? Math.sin(frame * 0.35) * 2.5 : 0;
       ctx.fillStyle = COLORS.archerHood;
-      ctx.fillRect(cx - 5, y + h - 10, 4, 10);
-      ctx.fillRect(cx + 1, y + h - 10, 4, 10);
+      ctx.fillRect(cx - 5 + legSwing, y + h - 10, 4, 10);
+      ctx.fillRect(cx + 1 - legSwing, y + h - 10, 4, 10);
       // tunic
       ctx.fillStyle = COLORS.archerTunic;
       ctx.fillRect(cx - 6, y + 10, 12, h - 20);
@@ -4036,8 +4096,31 @@
 
   function drawAlly(a){
     const x = worldToScreen(a.x);
-    ctx.fillStyle = COLORS.ally;
-    ctx.fillRect(x, a.y, PLAYER_W - 4, PLAYER_H - 6);
+    if (a.kind === "demon" || a.kind === "angel"){
+      const bodyColor = a.kind === "demon" ? COLORS.demonBody : COLORS.angelBody;
+      const wingColor = a.kind === "demon" ? COLORS.demonWing : COLORS.angelWing;
+      const cx = x + PLAYER_W / 2, cy = a.y + PLAYER_H / 2;
+      const flap = Math.sin(frame * 0.3) * 5; // small animated wing flap
+      // wings, drawn behind the body
+      ctx.fillStyle = wingColor;
+      ctx.beginPath();
+      ctx.ellipse(cx - 7, cy - 2 + flap * 0.3, 6, 3 + Math.abs(flap) * 0.4, 0.5, 0, Math.PI * 2);
+      ctx.ellipse(cx + 7, cy - 2 - flap * 0.3, 6, 3 + Math.abs(flap) * 0.4, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      // small body — a compact person, not full player size
+      ctx.fillStyle = COLORS.playerSkin;
+      ctx.beginPath();
+      ctx.arc(cx, cy - 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(cx - 3, cy - 3, 6, 10);
+      ctx.fillRect(cx - 2, cy + 7, 2, 5);
+      ctx.fillRect(cx + 1, cy + 7, 2, 5);
+    }else{
+      // melee ally — a proper yellow humanoid using the same rig and
+      // walk animation as the player/villagers, not a flat rectangle
+      drawWalterFigure(x, a.y, COLORS.allyYellow, { moving: !!a.moving, airborne: false, climbing: false }, null);
+    }
   }
 
   function drawGhost(g){
@@ -4052,6 +4135,16 @@
     if (p.type === "fireball"){
       ctx.fillStyle = COLORS.fireball;
       ctx.beginPath(); ctx.arc(x, p.y, 7, 0, Math.PI*2); ctx.fill();
+    }else if (p.type === "demonBolt"){
+      ctx.fillStyle = COLORS.demonBody;
+      ctx.beginPath(); ctx.arc(x, p.y, 5, 0, Math.PI*2); ctx.fill();
+    }else if (p.type === "angelBolt"){
+      ctx.strokeStyle = COLORS.angelBody;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 6, p.y - 4); ctx.lineTo(x, p.y); ctx.lineTo(x - 6, p.y + 4);
+      ctx.moveTo(x, p.y); ctx.lineTo(x + 6, p.y);
+      ctx.stroke();
     }else if (p.type === "arrow"){
       ctx.strokeStyle = COLORS.arrow;
       ctx.lineWidth = 3;
