@@ -114,6 +114,10 @@
     playerLegs: "#3D3226",
     playerSword: "#9CA3AF",
     swordHilt: "#6B4222",
+    swordHiltSOTGK: "#6B4A2A", // brown leather-wrapped hilt, per the SOTGK spec
+    sotgkBladeEdge: "#F5F0E6", sotgkBladeCore: "#8A8FA0", // bright white edge, opaque bright grey core
+    sotgkUltimate: "#F5D742", // gold glow when all three elements are stacked
+    imbueLightning: "#7EC8E3", imbueFire: "#D9483A", imbueFreeze: "#2C4F7C",
     knight: "#5B6472",
     knightTrim: "#E5484D",
     archer: "#2851E3",
@@ -567,6 +571,20 @@
   const MELEE_RANGE = 34;
   const MELEE_DAMAGE = 30; // was 18 — now a one-shot against knights/archers/wizards
   const MELEE_COOLDOWN = 22;
+
+  // Sword Inventory / imbuing ("And So I Wander" Phase 8b). The roadmap
+  // specifies imbue *outcomes* in detail (combo table, visuals) but never
+  // says how imbuing is actually triggered — this is a real design call,
+  // not something spelled out: casting Fireball, Lightning, or Freeze
+  // also imbues the equipped sword with that element for a limited
+  // duration, refreshed on recast. A standard sword holds one imbue at a
+  // time (a new element replaces the old one); the SOTGK stacks all
+  // three independently.
+  const IMBUE_DURATION_FRAMES = 20 * 60; // 20s per element, refreshed on recast
+  const SOTGK_COST_SILVER = 100000;
+  const IMBUE_BONUS_DAMAGE = 8; // standard single-imbue melee bonus
+  const SOTGK_ARC_TARGETS = 10; // max enemies hit by the fully-stacked Ultimate arc
+  const SOTGK_COMBO_ARC_TARGETS = 3; // smaller arc for the 2-element combos
 
   const ENEMY_STATS = {
     knight:  { hp: 30, speed: 1.4, damage: 8,  attackCooldown: 50, contactRange: 30, w: 26, h: 40, dropsSilver: true },
@@ -1297,8 +1315,13 @@
         unlocked: Array.from(spellUnlocked)
       },
       swordInventory: {
-        swords: [], // Phase 8b: {id, imbueType, upgrades, visualColor}
-        equippedSwordId: null
+        swords: player.swordInventory.swords.map(s => ({
+          id: s.id, type: s.type, label: s.label
+          // activeImbues intentionally not persisted — same "transient
+          // combat state" treatment as burn/freeze/cloak timers elsewhere;
+          // an imbue you're mid-fight with shouldn't survive a reload.
+        })),
+        equippedSwordId: player.swordInventory.equippedSwordId
       },
       armorInventory: {
         equipped: player.armorType || null,
@@ -1360,7 +1383,7 @@
         maxMana: legacy.maxMana || MAX_MANA_START
       },
       spells: { unlocked },
-      swordInventory: { swords: [], equippedSwordId: null },
+      swordInventory: { swords: [{ id: "default", type: "standard", label: "Iron Sword" }], equippedSwordId: "default" },
       armorInventory: {
         equipped: (legacy.armor && legacy.armor !== "none") ? legacy.armor : null,
         items: ARMOR_ORDER.reduce((acc, key) => {
@@ -1608,6 +1631,10 @@
     player.blacksmithBuilt = !!s.homeBase.blacksmithBuilt;
     player.trainingGroundsBuilt = !!s.homeBase.trainingGroundsBuilt;
     player.crew = s.crewRoster || [];
+    if (s.swordInventory && s.swordInventory.swords && s.swordInventory.swords.length){
+      player.swordInventory.swords = s.swordInventory.swords.map(sw => ({ ...sw, activeImbues: {} }));
+      player.swordInventory.equippedSwordId = s.swordInventory.equippedSwordId || player.swordInventory.swords[0].id;
+    }
     const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
     player.nextCrewId = maxLoadedCrewId + 1;
     player.highestUnlockedLand = s.worldProgress.highestUnlockedLand;
@@ -1670,6 +1697,10 @@
     ghosts = [];
     player.amuletsOwned = new Set();
     player.armorInventory = {}; // { [armorType]: { owned: bool, broken: bool } } — persists per-piece, independent of what's currently worn
+    player.swordInventory = {
+      swords: [{ id: "default", type: "standard", label: "Iron Sword", activeImbues: {} }],
+      equippedSwordId: "default"
+    };
     ARMOR_ORDER.forEach(key => { player.armorInventory[key] = { owned: false, broken: false }; });
     player.amuletSlots = {}; // { amuletKey: [9 slots, spell key or null] }, populated as amulets are earned
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
@@ -1775,6 +1806,7 @@
     updateFollowingCrew();
     updateGhosts();
     updateEffects();
+    updateSwordImbues();
     checkChestAndAltar();
     if (respawnMessageTimer > 0) respawnMessageTimer--;
   }
@@ -2072,13 +2104,121 @@
   }
 
   /* ---------------- combat: player ---------------- */
+  function getEquippedSword(){
+    return player.swordInventory.swords.find(s => s.id === player.swordInventory.equippedSwordId) || null;
+  }
+
+  function equipSword(swordId){
+    if (!player.swordInventory.swords.some(s => s.id === swordId)) return false;
+    player.swordInventory.equippedSwordId = swordId;
+    return true;
+  }
+
+  function buySOTGK(){
+    if (!player.castleRebuilt) return false;
+    if (player.swordInventory.swords.some(s => s.id === "sotgk")) return false; // one-time purchase
+    if (player.silver < SOTGK_COST_SILVER) return false;
+    player.silver -= SOTGK_COST_SILVER;
+    player.swordInventory.swords.push({ id: "sotgk", type: "sotgk", label: "Sword of the Great King", activeImbues: {} });
+    equipSword("sotgk"); // auto-equip, matching how buying armor/amulets already auto-equips
+    if (DEBUG) console.log("[WvW] purchased the Sword of the Great King");
+    return true;
+  }
+
+  // Casting Fireball/Lightning/Freeze also imbues the equipped sword —
+  // see the constant block above for why this is the trigger. A
+  // standard sword only ever holds one imbue (a new element replaces the
+  // old one); the SOTGK stacks up to all three independently.
+  function applyImbueToSword(element){
+    const sword = getEquippedSword();
+    if (!sword) return;
+    if (sword.type === "sotgk"){
+      sword.activeImbues[element] = IMBUE_DURATION_FRAMES;
+    }else{
+      sword.activeImbues = { [element]: IMBUE_DURATION_FRAMES };
+    }
+  }
+
+  function updateSwordImbues(){
+    const sword = getEquippedSword();
+    if (!sword) return;
+    Object.keys(sword.activeImbues).forEach(el => {
+      sword.activeImbues[el]--;
+      if (sword.activeImbues[el] <= 0) delete sword.activeImbues[el];
+    });
+  }
+
+  // Fires a short lightning arc from the player to nearby enemies,
+  // reusing the same "nearest, not yet hit" chaining approach the
+  // Lightning spell already uses, just capped at a different count.
+  function fireSwordArc(maxTargets, damage){
+    const hitSoFar = [];
+    let fromX = player.x + PLAYER_W/2, fromY = player.y + PLAYER_H/2;
+    for (let i = 0; i < maxTargets; i++){
+      let nearest = null, nearestDist = Infinity;
+      enemies.forEach(en => {
+        if (en.hp <= 0 || hitSoFar.includes(en)) return;
+        const d = Math.hypot((en.x + en.w/2) - fromX, (en.y + en.h/2) - fromY);
+        if (d < 260 && d < nearestDist){ nearest = en; nearestDist = d; }
+      });
+      if (!nearest) break;
+      damageEnemy(nearest, damage);
+      hitSoFar.push(nearest);
+      effects.push({ type: "lightning-link", x1: fromX, y1: fromY, x2: nearest.x + nearest.w/2, y2: nearest.y + nearest.h/2, life: 8 });
+      fromX = nearest.x + nearest.w/2; fromY = nearest.y + nearest.h/2;
+    }
+    return hitSoFar;
+  }
+
+  // The SOTGK's deterministic combo table, per its spec. Only called on
+  // a melee hit while the SOTGK is equipped with 2+ active imbues.
+  function applySOTGKCombo(target){
+    const sword = getEquippedSword();
+    const imbues = Object.keys(sword.activeImbues);
+    const has = (el) => imbues.includes(el);
+
+    if (has("lightning") && has("fire") && has("freeze")){
+      // Ultimate: arc up to 10 targets, permanent white burn, passive freeze damage
+      fireSwordArc(SOTGK_ARC_TARGETS, MELEE_DAMAGE);
+      target.burningFrames = 999999; // "permanent" for practical purposes — cleared on death/respawn like any burn
+      target.whiteBurn = true;
+      target.frozenFrames = Math.max(target.frozenFrames || 0, 120);
+      damageEnemy(target, MELEE_DAMAGE * 0.3); // passive freeze damage, on top of the arc
+    }else if (has("lightning") && has("freeze")){
+      fireSwordArc(SOTGK_COMBO_ARC_TARGETS, MELEE_DAMAGE * 0.6);
+      target.frozenFrames = Math.max(target.frozenFrames || 0, 90);
+    }else if (has("lightning") && has("fire")){
+      fireSwordArc(SOTGK_COMBO_ARC_TARGETS, MELEE_DAMAGE * 0.6);
+      target.burningFrames = Math.max(target.burningFrames || 0, 180);
+      target.whiteBurn = true;
+    }else if (has("fire") && has("freeze")){
+      // "Damaging Freeze" — control plus direct passive damage, no arc
+      target.frozenFrames = Math.max(target.frozenFrames || 0, 90);
+      damageEnemy(target, MELEE_DAMAGE * 0.5);
+    }
+  }
+
   function meleeAttack(){
     if (meleeCooldown > 0) return;
     meleeCooldown = MELEE_COOLDOWN;
     const hitX = player.facing > 0 ? player.x + PLAYER_W : player.x - MELEE_RANGE;
+    const sword = getEquippedSword();
+    const imbues = sword ? Object.keys(sword.activeImbues) : [];
     enemies.forEach(en => {
       if (en.hp > 0 && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
         damageEnemy(en, MELEE_DAMAGE);
+        if (en.hp <= 0) return;
+        if (sword && sword.type === "sotgk" && imbues.length >= 2){
+          applySOTGKCombo(en);
+        }else if (imbues.length === 1){
+          // standard sword, single imbue — a small bonus effect, not the
+          // full SOTGK combo table (that's exclusive to the SOTGK)
+          const el = imbues[0];
+          damageEnemy(en, IMBUE_BONUS_DAMAGE);
+          if (el === "fire") en.burningFrames = Math.max(en.burningFrames || 0, 90);
+          else if (el === "freeze") en.frozenFrames = Math.max(en.frozenFrames || 0, 45);
+          else if (el === "lightning") fireSwordArc(1, IMBUE_BONUS_DAMAGE);
+        }
       }
     });
   }
@@ -2097,11 +2237,13 @@
     player.mana -= manaCost;
 
     if (key === "fireball"){
+      applyImbueToSword("fire");
       playerProjectiles.push({
         type: "fireball", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2,
         vx: cfg.speed * player.facing, damage: cfg.damage * spellDamageMultiplier()
       });
     }else if (key === "lightning"){
+      applyImbueToSword("lightning");
       // Chain lightning: bridges from Walter to the nearest enemy, then from
       // that enemy to the next nearest (not yet hit), up to chainMax links.
       // An equipped amulet (Banner of Valor / Emerald Fang) can extend that
@@ -2133,6 +2275,7 @@
 
       effects.push({ type: "lightning-chain", points: chainPoints, life: 10 });
     }else if (key === "freeze"){
+      applyImbueToSword("freeze");
       const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
       enemies.forEach(en => {
         const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
@@ -2687,7 +2830,7 @@
       const sx = worldToScreen(c.x);
       if (sx < -40 || sx > CANVAS_W + 40) return;
       drawWalterFigure(sx, c.y, COLORS.playerSteel, { moving: !!c.moving, airborne: false, climbing: false }, "crewHelmet");
-      drawSword(sx, c.y, c.facing || 1, c.attackCooldown || 0, MELEE_COOLDOWN); // same sword + swing as the player, always available
+      drawSword(sx, c.y, c.facing || 1, c.attackCooldown || 0, MELEE_COOLDOWN, false, null); // same sword + swing as the player, always available
     });
   }
 
@@ -3785,11 +3928,30 @@
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
 
-    if (!activeSpell) drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN);
+    if (!activeSpell){
+      const sword = getEquippedSword();
+      const isSOTGK = !!(sword && sword.type === "sotgk");
+      drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN, isSOTGK, computeSwordBladeTint(sword));
+    }
     if (wasCloaked) ctx.globalAlpha = 1;
   }
 
-  function drawSword(x, y, facing, attackCooldown, maxCooldown){
+  // Single tint per state — the SOTGK's own blade already carries the
+  // white-edge/grey-core look as its base, so an imbue tint layers a
+  // color on top of that via the outline; a standard sword's blade fill
+  // just becomes that color directly. Fully stacked (all 3 imbues) gets
+  // a distinct gold "ultimate" tint rather than picking one element.
+  function computeSwordBladeTint(sword){
+    if (!sword) return null;
+    const imbues = Object.keys(sword.activeImbues || {});
+    if (imbues.length === 0) return null;
+    if (imbues.length >= 3) return COLORS.sotgkUltimate;
+    if (imbues.includes("lightning")) return COLORS.imbueLightning;
+    if (imbues.includes("fire")) return COLORS.imbueFire;
+    return COLORS.imbueFreeze;
+  }
+
+  function drawSword(x, y, facing, attackCooldown, maxCooldown, isSOTGK, bladeTint){
     const swordDir = facing > 0 ? 1 : -1;
     const cx = x + PLAYER_W / 2;
     // Anchored to the humanoid figure's actual arm position now (was
@@ -3816,8 +3978,8 @@
     const guardX = handX + ux * handleLen, guardY = handY + uy * handleLen;
     const bladeWidth = 3;
 
-    // handle (short brown segment from the hand out to the guard)
-    ctx.strokeStyle = COLORS.swordHilt;
+    // handle — the SOTGK gets its own brown leather-wrapped hilt color, per its spec
+    ctx.strokeStyle = isSOTGK ? COLORS.swordHiltSOTGK : COLORS.swordHilt;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(handX, handY);
@@ -3830,14 +3992,25 @@
     ctx.lineTo(guardX - nx * 5, guardY - ny * 5);
     ctx.stroke();
 
-    // blade — a tapered shape from the guard to a pointed tip
-    ctx.fillStyle = COLORS.playerSword;
+    // blade — a tapered shape from the guard to a pointed tip. Color
+    // reflects the equipped sword's active imbue(s); the SOTGK additionally
+    // gets its own two-tone crystalline look (bright white edge, opaque
+    // grey core) instead of the plain steel color, per its spec.
     ctx.beginPath();
     ctx.moveTo(guardX + nx * bladeWidth, guardY + ny * bladeWidth);
     ctx.lineTo(tipX, tipY);
     ctx.lineTo(guardX - nx * bladeWidth, guardY - ny * bladeWidth);
     ctx.closePath();
-    ctx.fill();
+    if (isSOTGK){
+      ctx.fillStyle = COLORS.sotgkBladeCore;
+      ctx.fill();
+      ctx.strokeStyle = bladeTint || COLORS.sotgkBladeEdge;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }else{
+      ctx.fillStyle = bladeTint || COLORS.playerSword;
+      ctx.fill();
+    }
   }
 
   // Eight distinct boss silhouettes, per the visual design brief. All
@@ -4322,7 +4495,7 @@
       ctx.fillRect(x, en.y, en.w, en.h);
     }
     if (en.burningFrames > 0){
-      ctx.fillStyle = "rgba(225,75,60,0.45)";
+      ctx.fillStyle = en.whiteBurn ? "rgba(245,240,230,0.5)" : "rgba(225,75,60,0.45)";
       ctx.fillRect(x, en.y, en.w, en.h);
     }
 
@@ -4435,6 +4608,13 @@
         if (i === 0) ctx.moveTo(sx, p.y);
         else ctx.lineTo(sx, p.y);
       });
+      ctx.stroke();
+    }else if (fx.type === "lightning-link"){
+      ctx.strokeStyle = COLORS.lightning;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(worldToScreen(fx.x1), fx.y1);
+      ctx.lineTo(worldToScreen(fx.x2), fx.y2);
       ctx.stroke();
     }else if (fx.type === "cyclops-beam"){
       const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
@@ -5117,7 +5297,7 @@
   function renderCastleUi(){
     const affordable = player.silver >= CASTLE_REBUILD_COST;
     const body = player.castleRebuilt
-      ? `<p>The Castle stands rebuilt, restored to its former glory.</p>`
+      ? renderSOTGKSection()
       : `
         <p>A decrepit ruin. Rebuilding it costs a flat ${CASTLE_REBUILD_COST} silver.</p>
         <button type="button" class="btn" id="wvw-castle-rebuild-btn" ${affordable ? "" : "disabled"}>Rebuild the Castle (${CASTLE_REBUILD_COST} silver)</button>
@@ -5136,7 +5316,29 @@
         }
       });
     }
+    const sotgkBtn = document.getElementById("wvw-sotgk-buy-btn");
+    if (sotgkBtn){
+      sotgkBtn.addEventListener("click", () => {
+        if (buySOTGK()){
+          renderCastleUi();
+          saveProgress();
+        }
+      });
+    }
     document.getElementById("wvw-castle-close").addEventListener("click", closeCastleUi);
+  }
+
+  function renderSOTGKSection(){
+    const owned = player.swordInventory.swords.some(s => s.id === "sotgk");
+    const affordable = player.silver >= SOTGK_COST_SILVER;
+    if (owned){
+      return `<p>The Castle stands rebuilt, restored to its former glory.</p>
+        <p style="opacity:0.8;font-size:0.85rem;">The Sword of the Great King already hangs at your side.</p>`;
+    }
+    return `<p>The Castle stands rebuilt, restored to its former glory.</p>
+      <p style="font-weight:700;margin:14px 0 4px;">Sword of the Great King</p>
+      <p style="opacity:0.85;font-size:0.85rem;">The ultimate endgame weapon — a crystalline blade that stacks Lightning, Fire, and Freeze simultaneously, unlike any other sword.</p>
+      <button type="button" class="btn" id="wvw-sotgk-buy-btn" ${affordable ? "" : "disabled"}>Forge the Sword of the Great King (${SOTGK_COST_SILVER.toLocaleString()} silver)</button>`;
   }
 
   function renderRareAltar(){
@@ -5331,8 +5533,22 @@
   }
 
   function renderInventoryTab(){
+    const swordRows = player.swordInventory.swords.map(s => {
+      const equipped = player.swordInventory.equippedSwordId === s.id;
+      const action = equipped
+        ? `<span style="opacity:0.7;font-size:0.8rem;">Equipped</span>`
+        : `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-equip-sword="${s.id}">Equip</button>`;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>${s.label}${equipped ? " (equipped)" : ""}</span>
+          ${action}
+        </div>
+      `;
+    }).join("");
+    const swordSection = `<p style="font-weight:700;margin:0 0 4px;">Swords</p><div style="text-align:left;">${swordRows}</div>`;
+
     const owned = ARMOR_ORDER.filter(k => player.armorInventory[k] && player.armorInventory[k].owned);
-    if (owned.length === 0) return `<p style="opacity:0.7;">No gear owned yet — check the Shops tab.</p>`;
+    if (owned.length === 0) return swordSection + `<p style="opacity:0.7;margin-top:14px;">No armor owned yet — check the Shops tab.</p>`;
 
     const rows = owned.map(key => {
       const cfg = ARMOR[key];
@@ -5357,7 +5573,7 @@
       `;
     }).join("");
 
-    return `<div style="text-align:left;">${rows}</div>`;
+    return swordSection + `<p style="font-weight:700;margin:14px 0 4px;">Armor</p><div style="text-align:left;">${rows}</div>`;
   }
 
   function renderShopsTab(){
@@ -5472,6 +5688,14 @@
     overlayInner.querySelectorAll("button[data-equip-armor]").forEach(btn => {
       btn.addEventListener("click", () => {
         if (equipArmor(btn.dataset.equipArmor)){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-equip-sword]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (equipSword(btn.dataset.equipSword)){
           renderAltar();
           saveProgress();
         }
