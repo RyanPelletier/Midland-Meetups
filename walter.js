@@ -760,7 +760,7 @@
     { key: "angel",       letter: "A" },
     { key: "teleport",    letter: "T" }
   ];
-  const ALL_SPELL_LETTERS = SPELL_LETTERS.concat(RARE_SPELL_LETTERS); // 9 total — one per amulet slot
+  const ALL_SPELL_LETTERS = SPELL_LETTERS.concat(RARE_SPELL_LETTERS).concat([{ key: "ghostArmy", letter: "G" }]); // 10 total — one per amulet slot, plus Ghost Army (which has no default key of its own)
 
   /* ==================== Amulets ====================
      Boss-dropped, unique, 9 spell slots, no duplicates. A slot just
@@ -1573,10 +1573,9 @@
     }
 
     if (e.code === "KeyC") activateCloak();
-    if (e.code === "KeyG") castGhostArmy();
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
-    if (e.code === "KeyM" && nearMenuAction) openMenuForAction(nearMenuAction);
+    if (e.code === "KeyQ" && nearMenuAction) openMenuForAction(nearMenuAction);
 
     if (e.code === "ArrowUp"){
       const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
@@ -1937,7 +1936,12 @@
   function castSpell(key){
     const cfg = SPELLS[key];
     if (!cfg || spellCooldowns[key] > 0) return;
-    const manaCost = RARE_SPELL_ORDER.includes(key) ? RARE_SPELL_MANA_COST : MANA_COST_PER_SPELL;
+    // Ghost Army needs fallen crew to summon — checked before spending
+    // mana/cooldown, same as the other spells' implicit "always works
+    // once affordable" contract; this one just has an extra condition.
+    if (key === "ghostArmy" && !player.crew.some(c => c.status === "dead")) return;
+    const manaCost = key === "ghostArmy" ? cfg.manaCost
+      : RARE_SPELL_ORDER.includes(key) ? RARE_SPELL_MANA_COST : MANA_COST_PER_SPELL;
     if (player.mana < manaCost) return;
     spellCooldowns[key] = cfg.cooldown;
     player.mana -= manaCost;
@@ -2000,6 +2004,15 @@
       });
     }else if (key === "mysticArmor"){
       player.mysticArmorFramesLeft = cfg.duration;
+    }else if (key === "ghostArmy"){
+      const fallen = player.crew.filter(c => c.status === "dead");
+      fallen.forEach((c, i) => {
+        ghosts.push({
+          x: player.x - 30 * player.facing - i * 20, y: player.y,
+          life: cfg.duration, damage: c.strength, cooldown: 0
+        });
+      });
+      if (DEBUG) console.log("[WvW] Ghost Army summoned — " + fallen.length + " fallen crew, " + (cfg.duration/60) + "s");
     }
 
     if (DEBUG) console.log("[WvW] cast " + key);
@@ -2461,23 +2474,6 @@
     ghosts = ghosts.filter(g => g.life > 0);
   }
 
-  function castGhostArmy(){
-    const cfg = SPELLS.ghostArmy;
-    if (!spellUnlocked.has("ghostArmy") || spellCooldowns.ghostArmy > 0) return;
-    if (player.mana < cfg.manaCost) return;
-    const fallen = player.crew.filter(c => c.status === "dead");
-    if (fallen.length === 0) return; // nothing to summon
-    player.mana -= cfg.manaCost;
-    spellCooldowns.ghostArmy = cfg.cooldown;
-    fallen.forEach((c, i) => {
-      ghosts.push({
-        x: player.x - 30 * player.facing - i * 20, y: player.y,
-        life: cfg.duration, damage: c.strength, cooldown: 0
-      });
-    });
-    if (DEBUG) console.log("[WvW] Ghost Army summoned — " + fallen.length + " fallen crew, " + (cfg.duration/60) + "s");
-  }
-
   /* ---------------- effects ---------------- */
   function updateEffects(){
     effects.forEach(fx => {
@@ -2505,7 +2501,7 @@
     ctx.fillStyle = COLORS.hud;
     ctx.font = "700 10px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
-    ctx.fillText("[M] Open", x + PLAYER_W / 2, player.y - 10);
+    ctx.fillText("[Q] Open", x + PLAYER_W / 2, player.y - 10);
   }
 
   function checkChestAndAltar(){
@@ -2520,7 +2516,7 @@
       }
     });
 
-    // Proximity only — no auto-open. Pressing M (like T for villagers)
+    // Proximity only — no auto-open. Pressing Q (like T for villagers)
     // does the actual opening, so walking through the village doesn't
     // mean constantly dismissing menus that pop up on their own.
     const walkupHit = getWalkupAltars().find(a =>
@@ -4958,7 +4954,7 @@
       const affordable = total >= cfg.cost;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-          <span>${cfg.label}${isRare ? " (rare)" : ""}${isSpecial ? " (press G to cast)" : ""}</span>
+          <span>${cfg.label}${isRare ? " (rare)" : ""}${isSpecial ? " (no default key — assign to an amulet slot)" : ""}</span>
           ${owned
             ? `<span style="opacity:0.7;font-size:0.8rem;">Mastered</span>`
             : `<button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-spell="${key}" ${affordable ? "" : "disabled"}>Master (${cfg.cost} crystals)</button>`
@@ -5050,7 +5046,7 @@
     const slots = player.amuletSlots[amuletViewKey] || new Array(9).fill(null);
     const buffActive = isAmuletBuffActive(amulet.buffSpell);
     const buffSpellLabel = amulet.buffSpell ? (SPELLS[amulet.buffSpell] ? SPELLS[amulet.buffSpell].label : amulet.buffSpell) : null;
-    const allSpellKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER);
+    const allSpellKeys = SPELL_ORDER.concat(RARE_SPELL_ORDER).concat(SPECIAL_SPELL_ORDER);
     const assignedElsewhere = new Set(slots.filter(Boolean));
 
     return `
@@ -5211,15 +5207,42 @@
       }
     });
 
+    function applyFullscreenCanvasSize(){
+      // object-fit on a <canvas> is unreliable across browsers (it's
+      // really meant for img/video) — rather than depend on CSS to
+      // preserve the aspect ratio, compute the exact pixel size
+      // ourselves: fit within the viewport, preserving CANVAS_W:CANVAS_H,
+      // and center whatever's left over rather than stretching.
+      const targetAspect = CANVAS_W / CANVAS_H;
+      const screenAspect = window.innerWidth / window.innerHeight;
+      let w, h;
+      if (screenAspect > targetAspect){
+        h = window.innerHeight;
+        w = h * targetAspect;
+      }else{
+        w = window.innerWidth;
+        h = w / targetAspect;
+      }
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      canvas.style.position = "fixed";
+      canvas.style.top = "50%";
+      canvas.style.left = "50%";
+      canvas.style.transform = "translate(-50%, -50%)";
+    }
+
+    function onFullscreenResize(){
+      if (document.fullscreenElement) applyFullscreenCanvasSize();
+    }
+
     document.addEventListener("fullscreenchange", () => {
       const isFull = !!document.fullscreenElement;
       btn.textContent = isFull ? "✕ Exit Fullscreen" : "⛶ Fullscreen";
       if (isFull){
-        canvas.style.width = "100vw";
-        canvas.style.height = "100vh";
-        canvas.style.objectFit = "contain";
+        applyFullscreenCanvasSize();
+        window.addEventListener("resize", onFullscreenResize);
         // The overlay (shop/menu UI) isn't a canvas descendant, so it
-        // doesn't automatically track the now-stretched canvas — pin it
+        // doesn't automatically track the now-resized canvas — pin it
         // to the same full-viewport box explicitly, rather than relying
         // on external page CSS that may only ever have accounted for the
         // canvas at its normal, non-fullscreen size.
@@ -5234,7 +5257,11 @@
       }else{
         canvas.style.width = "";
         canvas.style.height = "";
-        canvas.style.objectFit = "";
+        canvas.style.position = "";
+        canvas.style.top = "";
+        canvas.style.left = "";
+        canvas.style.transform = "";
+        window.removeEventListener("resize", onFullscreenResize);
         if (overlay){
           overlay.style.position = "";
           overlay.style.top = "";
