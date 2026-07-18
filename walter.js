@@ -1,5 +1,6 @@
 /* =====================================================================
-   And So I Wander
+   AND SO I WANDER
+   (formerly "Walter vs Wizards")
    A 2D wave-based brawler. Same mid-century modern visual language as
    Wizards & Waffles (bold primary colors, simple flat shapes), but a
    different genre: free-roam movement + climbing across a scrolling
@@ -3687,19 +3688,11 @@
       `;
     }else{
       const nextLand = player.highestUnlockedLand + 1;
-      const revisitOptions = [];
-      for (let n = 3; n <= player.highestUnlockedLand; n++) revisitOptions.push(n);
       actionHTML = `
         <button type="button" class="btn" id="wvw-sail-land1-btn">Grasslands</button>
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
-          ${revisitOptions.length ? `
-            <select id="wvw-revisit-select" style="margin-left:8px;">
-              ${revisitOptions.map(n => `<option value="${n}">Revisit Land ${n}</option>`).join("")}
-            </select>
-            <button type="button" class="btn light" id="wvw-sail-revisit-btn" style="padding:6px 12px;font-size:0.8rem;">Go</button>
-          ` : ""}
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-homebase-btn">Home Village</button>
@@ -3710,12 +3703,47 @@
     overlayInner.innerHTML = `
       <h3>Captain's Map</h3>
       <p>Four continents, charted so far. ${player.crewHired ? "Your crew can set sail whenever you're ready." : "Hiring a crew is the first step toward reaching them."}</p>
-      <svg viewBox="0 0 300 200" width="100%" height="auto" style="background:#1B4F72;border-radius:8px;">
-        <ellipse cx="70"  cy="55"  rx="42" ry="28" fill="#2D6A4F" />
-        <ellipse cx="220" cy="50"  rx="36" ry="24" fill="#2D6A4F" />
-        <ellipse cx="60"  cy="145" rx="38" ry="26" fill="#2D6A4F" />
-        <ellipse cx="225" cy="150" rx="44" ry="30" fill="#2D6A4F" />
-        <circle cx="150" cy="100" r="4" fill="#F6C945" />
+      <svg viewBox="0 0 300 200" width="100%" height="auto" style="border-radius:8px;">
+        <!-- parchment frame -->
+        <rect x="0" y="0" width="300" height="200" rx="8" fill="#E8D5A8" />
+        <rect x="6" y="6" width="288" height="188" rx="5" fill="none" stroke="#8B6B4A" stroke-width="2" />
+        <!-- ocean -->
+        <rect x="14" y="14" width="272" height="172" fill="#3A7CA5" />
+        <path d="M18,40 Q30,36 42,40 T66,40" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+        <path d="M18,160 Q30,156 42,160 T66,160" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+        <path d="M220,25 Q232,21 244,25 T268,25" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+
+        <!-- sail routes, dotted, converging near the compass -->
+        <line x1="150" y1="100" x2="72" y2="55"  stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+        <line x1="150" y1="100" x2="222" y2="50" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+        <line x1="150" y1="100" x2="60" y2="145" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+        <line x1="150" y1="100" x2="228" y2="150" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+
+        <!-- Grasslands (Land 1) — green, irregular coastline -->
+        <path d="M48,38 Q60,26 84,32 Q100,38 96,54 Q92,72 70,76 Q48,78 40,60 Q36,46 48,38 Z" fill="#4A9D5F" stroke="#2D6A4F" stroke-width="1.5"/>
+        <circle cx="66" cy="52" r="4" fill="#2D6A4F"/>
+
+        <!-- Home of the Cyclops (Land 2) — rocky grey-green, with an eye marker -->
+        <path d="M198,32 Q212,22 232,26 Q248,32 246,46 Q244,62 226,64 Q206,66 198,50 Q194,40 198,32 Z" fill="#7A8A6E" stroke="#4A5A40" stroke-width="1.5"/>
+        <circle cx="222" cy="46" r="6" fill="#F5F0E6"/>
+        <circle cx="222" cy="46" r="2.5" fill="#E14B3C"/>
+
+        <!-- Explore New Lands — mysterious violet-tinged island, swirl mark -->
+        <path d="M40,124 Q54,114 76,120 Q90,128 84,144 Q78,160 58,162 Q40,162 34,146 Q30,132 40,124 Z" fill="#8B7AB8" stroke="#5B4E77" stroke-width="1.5"/>
+        <path d="M52,140 Q58,132 66,138 Q70,144 62,148 Q56,150 52,144" fill="none" stroke="#F5F0E6" stroke-width="1.5"/>
+
+        <!-- Home Village — warm tan, tiny house shapes -->
+        <path d="M204,128 Q220,118 244,124 Q258,132 254,148 Q248,164 226,166 Q206,166 200,150 Q196,138 204,128 Z" fill="#D9C08A" stroke="#8B6B4A" stroke-width="1.5"/>
+        <rect x="216" y="140" width="10" height="8" fill="#8B5A2B"/>
+        <path d="M214,140 L221,133 L228,140 Z" fill="#B8543A"/>
+        <rect x="232" y="144" width="8" height="6" fill="#8B5A2B"/>
+        <path d="M230,144 L236,138 L242,144 Z" fill="#B8543A"/>
+
+        <!-- compass rose -->
+        <circle cx="150" cy="100" r="16" fill="none" stroke="#E8D5A8" stroke-width="1.5" opacity="0.9"/>
+        <path d="M150,86 L154,100 L150,114 L146,100 Z" fill="#E8D5A8" opacity="0.9"/>
+        <path d="M136,100 L150,96 L164,100 L150,104 Z" fill="#E8D5A8" opacity="0.6"/>
+        <circle cx="150" cy="100" r="2.5" fill="#F6C945"/>
       </svg>
       <div style="margin-top:14px;">${actionHTML}</div>
       <p class="form-note" id="wvw-map-status"></p>
@@ -3748,13 +3776,6 @@
     const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
     if (sailGeneratedBtn) sailGeneratedBtn.addEventListener("click", () => {
       sailToGeneratedLand(Number(sailGeneratedBtn.dataset.land));
-      closeMap();
-    });
-
-    const sailRevisitBtn = document.getElementById("wvw-sail-revisit-btn");
-    if (sailRevisitBtn) sailRevisitBtn.addEventListener("click", () => {
-      const sel = document.getElementById("wvw-revisit-select");
-      sailToGeneratedLand(Number(sel.value));
       closeMap();
     });
 
@@ -4052,10 +4073,31 @@
         canvas.style.width = "100vw";
         canvas.style.height = "100vh";
         canvas.style.objectFit = "contain";
+        // The overlay (shop/menu UI) isn't a canvas descendant, so it
+        // doesn't automatically track the now-stretched canvas — pin it
+        // to the same full-viewport box explicitly, rather than relying
+        // on external page CSS that may only ever have accounted for the
+        // canvas at its normal, non-fullscreen size.
+        if (overlay){
+          overlay.style.position = "fixed";
+          overlay.style.top = "0";
+          overlay.style.left = "0";
+          overlay.style.width = "100vw";
+          overlay.style.height = "100vh";
+          overlay.style.zIndex = "9999";
+        }
       }else{
         canvas.style.width = "";
         canvas.style.height = "";
         canvas.style.objectFit = "";
+        if (overlay){
+          overlay.style.position = "";
+          overlay.style.top = "";
+          overlay.style.left = "";
+          overlay.style.width = "";
+          overlay.style.height = "";
+          overlay.style.zIndex = "";
+        }
       }
     });
 
