@@ -95,6 +95,8 @@
     player: "#1B7A4A",
     playerLeather: "#8B5A2B",
     playerSteel: "#9CA3AF",
+    villagerHat: "#6B4222",
+    crewHelmet: "#7A828C",
     playerGoblin: "#5B7A3A",
     playerSiren: "#2E8B8B",
     playerCloak: "#5B4E77",
@@ -256,11 +258,13 @@
   const HOMEBASE_VILLAGE1_WIDTH = 700;
   const HOMEBASE_VILLAGE2_WIDTH = 700;
   const HOMEBASE_CASTLE_WIDTH = 500;
+  const HOMEBASE_EXPANSION_WIDTH = 900; // Library -> Blacksmith -> Training Grounds -> Graveyard, past the castle
   const HOMEBASE_DOCK_END = HOMEBASE_DOCK_WIDTH;
   const HOMEBASE_VILLAGE1_END = HOMEBASE_DOCK_END + HOMEBASE_VILLAGE1_WIDTH;
   const HOMEBASE_VILLAGE2_END = HOMEBASE_VILLAGE1_END + HOMEBASE_VILLAGE2_WIDTH;
   const HOMEBASE_CASTLE_END = HOMEBASE_VILLAGE2_END + HOMEBASE_CASTLE_WIDTH;
-  const HOMEBASE_WORLD_WIDTH = HOMEBASE_CASTLE_END;
+  const HOMEBASE_EXPANSION_END = HOMEBASE_CASTLE_END + HOMEBASE_EXPANSION_WIDTH;
+  const HOMEBASE_WORLD_WIDTH = HOMEBASE_EXPANSION_END;
   const HOMEBASE_DOCK_X = 90;
 
   // 3 houses per village (6 total) — no count was specified in the design
@@ -277,6 +281,10 @@
   const HOMEBASE_SHRINE_X = HOMEBASE_DOCK_END + 255; // village 1, in the gap between the first two houses
   const SHRINE_MANA_BONUS_PER_LEVEL = 0.20; // +20% mana regen per remodel level, stacking (not compounding)
   const HOMEBASE_CASTLE_X = HOMEBASE_VILLAGE2_END + 180;
+  const HOMEBASE_LIBRARY_X = HOMEBASE_CASTLE_END + 100;
+  const HOMEBASE_BLACKSMITH_X = HOMEBASE_CASTLE_END + 320;
+  const HOMEBASE_TRAINING_X = HOMEBASE_CASTLE_END + 540;
+  const HOMEBASE_GRAVEYARD_X = HOMEBASE_CASTLE_END + 760;
 
   // House economy — house upgrade cost is 200 * 2.5^(level-1); rent is
   // 50 * 1.5^(level-1) silver/minute once occupied (level >= 1).
@@ -285,6 +293,25 @@
   const HOUSE_BASE_RENT_PER_MIN = 50;
   const HOUSE_RENT_MULTIPLIER = 1.5;
   const CASTLE_REBUILD_COST = 10000;
+
+  // Village Expansion (roadmap "And So I Wander" Phase 3).
+  const VILLAGER_COUNT = 5; // not specified in the roadmap — a starting guess, easy to retune
+  const VILLAGER_STRENGTH_MIN = 5, VILLAGER_STRENGTH_MAX = 20; // DPS stat, randomly rolled once per villager
+  const RECRUIT_COST_SILVER = 50;
+  const TRAINING_DURATION_MINUTES = 10;
+  const LIBRARY_REMODEL_COST = 200;
+  const LIBRARY_UPGRADE_COST_CRYSTALS = 20;
+  const LIBRARY_DAMAGE_BONUS_PER_LEVEL = 0.05; // +5% spell damage per level, stacking
+  const LIBRARY_LEARNING_DURATION_MINUTES = 45;
+  const BLACKSMITH_REMODEL_COST = 300;
+  const BLACKSMITH_UPKEEP_PER_MINUTE = 50;
+  const BLACKSMITH_FALL_CHANCE_PER_MINUTE = 0.01; // not specified — see the assumption noted when this phase started: nothing else in the roadmap defines how crew can die, so working the blacksmith (the only ongoing active job) carries a small risk
+  const TRAINING_REMODEL_COST = 500;
+  const NECROMANCY_COST_CRYSTALS = 75;
+  // Minutes-to-frames uses the same "ticks only while the game is open,
+  // no wall-clock catch-up" philosophy already established for passive
+  // income — consistent with the rest of this codebase, not a new rule.
+  const FRAMES_PER_MINUTE = 60 * 60;
 
   /* ==================== Land 3+: procedural biome generation ====================
      Land 1 and Land 2 stay hand-built and untouched. Starting at Land 3,
@@ -473,7 +500,11 @@
   const WALKUP_ALTARS_HOMEBASE = [
     { x: HOMEBASE_DOCK_X + 40, w: 40, h: 40, action: "map" },
     { x: HOMEBASE_TOWNHALL_X, w: 40, h: 40, action: "townhall" },
-    { x: HOMEBASE_CASTLE_X, w: 60, h: 70, action: "castle" }
+    { x: HOMEBASE_CASTLE_X, w: 60, h: 70, action: "castle" },
+    { x: HOMEBASE_LIBRARY_X, w: 50, h: 60, action: "library" },
+    { x: HOMEBASE_BLACKSMITH_X, w: 50, h: 50, action: "blacksmith" },
+    { x: HOMEBASE_TRAINING_X, w: 50, h: 50, action: "training" },
+    { x: HOMEBASE_GRAVEYARD_X, w: 50, h: 50, action: "graveyard" }
   ];
   const CLIMB_POINTS_HOMEBASE = [];
 
@@ -750,6 +781,9 @@
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
   let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
+  let libraryUiOpen, blacksmithUiOpen, trainingUiOpen, graveyardUiOpen;
+  let nearVillagerId = null; // edge-triggered proximity for the "T" interact prompt
+  let villagerMenuOpen = false;
   let altarActiveTab = "spells"; // "spells" | "inventory" | "shops" | "amulets"
   let amuletViewKey = null; // which amulet's sub-tab is currently shown in the Amulets tab
   let wasAtWalkupAltar, wasAtClimbTop, wasInInnerCave, wasInBossArena;
@@ -848,6 +882,164 @@
     return true;
   }
 
+  function randomVillagerStrength(){
+    return VILLAGER_STRENGTH_MIN + Math.floor(Math.random() * (VILLAGER_STRENGTH_MAX - VILLAGER_STRENGTH_MIN + 1));
+  }
+
+  function makeVillager(id){
+    const x = HOMEBASE_DOCK_END + 40 + Math.random() * (HOMEBASE_VILLAGE2_END - HOMEBASE_DOCK_END - 80);
+    return { id: "v" + id, strength: randomVillagerStrength(), x, wanderTargetX: x, wanderPauseFrames: 0 };
+  }
+
+  function seedVillagers(count, startId){
+    const list = [];
+    for (let i = 0; i < count; i++) list.push(makeVillager(startId + i));
+    return list;
+  }
+
+  function spawnReplacementVillager(){
+    const v = makeVillager(player.nextVillagerId);
+    player.nextVillagerId++;
+    player.villagers.push(v);
+  }
+
+  // Simple wander: pick a nearby point, walk to it, pause, repeat.
+  // Confined to village1+village2 — no reason for a villager to wander
+  // into the castle/expansion row.
+  function updateVillagers(){
+    if (currentMap !== "homebase") return;
+    const bounds = { start: HOMEBASE_DOCK_END + 20, end: HOMEBASE_VILLAGE2_END - 20 };
+    player.villagers.forEach(v => {
+      if (v.wanderPauseFrames > 0){
+        v.wanderPauseFrames--;
+        return;
+      }
+      const dist = v.wanderTargetX - v.x;
+      if (Math.abs(dist) < 2){
+        v.wanderPauseFrames = 60 + Math.floor(Math.random() * 180); // pause 1-4s between walks
+        v.wanderTargetX = clamp(v.x + (Math.random() * 240 - 120), bounds.start, bounds.end);
+      }else{
+        v.x += Math.sign(dist) * 0.6;
+      }
+    });
+  }
+
+  function updateVillagerProximity(){
+    if (currentMap !== "homebase"){ nearVillagerId = null; return; }
+    const range = 40;
+    const playerCx = player.x + PLAYER_W / 2;
+    let closest = null, closestDist = Infinity;
+    player.villagers.forEach(v => {
+      const dist = Math.abs(v.x - playerCx);
+      if (dist < range && dist < closestDist){ closest = v; closestDist = dist; }
+    });
+    nearVillagerId = closest ? closest.id : null;
+  }
+
+  function recruitVillager(villagerId){
+    if (!player.trainingGroundsBuilt) return false;
+    if (player.silver < RECRUIT_COST_SILVER) return false;
+    const idx = player.villagers.findIndex(v => v.id === villagerId);
+    if (idx < 0) return false;
+    const v = player.villagers[idx];
+    player.silver -= RECRUIT_COST_SILVER;
+    player.villagers.splice(idx, 1);
+    player.crew.push({
+      id: "c" + player.nextCrewId, strength: v.strength, status: "training",
+      framesRemaining: TRAINING_DURATION_MINUTES * FRAMES_PER_MINUTE
+    });
+    player.nextCrewId++;
+    spawnReplacementVillager(); // village stays populated
+    if (DEBUG) console.log("[WvW] recruited " + v.id + " -> training, " + TRAINING_DURATION_MINUTES + " min");
+    return true;
+  }
+
+  function updateCrewTimers(){
+    player.crew.forEach(c => {
+      if ((c.status === "training" || c.status === "library") && c.framesRemaining > 0){
+        c.framesRemaining--;
+        if (c.framesRemaining <= 0){
+          if (c.status === "training"){
+            c.status = "idle";
+            if (DEBUG) console.log("[WvW] " + c.id + " finished training");
+          }else{
+            c.spellsLearned = (c.spellsLearned || 0) + 1;
+            c.status = "idle";
+            if (DEBUG) console.log("[WvW] " + c.id + " learned a spell (" + c.spellsLearned + " total)");
+          }
+        }
+      }
+    });
+  }
+
+  function updateBlacksmithJob(){
+    const worker = player.crew.find(c => c.status === "blacksmith");
+    if (!worker) return;
+    player.silver = Math.max(0, player.silver - BLACKSMITH_UPKEEP_PER_MINUTE / FRAMES_PER_MINUTE);
+    worker.fallCheckFrames = (worker.fallCheckFrames || FRAMES_PER_MINUTE) - 1;
+    if (worker.fallCheckFrames <= 0){
+      worker.fallCheckFrames = FRAMES_PER_MINUTE;
+      if (Math.random() < BLACKSMITH_FALL_CHANCE_PER_MINUTE){
+        worker.status = "dead";
+        if (DEBUG) console.log("[WvW] " + worker.id + " fell while working the forge");
+      }
+    }
+  }
+
+  // "Automatically repairs crew armor when they visit the village" — no
+  // crew combat/armor system exists anywhere in the game to repair, so
+  // this is reinterpreted as auto-repairing the PLAYER's own broken gear
+  // (the one armor-with-broken-state system that actually exists) while
+  // a blacksmith is staffed and the player is physically in the village.
+  function updateBlacksmithAutoRepair(){
+    if (currentMap !== "homebase") return;
+    if (!player.crew.some(c => c.status === "blacksmith")) return;
+    ARMOR_ORDER.forEach(key => {
+      const inv = player.armorInventory[key];
+      if (inv && inv.owned && inv.broken){
+        inv.broken = false;
+        if (key === player.armorType){ player.armorHp = player.armorMaxHp; player.armorBroken = false; }
+      }
+    });
+  }
+
+  function assignCrewToLibrary(crewId){
+    if (player.libraryLevel <= 0) return false;
+    const c = player.crew.find(x => x.id === crewId && x.status === "idle");
+    if (!c) return false;
+    c.status = "library";
+    c.framesRemaining = LIBRARY_LEARNING_DURATION_MINUTES * FRAMES_PER_MINUTE;
+    return true;
+  }
+
+  function assignCrewToBlacksmith(crewId){
+    if (!player.blacksmithBuilt) return false;
+    if (player.crew.some(c => c.status === "blacksmith")) return false; // one blacksmith at a time
+    const c = player.crew.find(x => x.id === crewId && x.status === "idle");
+    if (!c) return false;
+    c.status = "blacksmith";
+    c.fallCheckFrames = FRAMES_PER_MINUTE;
+    return true;
+  }
+
+  function unassignCrew(crewId){
+    const c = player.crew.find(x => x.id === crewId);
+    if (!c || (c.status !== "library" && c.status !== "blacksmith")) return false;
+    c.status = "idle";
+    c.framesRemaining = 0;
+    return true;
+  }
+
+  function necromancyResurrect(crewId){
+    if (totalCrystals() < NECROMANCY_COST_CRYSTALS) return false;
+    const c = player.crew.find(x => x.id === crewId && x.status === "dead");
+    if (!c) return false;
+    spendCrystals(NECROMANCY_COST_CRYSTALS);
+    c.status = "idle";
+    if (DEBUG) console.log("[WvW] " + c.id + " resurrected");
+    return true;
+  }
+
   function houseUpgradeCost(currentLevel){
     // Level 0->1 costs the base; each level after that is 2.5x the
     // previous level's cost.
@@ -885,6 +1077,11 @@
   function manaRegenMultiplier(){
     return 1 + player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL;
   }
+
+  function spellDamageMultiplier(){
+    return 1 + player.libraryLevel * LIBRARY_DAMAGE_BONUS_PER_LEVEL;
+  }
+
 
   function rebuildCastle(){
     if (player.castleRebuilt || player.silver < CASTLE_REBUILD_COST) return false;
@@ -1011,20 +1208,45 @@
     const amuletStr = encodeAmulets();
     const homebaseStr = encodeHomebase();
     const worldStr = "0," + player.highestUnlockedLand; // first slot is vestigial now that lands re-roll per visit instead of using a fixed seed
+    const crewStr = encodeCrew();
     // Silver accrues fractionally now (passive income), but the codex only
     // stores whole numbers — floor it here. The in-memory fractional part
     // just keeps accumulating during the session; only the saved snapshot
     // is truncated.
-    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%";
+    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%=" + crewStr + "=";
+  }
+
+  const CREW_STATUS_LETTERS = { training: "T", idle: "I", library: "L", blacksmith: "B", dead: "D" };
+  const CREW_STATUS_LETTERS_REVERSE = { T: "training", I: "idle", L: "library", B: "blacksmith", D: "dead" };
+  function encodeCrew(){
+    return player.crew.map(c => {
+      const idNum = c.id.replace("c", "");
+      const statusCode = CREW_STATUS_LETTERS[c.status] || "I";
+      return idNum + "-" + c.strength + "-" + statusCode + "-" + Math.round(c.framesRemaining || 0) + "-" + (c.spellsLearned || 0);
+    }).join("|");
+  }
+  function decodeCrew(str){
+    if (!str) return [];
+    return str.split("|").filter(Boolean).map(entry => {
+      const parts = entry.split("-");
+      return {
+        id: "c" + parts[0],
+        strength: parseInt(parts[1], 10) || 0,
+        status: CREW_STATUS_LETTERS_REVERSE[parts[2]] || "idle",
+        framesRemaining: parseInt(parts[3], 10) || 0,
+        spellsLearned: parseInt(parts[4], 10) || 0
+      };
+    });
   }
 
   function encodeHomebase(){
     const levels = HOMEBASE_HOUSES.map(h => player.houseLevels[h.id] || 0);
-    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0") + "," + player.shrineLevel;
+    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0") + "," + player.shrineLevel
+      + "," + player.libraryLevel + "," + (player.blacksmithBuilt ? "1" : "0") + "," + (player.trainingGroundsBuilt ? "1" : "0");
   }
 
   function decodeHomebase(str){
-    const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0 };
+    const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0, libraryLevel: 0, blacksmithBuilt: false, trainingGroundsBuilt: false };
     if (!str) return result;
     const parts = str.split(",").map(s => parseInt(s, 10));
     HOMEBASE_HOUSES.forEach((h, i) => {
@@ -1032,6 +1254,9 @@
     });
     result.castleRebuilt = parts[HOMEBASE_HOUSES.length] === 1;
     result.shrineLevel = Number.isFinite(parts[HOMEBASE_HOUSES.length + 1]) ? Math.max(0, parts[HOMEBASE_HOUSES.length + 1]) : 0;
+    result.libraryLevel = Number.isFinite(parts[HOMEBASE_HOUSES.length + 2]) ? Math.max(0, parts[HOMEBASE_HOUSES.length + 2]) : 0;
+    result.blacksmithBuilt = parts[HOMEBASE_HOUSES.length + 3] === 1;
+    result.trainingGroundsBuilt = parts[HOMEBASE_HOUSES.length + 4] === 1;
     return result;
   }
 
@@ -1112,13 +1337,14 @@
       crewHired: false, land1ChestCollected: false,
       amuletOwnedKeys: [], amuletEquippedKey: null, amuletSlotsByKey: {},
       houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0,
+      libraryLevel: 0, blacksmithBuilt: false, trainingGroundsBuilt: false, crew: [],
       worldSeed: null, highestUnlockedLand: 2
     };
     if (!str) return result;
     // The #maxMana#, ~rare~, ^flags^, *amulet*, +homebase+, and %world%
     // segments are all optional so saves from before each feature existed
     // still load fine.
-    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?/);
+    const m = String(str).match(/\$(\d+)\$&([A-Za-z]*)&@(\d+)@!([LSNGRC01]*)!(?:#(\d+)#)?(?:~([A-Za-z]*)~)?(?:\^(\d*)\^)?(?:\*([0-9x:\-A-Za-z]*)\*)?(?:\+([\d,]*)\+)?(?:%([\d,]*)%)?(?:=([0-9|\-A-Za-z]*)=)?/);
     if (!m) return result;
     result.silver = parseInt(m[1], 10) || 0;
     result.crystals = parseInt(m[3], 10) || 0;
@@ -1151,6 +1377,10 @@
     result.houseLevels = homebaseData.houseLevels;
     result.castleRebuilt = homebaseData.castleRebuilt;
     result.shrineLevel = homebaseData.shrineLevel;
+    result.libraryLevel = homebaseData.libraryLevel;
+    result.blacksmithBuilt = homebaseData.blacksmithBuilt;
+    result.trainingGroundsBuilt = homebaseData.trainingGroundsBuilt;
+    result.crew = decodeCrew(m[11] || "");
 
     const worldParts = (m[10] || "").split(",");
     if (worldParts[0]) result.worldSeed = parseInt(worldParts[0], 10) || null;
@@ -1185,6 +1415,12 @@
     HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
     player.castleRebuilt = loadedProgress.castleRebuilt;
     player.shrineLevel = loadedProgress.shrineLevel || 0;
+    player.libraryLevel = loadedProgress.libraryLevel || 0;
+    player.blacksmithBuilt = !!loadedProgress.blacksmithBuilt;
+    player.trainingGroundsBuilt = !!loadedProgress.trainingGroundsBuilt;
+    player.crew = loadedProgress.crew || [];
+    const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
+    player.nextCrewId = maxLoadedCrewId + 1;
     // worldSeed is no longer applied here — lands re-roll per visit now, not per player.
     player.highestUnlockedLand = loadedProgress.highestUnlockedLand;
     if (player.crewHired){
@@ -1251,6 +1487,18 @@
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
     player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
+    // Village Expansion state. Villagers wander and can be recruited;
+    // once recruited they move into the crew roster and villagers[] is
+    // regenerated to keep the village populated.
+    player.villagers = [];
+    player.crew = []; // { id, strength, status: "training"|"idle"|"library"|"blacksmith"|"dead", framesRemaining }
+    player.nextVillagerId = 1;
+    player.nextCrewId = 1;
+    player.libraryLevel = 0;
+    player.trainingGroundsBuilt = false;
+    player.blacksmithBuilt = false;
+    player.villagers = seedVillagers(VILLAGER_COUNT, player.nextVillagerId);
+    player.nextVillagerId += VILLAGER_COUNT;
     // worldSeed is no longer generated/persisted per player — lands re-roll per visit now.
     player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
     activeSpell = null; // null = sword
@@ -1276,7 +1524,7 @@
   function onKeyDown(e){
     if (document.activeElement !== canvas) return;
     if (!started){ if (loginComplete) startGame(); return; }
-    if (altarOpen) return; // altar has its own buttons, don't also move/attack behind it
+    if (altarOpen || mapOpen || rareAltarOpen || townHallOpen || castleUiOpen || libraryUiOpen || blacksmithUiOpen || trainingUiOpen || graveyardUiOpen || villagerMenuOpen) return; // menus have their own buttons, don't also move/attack behind them
 
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space"].includes(e.code)) e.preventDefault();
     keysDown.add(e.code);
@@ -1287,6 +1535,8 @@
     }
 
     if (e.code === "KeyC") activateCloak();
+
+    if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
 
     if (e.code === "ArrowUp"){
       const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
@@ -1323,6 +1573,11 @@
     updateCooldowns();
     updateMana();
     updatePassiveIncome();
+    updateVillagers();
+    updateVillagerProximity();
+    updateCrewTimers();
+    updateBlacksmithJob();
+    updateBlacksmithAutoRepair();
     updateWaveSpawning();
     updateCyclopsEncounter();
     updateGeneratedBossEncounter();
@@ -1649,7 +1904,7 @@
     if (key === "fireball"){
       playerProjectiles.push({
         type: "fireball", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2,
-        vx: cfg.speed * player.facing, damage: cfg.damage
+        vx: cfg.speed * player.facing, damage: cfg.damage * spellDamageMultiplier()
       });
     }else if (key === "lightning"){
       // Chain lightning: bridges from Walter to the nearest enemy, then from
@@ -1675,7 +1930,7 @@
         });
         if (!nearest) break;
         hitSoFar.push(nearest);
-        damageEnemy(nearest, cfg.damage);
+        damageEnemy(nearest, cfg.damage * spellDamageMultiplier());
         const enCx = nearest.x + nearest.w/2, enCy = nearest.y + nearest.h/2;
         chainPoints.push({ x: enCx, y: enCy });
         fromX = enCx; fromY = enCy;
@@ -1694,13 +1949,13 @@
       allies = []; // only one ally at a time — casting again replaces it
       allies.push({
         x: player.x - 30 * player.facing, y: player.y, hp: cfg.allyHp,
-        life: cfg.allyDuration, damage: cfg.allyDamage, cooldown: 0
+        life: cfg.allyDuration, damage: cfg.allyDamage * spellDamageMultiplier(), cooldown: 0
       });
     }else if (key === "blackHole"){
       const cx = player.x + PLAYER_W/2 + 90 * player.facing;
       effects.push({
         type: "black-hole", x: cx, y: GROUND_Y - 60, radius: cfg.radius,
-        life: cfg.duration, damagePerFrame: cfg.damagePerFrame, pullStrength: cfg.pullStrength
+        life: cfg.duration, damagePerFrame: cfg.damagePerFrame * spellDamageMultiplier(), pullStrength: cfg.pullStrength
       });
     }else if (key === "mysticArmor"){
       player.mysticArmorFramesLeft = cfg.duration;
@@ -2185,6 +2440,10 @@
       else if (walkupHit.action === "altar" && !altarOpen) openAltar();
       else if (walkupHit.action === "townhall" && !townHallOpen) openTownHall();
       else if (walkupHit.action === "castle" && !castleUiOpen) openCastleUi();
+      else if (walkupHit.action === "library" && !libraryUiOpen) openLibraryUi();
+      else if (walkupHit.action === "blacksmith" && !blacksmithUiOpen) openBlacksmithUi();
+      else if (walkupHit.action === "training" && !trainingUiOpen) openTrainingUi();
+      else if (walkupHit.action === "graveyard" && !graveyardUiOpen) openGraveyardUi();
     }
     wasAtWalkupAltar = !!walkupHit;
 
@@ -2215,6 +2474,11 @@
       drawHomebaseShrine();
       drawHomebaseTownHall();
       drawHomebaseCastle();
+      drawHomebaseLibrary();
+      drawHomebaseBlacksmith();
+      drawHomebaseTraining();
+      drawHomebaseGraveyard();
+      drawVillagers();
     }else if (currentMap === "generated"){
       drawGeneratedDock();
       drawGeneratedBiomeDecorations();
@@ -2721,6 +2985,115 @@
     }
   }
 
+  function drawVillagers(){
+    if (currentMap !== "homebase") return;
+    player.villagers.forEach(v => {
+      const sx = worldToScreen(v.x) - PLAYER_W / 2;
+      if (sx < -30 || sx > CANVAS_W + 30) return;
+      const moving = v.wanderPauseFrames <= 0;
+      drawWalterFigure(sx, GROUND_Y - PLAYER_H, COLORS.playerLeather, { moving, airborne: false, climbing: false }, "villagerHat");
+      if (v.id === nearVillagerId){
+        ctx.fillStyle = COLORS.hud;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("[T] Talk", sx + PLAYER_W / 2, GROUND_Y - PLAYER_H - 10);
+      }
+    });
+    // Trained crew doing their job also show up in the village, near
+    // their assigned building — visual confirmation they're actually there.
+    const libraryWorkerX = HOMEBASE_LIBRARY_X - 20;
+    const blacksmithWorkerX = HOMEBASE_BLACKSMITH_X - 20;
+    player.crew.forEach(c => {
+      let wx = null;
+      if (c.status === "library") wx = libraryWorkerX;
+      else if (c.status === "blacksmith") wx = blacksmithWorkerX;
+      if (wx === null) return;
+      const sx = worldToScreen(wx) - PLAYER_W / 2;
+      if (sx < -30 || sx > CANVAS_W + 30) return;
+      drawWalterFigure(sx, GROUND_Y - PLAYER_H, COLORS.playerSteel, { moving: false, airborne: false, climbing: false }, "crewHelmet");
+    });
+  }
+
+  function drawHomebaseLibrary(){
+    const x = worldToScreen(HOMEBASE_LIBRARY_X);
+    if (x < -40 || x > CANVAS_W + 40) return;
+    const built = player.libraryLevel > 0;
+    ctx.fillStyle = built ? COLORS.houseWall : COLORS.houseDecrepit;
+    ctx.fillRect(x - 20, GROUND_Y - 50, 40, 50);
+    ctx.fillStyle = built ? COLORS.townHallRoof : COLORS.houseDecrepitDark;
+    ctx.beginPath();
+    ctx.moveTo(x - 24, GROUND_Y - 50);
+    ctx.lineTo(x, GROUND_Y - 66);
+    ctx.lineTo(x + 24, GROUND_Y - 50);
+    ctx.closePath();
+    ctx.fill();
+    if (built){
+      // a couple of little "book" marks on the front to read as a library
+      ctx.fillStyle = COLORS.mana;
+      ctx.fillRect(x - 12, GROUND_Y - 30, 6, 10);
+      ctx.fillRect(x - 3, GROUND_Y - 30, 6, 10);
+      ctx.fillRect(x + 6, GROUND_Y - 30, 6, 10);
+    }
+  }
+
+  function drawHomebaseBlacksmith(){
+    const x = worldToScreen(HOMEBASE_BLACKSMITH_X);
+    if (x < -40 || x > CANVAS_W + 40) return;
+    const built = player.blacksmithBuilt;
+    ctx.fillStyle = built ? COLORS.shrineStone : COLORS.houseDecrepit;
+    ctx.fillRect(x - 20, GROUND_Y - 40, 40, 40);
+    if (built){
+      // a little forge glow
+      ctx.fillStyle = COLORS.sunColor;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(frame * 0.15);
+      ctx.beginPath();
+      ctx.arc(x, GROUND_Y - 14, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = built ? COLORS.shrineStoneDark : COLORS.houseDecrepitDark;
+    ctx.fillRect(x - 22, GROUND_Y - 44, 44, 6);
+  }
+
+  function drawHomebaseTraining(){
+    const x = worldToScreen(HOMEBASE_TRAINING_X);
+    if (x < -50 || x > CANVAS_W + 50) return;
+    const built = player.trainingGroundsBuilt;
+    ctx.strokeStyle = built ? COLORS.houseDoor : COLORS.houseDecrepitDark;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x - 30, GROUND_Y - 20);
+    ctx.lineTo(x - 30, GROUND_Y);
+    ctx.moveTo(x + 30, GROUND_Y - 20);
+    ctx.lineTo(x + 30, GROUND_Y);
+    ctx.moveTo(x - 30, GROUND_Y - 20);
+    ctx.lineTo(x + 30, GROUND_Y - 20);
+    ctx.stroke();
+    if (built){
+      ctx.fillStyle = COLORS.houseDoor;
+      ctx.beginPath();
+      ctx.arc(x, GROUND_Y - 8, 8, 0, Math.PI * 2);
+      ctx.fill(); // a practice dummy/target
+    }
+  }
+
+  function drawHomebaseGraveyard(){
+    const x = worldToScreen(HOMEBASE_GRAVEYARD_X);
+    if (x < -50 || x > CANVAS_W + 50) return;
+    const deadCount = player.crew.filter(c => c.status === "dead").length;
+    ctx.fillStyle = COLORS.shrineDecrepitDark;
+    ctx.fillRect(x - 40, GROUND_Y - 4, 80, 4); // low stone wall footing
+    const stoneCount = Math.max(2, Math.min(6, deadCount + 2));
+    for (let i = 0; i < stoneCount; i++){
+      const sx = x - 32 + i * (64 / (stoneCount - 1));
+      ctx.fillStyle = COLORS.shrineStone;
+      ctx.fillRect(sx - 4, GROUND_Y - 22, 8, 18);
+      ctx.beginPath();
+      ctx.arc(sx, GROUND_Y - 22, 4, Math.PI, 0);
+      ctx.fill();
+    }
+  }
+
   function drawLand2Cave(){
     // a simple rocky arch marking the mouth of the cave — the inner cave
     // itself is just the black sky band already handled by drawBackground
@@ -2930,11 +3303,11 @@
   // airborne, and alternate in a simple climbing motion on a ladder.
   // Fits inside the exact same PLAYER_W x PLAYER_H box, so hitboxes and
   // collision are completely untouched by this — purely visual.
-  function drawWalterFigure(x, bodyColor){
+  function drawWalterFigure(x, y, bodyColor, movement, accessory){
     const cx = x + PLAYER_W / 2;
-    const moving = (keysDown.has("ArrowLeft") || keysDown.has("ArrowRight")) && player.onGround && !player.onLadder;
-    const airborne = !player.onGround && !player.onLadder;
-    const climbing = player.onLadder;
+    const moving = !!(movement && movement.moving);
+    const airborne = !!(movement && movement.airborne);
+    const climbing = !!(movement && movement.climbing);
 
     let legSwing = 0, armSwing = 0;
     if (moving){
@@ -2947,14 +3320,14 @@
     }
 
     const headR = 6;
-    const headCy = player.y + headR + 1;
-    const torsoTop = player.y + headR * 2 + 2;
+    const headCy = y + headR + 1;
+    const torsoTop = y + headR * 2 + 2;
     const torsoH = 14;
     const torsoBottom = torsoTop + torsoH;
     const torsoW = 12;
     const legW = 4;
     const legTop = torsoBottom;
-    const legBottom = player.y + PLAYER_H;
+    const legBottom = y + PLAYER_H;
 
     // legs first, so the torso overlaps their tops cleanly
     ctx.fillStyle = COLORS.playerLegs;
@@ -2980,6 +3353,25 @@
     ctx.beginPath();
     ctx.arc(cx, headCy, headR, 0, Math.PI * 2);
     ctx.fill();
+
+    // optional head accessory — villagers wear a wizard hat, trained
+    // crew swap it for a helmet, matching the roadmap's own spec exactly
+    if (accessory === "villagerHat"){
+      ctx.fillStyle = COLORS.villagerHat;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, headCy - 2);
+      ctx.lineTo(cx, headCy - 15);
+      ctx.lineTo(cx + 6, headCy - 2);
+      ctx.closePath();
+      ctx.fill();
+    }else if (accessory === "crewHelmet"){
+      ctx.fillStyle = COLORS.crewHelmet;
+      ctx.beginPath();
+      ctx.arc(cx, headCy - 1, headR + 1.5, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(cx - headR - 1.5, headCy - 1, (headR + 1.5) * 2, 3);
+    }
   }
 
   function drawPlayer(){
@@ -2995,7 +3387,12 @@
     const wasCloaked = player.cloakActiveFramesLeft > 0;
     if (wasCloaked) ctx.globalAlpha = 0.35; // visibly faded while invisible to enemies
 
-    drawWalterFigure(x, bodyColor);
+    const playerMovement = {
+      moving: (keysDown.has("ArrowLeft") || keysDown.has("ArrowRight")) && player.onGround && !player.onLadder,
+      airborne: !player.onGround && !player.onLadder,
+      climbing: player.onLadder
+    };
+    drawWalterFigure(x, player.y, bodyColor, playerMovement, null);
 
     if (isOverOpenWater(player.x) && player.y > GROUND_Y - PLAYER_H){
       ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
@@ -3365,7 +3762,7 @@
   /* ---------------- loop / lifecycle ---------------- */
   function loop(){
     if (!running) return;
-    if (!altarOpen && !mapOpen && !rareAltarOpen && !townHallOpen && !castleUiOpen) update();
+    if (!altarOpen && !mapOpen && !rareAltarOpen && !townHallOpen && !castleUiOpen && !libraryUiOpen && !blacksmithUiOpen && !trainingUiOpen && !graveyardUiOpen && !villagerMenuOpen) update();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -3602,6 +3999,304 @@
       });
     }
     document.getElementById("wvw-townhall-close").addEventListener("click", closeTownHall);
+  }
+
+  function openVillagerMenu(villagerId){
+    villagerMenuOpen = true;
+    renderVillagerMenu(villagerId);
+    overlay.style.display = "flex";
+  }
+  function closeVillagerMenu(){
+    villagerMenuOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderVillagerMenu(villagerId){
+    const v = player.villagers.find(x => x.id === villagerId);
+    if (!v){ closeVillagerMenu(); return; }
+    const canRecruit = player.trainingGroundsBuilt;
+    const affordable = player.silver >= RECRUIT_COST_SILVER;
+    overlayInner.innerHTML = `
+      <h3>A Villager</h3>
+      <p>Strength: ${v.strength} (potential damage/sec once trained)</p>
+      ${canRecruit
+        ? `<button type="button" class="btn" id="wvw-recruit-btn" ${affordable ? "" : "disabled"}>Recruit (${RECRUIT_COST_SILVER} silver)</button>`
+        : `<p style="opacity:0.7;font-size:0.85rem;">Training Grounds must be built before villagers can be recruited.</p>`
+      }
+      <button type="button" class="btn light" id="wvw-villager-close" style="margin-top:10px;">Close</button>
+    `;
+    const recruitBtn = document.getElementById("wvw-recruit-btn");
+    if (recruitBtn) recruitBtn.addEventListener("click", () => {
+      if (recruitVillager(villagerId)){
+        closeVillagerMenu();
+        saveProgress();
+      }
+    });
+    document.getElementById("wvw-villager-close").addEventListener("click", closeVillagerMenu);
+  }
+
+  function openLibraryUi(){
+    libraryUiOpen = true;
+    renderLibraryUi();
+    overlay.style.display = "flex";
+  }
+  function closeLibraryUi(){
+    libraryUiOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderLibraryUi(){
+    if (!player.castleRebuilt){
+      overlayInner.innerHTML = `
+        <h3>Library</h3>
+        <p>A pile of rubble — the Castle must be rebuilt before this can be remodeled.</p>
+        <button type="button" class="btn light" id="wvw-library-close" style="margin-top:10px;">Close</button>
+      `;
+      document.getElementById("wvw-library-close").addEventListener("click", closeLibraryUi);
+      return;
+    }
+    if (player.libraryLevel === 0){
+      const affordable = player.silver >= LIBRARY_REMODEL_COST;
+      overlayInner.innerHTML = `
+        <h3>Library</h3>
+        <p>A decrepit shell. Remodeling costs ${LIBRARY_REMODEL_COST} silver.</p>
+        <button type="button" class="btn" id="wvw-library-remodel-btn" ${affordable ? "" : "disabled"}>Remodel (${LIBRARY_REMODEL_COST} silver)</button>
+        <button type="button" class="btn light" id="wvw-library-close" style="margin-top:10px;">Close</button>
+      `;
+      document.getElementById("wvw-library-remodel-btn").addEventListener("click", () => {
+        if (player.silver >= LIBRARY_REMODEL_COST){
+          player.silver -= LIBRARY_REMODEL_COST;
+          player.libraryLevel = 1;
+          renderLibraryUi();
+          saveProgress();
+        }
+      });
+      document.getElementById("wvw-library-close").addEventListener("click", closeLibraryUi);
+      return;
+    }
+
+    const upgradeAffordable = totalCrystals() >= LIBRARY_UPGRADE_COST_CRYSTALS;
+    const idleCrew = player.crew.filter(c => c.status === "idle");
+    const learningCrew = player.crew.filter(c => c.status === "library");
+    const crewRows = idleCrew.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+        <span>${c.id} (Str ${c.strength})</span>
+        <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-assign-library="${c.id}">Assign to learn a spell</button>
+      </div>
+    `).join("");
+    const learningRows = learningCrew.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;">
+        <span>${c.id} — learning (${Math.ceil(c.framesRemaining / FRAMES_PER_MINUTE)} min left)</span>
+        <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-unassign="${c.id}">Recall</button>
+      </div>
+    `).join("");
+
+    overlayInner.innerHTML = `
+      <h3>Library — Level ${player.libraryLevel}</h3>
+      <p>+${Math.round(player.libraryLevel * LIBRARY_DAMAGE_BONUS_PER_LEVEL * 100)}% spell damage. Upgrading costs ${LIBRARY_UPGRADE_COST_CRYSTALS} crystals and adds another +${Math.round(LIBRARY_DAMAGE_BONUS_PER_LEVEL * 100)}%.</p>
+      <button type="button" class="btn" id="wvw-library-upgrade-btn" ${upgradeAffordable ? "" : "disabled"}>Upgrade (${LIBRARY_UPGRADE_COST_CRYSTALS} crystals)</button>
+      <p style="font-weight:700;margin:14px 0 4px;">Learning (${LIBRARY_LEARNING_DURATION_MINUTES} min/spell)</p>
+      <div style="text-align:left;">${learningRows || `<p style="opacity:0.7;font-size:0.85rem;">No crew currently studying.</p>`}</div>
+      <p style="font-weight:700;margin:14px 0 4px;">Assign idle crew</p>
+      <div style="text-align:left;">${crewRows || `<p style="opacity:0.7;font-size:0.85rem;">No idle crew available.</p>`}</div>
+      <button type="button" class="btn light" id="wvw-library-close" style="margin-top:14px;">Close</button>
+    `;
+    document.getElementById("wvw-library-upgrade-btn").addEventListener("click", () => {
+      if (totalCrystals() >= LIBRARY_UPGRADE_COST_CRYSTALS){
+        spendCrystals(LIBRARY_UPGRADE_COST_CRYSTALS);
+        player.libraryLevel++;
+        renderLibraryUi();
+        saveProgress();
+      }
+    });
+    overlayInner.querySelectorAll("button[data-assign-library]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (assignCrewToLibrary(btn.dataset.assignLibrary)){
+          renderLibraryUi();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-unassign]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (unassignCrew(btn.dataset.unassign)){
+          renderLibraryUi();
+          saveProgress();
+        }
+      });
+    });
+    document.getElementById("wvw-library-close").addEventListener("click", closeLibraryUi);
+  }
+
+  function openBlacksmithUi(){
+    blacksmithUiOpen = true;
+    renderBlacksmithUi();
+    overlay.style.display = "flex";
+  }
+  function closeBlacksmithUi(){
+    blacksmithUiOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderBlacksmithUi(){
+    if (!player.blacksmithBuilt){
+      const affordable = player.silver >= BLACKSMITH_REMODEL_COST;
+      overlayInner.innerHTML = `
+        <h3>Blacksmith</h3>
+        <p>A cold forge. Remodeling costs ${BLACKSMITH_REMODEL_COST} silver.</p>
+        <button type="button" class="btn" id="wvw-blacksmith-remodel-btn" ${affordable ? "" : "disabled"}>Remodel (${BLACKSMITH_REMODEL_COST} silver)</button>
+        <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:10px;">Close</button>
+      `;
+      document.getElementById("wvw-blacksmith-remodel-btn").addEventListener("click", () => {
+        if (player.silver >= BLACKSMITH_REMODEL_COST){
+          player.silver -= BLACKSMITH_REMODEL_COST;
+          player.blacksmithBuilt = true;
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+      document.getElementById("wvw-blacksmith-close").addEventListener("click", closeBlacksmithUi);
+      return;
+    }
+
+    const worker = player.crew.find(c => c.status === "blacksmith");
+    const idleCrew = player.crew.filter(c => c.status === "idle");
+    const idleRows = idleCrew.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+        <span>${c.id} (Str ${c.strength})</span>
+        <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-assign-blacksmith="${c.id}">Employ (${BLACKSMITH_UPKEEP_PER_MINUTE} silver/min)</button>
+      </div>
+    `).join("");
+
+    overlayInner.innerHTML = `
+      <h3>Blacksmith</h3>
+      <p>Auto-repairs your broken gear whenever you're in the village with a blacksmith on duty. Costs ${BLACKSMITH_UPKEEP_PER_MINUTE} silver/minute to keep staffed.</p>
+      ${worker
+        ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
+             <span>${worker.id} is working the forge.</span>
+             <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-unassign="${worker.id}">Dismiss</button>
+           </div>`
+        : `<p style="font-weight:700;margin:14px 0 4px;">Assign idle crew</p><div style="text-align:left;">${idleRows || `<p style="opacity:0.7;font-size:0.85rem;">No idle crew available.</p>`}</div>`
+      }
+      <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:14px;">Close</button>
+    `;
+    overlayInner.querySelectorAll("button[data-assign-blacksmith]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (assignCrewToBlacksmith(btn.dataset.assignBlacksmith)){
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-unassign]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (unassignCrew(btn.dataset.unassign)){
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    });
+    document.getElementById("wvw-blacksmith-close").addEventListener("click", closeBlacksmithUi);
+  }
+
+  function openTrainingUi(){
+    trainingUiOpen = true;
+    renderTrainingUi();
+    overlay.style.display = "flex";
+  }
+  function closeTrainingUi(){
+    trainingUiOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderTrainingUi(){
+    if (!player.castleRebuilt){
+      overlayInner.innerHTML = `
+        <h3>Training Grounds</h3>
+        <p>An empty field — the Castle must be rebuilt before this can be remodeled.</p>
+        <button type="button" class="btn light" id="wvw-training-close" style="margin-top:10px;">Close</button>
+      `;
+      document.getElementById("wvw-training-close").addEventListener("click", closeTrainingUi);
+      return;
+    }
+    if (!player.trainingGroundsBuilt){
+      const affordable = player.silver >= TRAINING_REMODEL_COST;
+      overlayInner.innerHTML = `
+        <h3>Training Grounds</h3>
+        <p>An empty field. Remodeling costs ${TRAINING_REMODEL_COST} silver.</p>
+        <button type="button" class="btn" id="wvw-training-remodel-btn" ${affordable ? "" : "disabled"}>Remodel (${TRAINING_REMODEL_COST} silver)</button>
+        <button type="button" class="btn light" id="wvw-training-close" style="margin-top:10px;">Close</button>
+      `;
+      document.getElementById("wvw-training-remodel-btn").addEventListener("click", () => {
+        if (player.silver >= TRAINING_REMODEL_COST){
+          player.silver -= TRAINING_REMODEL_COST;
+          player.trainingGroundsBuilt = true;
+          renderTrainingUi();
+          saveProgress();
+        }
+      });
+      document.getElementById("wvw-training-close").addEventListener("click", closeTrainingUi);
+      return;
+    }
+
+    const rosterRows = player.crew.filter(c => c.status !== "dead").map(c => {
+      const statusLabel = {
+        training: "Training (" + Math.ceil(c.framesRemaining / FRAMES_PER_MINUTE) + " min left)",
+        idle: "Idle, unassigned",
+        library: "Studying at the Library",
+        blacksmith: "Working the Blacksmith"
+      }[c.status] || c.status;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <span>${c.id} (Str ${c.strength}) — ${statusLabel}</span>
+        </div>
+      `;
+    }).join("");
+
+    overlayInner.innerHTML = `
+      <h3>Training Grounds</h3>
+      <p>Recruit villagers near the dock (press T next to one) to start training here.</p>
+      <p style="font-weight:700;margin:14px 0 4px;">Roster</p>
+      <div style="text-align:left;">${rosterRows || `<p style="opacity:0.7;font-size:0.85rem;">No crew recruited yet.</p>`}</div>
+      <button type="button" class="btn light" id="wvw-training-close" style="margin-top:14px;">Close</button>
+    `;
+    document.getElementById("wvw-training-close").addEventListener("click", closeTrainingUi);
+  }
+
+  function openGraveyardUi(){
+    graveyardUiOpen = true;
+    renderGraveyardUi();
+    overlay.style.display = "flex";
+  }
+  function closeGraveyardUi(){
+    graveyardUiOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderGraveyardUi(){
+    const dead = player.crew.filter(c => c.status === "dead");
+    const affordable = totalCrystals() >= NECROMANCY_COST_CRYSTALS;
+    const rows = dead.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+        <span>${c.id} (Str ${c.strength})</span>
+        <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-resurrect="${c.id}" ${affordable ? "" : "disabled"}>Resurrect (${NECROMANCY_COST_CRYSTALS} crystals)</button>
+      </div>
+    `).join("");
+    overlayInner.innerHTML = `
+      <h3>Graveyard</h3>
+      <p>Fallen crew rest here. A Necromancy Ceremony can bring one back to the Training Grounds roster.</p>
+      <div style="text-align:left;">${rows || `<p style="opacity:0.7;font-size:0.85rem;">No losses yet.</p>`}</div>
+      <button type="button" class="btn light" id="wvw-graveyard-close" style="margin-top:14px;">Close</button>
+    `;
+    overlayInner.querySelectorAll("button[data-resurrect]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (necromancyResurrect(btn.dataset.resurrect)){
+          renderGraveyardUi();
+          saveProgress();
+        }
+      });
+    });
+    document.getElementById("wvw-graveyard-close").addEventListener("click", closeGraveyardUi);
   }
 
   function openCastleUi(){
