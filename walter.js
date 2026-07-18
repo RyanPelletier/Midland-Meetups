@@ -697,13 +697,8 @@
   // ARMOR_ORDER sequence. Old saves only ever stored the single equipped
   // character — those still decode fine (that one piece is treated as
   // owned, nothing broken, matching what they'd actually have had).
-  function encodeArmorInventory(){
-    const equippedChar = ARMOR_LETTERS[player.armorType] || "N";
-    const ownedBits = ARMOR_ORDER.map(k => (player.armorInventory[k] && player.armorInventory[k].owned) ? "1" : "0").join("");
-    const brokenBits = ARMOR_ORDER.map(k => (player.armorInventory[k] && player.armorInventory[k].broken) ? "1" : "0").join("");
-    return equippedChar + ownedBits + brokenBits;
-  }
-
+  // (The matching encoder was removed in Phase 8a — new saves are JSON
+  // now, this decoder only exists for migrating old ones.)
   function decodeArmorInventory(str){
     const result = { equipped: "none", owned: {}, broken: {} };
     ARMOR_ORDER.forEach(k => { result.owned[k] = false; result.broken[k] = false; });
@@ -1281,40 +1276,152 @@
      Only banked crystals persist — carried (at-risk) crystals are always
      0 at the start of a session, same as any other respawn. Kill count
      and HP aren't part of this format, so both reset each session too. */
+  // ==================== JSON PlayerState schema (Phase 8a) ====================
+  // Replaces the old hand-rolled delimiter-string Codex. Room is already
+  // allocated for swordInventory (Phase 8b) and elementalComboStates
+  // (Phase 8c) so those phases don't need a second migration later.
+  const SAVE_SCHEMA_VERSION = 2;
+
+  function buildPlayerStateSchema(){
+    return {
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      playerStats: {
+        // Silver accrues fractionally (passive income), but only the
+        // floored snapshot is persisted — the in-memory fractional part
+        // just keeps accumulating live during the session.
+        silver: Math.floor(player.silver),
+        bankedCrystals: player.bankedCrystals,
+        maxMana: player.maxMana
+      },
+      spells: {
+        unlocked: Array.from(spellUnlocked)
+      },
+      swordInventory: {
+        swords: [], // Phase 8b: {id, imbueType, upgrades, visualColor}
+        equippedSwordId: null
+      },
+      armorInventory: {
+        equipped: player.armorType || null,
+        items: ARMOR_ORDER.reduce((acc, key) => {
+          const inv = player.armorInventory[key];
+          acc[key] = { owned: !!(inv && inv.owned), broken: !!(inv && inv.broken) };
+          return acc;
+        }, {})
+      },
+      amuletLibrary: {
+        owned: AMULET_ORDER.filter(k => player.amuletsOwned.has(k)),
+        equipped: player.equippedAmulet || null,
+        slots: AMULET_ORDER.filter(k => player.amuletsOwned.has(k)).reduce((acc, k) => {
+          acc[k] = (player.amuletSlots[k] || new Array(9).fill(null)).slice();
+          return acc;
+        }, {})
+      },
+      homeBase: {
+        houseLevels: HOMEBASE_HOUSES.reduce((acc, h) => { acc[h.id] = player.houseLevels[h.id] || 0; return acc; }, {}),
+        castleRebuilt: !!player.castleRebuilt,
+        shrineLevel: player.shrineLevel || 0,
+        libraryLevel: player.libraryLevel || 0,
+        blacksmithBuilt: !!player.blacksmithBuilt,
+        trainingGroundsBuilt: !!player.trainingGroundsBuilt
+      },
+      crewRoster: player.crew.map(c => ({
+        id: c.id, name: c.name || null, strength: c.strength, status: c.status,
+        framesRemaining: Math.round(c.framesRemaining || 0),
+        spellsKnown: (c.spellsKnown || []).slice()
+      })),
+      worldProgress: {
+        highestUnlockedLand: player.highestUnlockedLand
+      },
+      elementalComboStates: {}, // Phase 8c
+      flags: {
+        crewHired: !!player.crewHired,
+        land1ChestCollected: !!player.land1ChestCollected
+      }
+    };
+  }
+
   function encodeProgress(){
-    const spellStr = SPELL_LETTERS.map(({ key, letter }) =>
-      spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
-    ).join("");
-    const rareStr = RARE_SPELL_LETTERS.map(({ key, letter }) =>
-      spellUnlocked.has(key) ? letter.toUpperCase() : letter.toLowerCase()
-    ).join("");
-    const armorChar = encodeArmorInventory();
-    const flags = (player.crewHired ? "1" : "0") + (player.land1ChestCollected ? "1" : "0");
-    const amuletStr = encodeAmulets();
-    const homebaseStr = encodeHomebase();
-    const worldStr = "0," + player.highestUnlockedLand; // first slot is vestigial now that lands re-roll per visit instead of using a fixed seed
-    const crewStr = encodeCrew();
-    // Silver accrues fractionally now (passive income), but the codex only
-    // stores whole numbers — floor it here. The in-memory fractional part
-    // just keeps accumulating during the session; only the saved snapshot
-    // is truncated.
-    const ghostArmyChar = spellUnlocked.has("ghostArmy") ? "1" : "0";
-    return "$" + Math.floor(player.silver) + "$&" + spellStr + "&@" + player.bankedCrystals + "@!" + armorChar + "!#" + player.maxMana + "#~" + rareStr + "~^" + flags + "^*" + amuletStr + "*+" + homebaseStr + "+%" + worldStr + "%=" + crewStr + "=;" + ghostArmyChar + ";";
+    return JSON.stringify(buildPlayerStateSchema());
+  }
+
+  // Maps decodeLegacyCodex()'s old flat output shape onto the new nested
+  // schema, so a returning player's save migrates transparently the next
+  // time it's loaded. Runs once per legacy save; the very next
+  // saveProgress() call writes it back out in the new JSON format, so
+  // this only ever fires a single time per player.
+  function migrateLegacyToSchema(legacy){
+    const unlocked = Array.from(legacy.spells || []);
+    if (legacy.ghostArmyUnlocked && !unlocked.includes("ghostArmy")) unlocked.push("ghostArmy");
+    return {
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      playerStats: {
+        silver: legacy.silver || 0,
+        bankedCrystals: legacy.crystals || 0,
+        maxMana: legacy.maxMana || MAX_MANA_START
+      },
+      spells: { unlocked },
+      swordInventory: { swords: [], equippedSwordId: null },
+      armorInventory: {
+        equipped: (legacy.armor && legacy.armor !== "none") ? legacy.armor : null,
+        items: ARMOR_ORDER.reduce((acc, key) => {
+          acc[key] = {
+            owned: !!(legacy.armorOwned && legacy.armorOwned[key]),
+            broken: !!(legacy.armorBroken && legacy.armorBroken[key])
+          };
+          return acc;
+        }, {})
+      },
+      amuletLibrary: {
+        owned: legacy.amuletOwnedKeys || [],
+        equipped: legacy.amuletEquippedKey || null,
+        slots: Object.assign({}, legacy.amuletSlotsByKey || {})
+      },
+      homeBase: {
+        houseLevels: HOMEBASE_HOUSES.reduce((acc, h, i) => {
+          acc[h.id] = (legacy.houseLevels && legacy.houseLevels[i]) || 0;
+          return acc;
+        }, {}),
+        castleRebuilt: !!legacy.castleRebuilt,
+        shrineLevel: legacy.shrineLevel || 0,
+        libraryLevel: legacy.libraryLevel || 0,
+        blacksmithBuilt: !!legacy.blacksmithBuilt,
+        trainingGroundsBuilt: !!legacy.trainingGroundsBuilt
+      },
+      crewRoster: (legacy.crew || []).map(c => ({
+        id: c.id, name: null, strength: c.strength, status: c.status,
+        framesRemaining: c.framesRemaining || 0,
+        spellsKnown: c.spellsKnown || []
+      })),
+      worldProgress: {
+        highestUnlockedLand: legacy.highestUnlockedLand || 2
+      },
+      elementalComboStates: {},
+      flags: {
+        crewHired: !!legacy.crewHired,
+        land1ChestCollected: !!legacy.land1ChestCollected
+      }
+    };
+  }
+
+  // Dispatcher: new saves are JSON, old saves are the legacy delimiter
+  // string. Detected by attempting JSON.parse rather than sniffing the
+  // first character, since that's the actual ground truth either way.
+  function decodeProgress(str){
+    if (!str) return migrateLegacyToSchema(decodeLegacyCodex(""));
+    try{
+      const parsed = JSON.parse(str);
+      if (parsed && parsed.schemaVersion) return parsed;
+    }catch(e){
+      // not JSON — fall through to the legacy parser
+    }
+    if (DEBUG) console.log("[WvW] migrating a legacy codex save to the JSON schema");
+    return migrateLegacyToSchema(decodeLegacyCodex(str));
   }
 
   const CREW_STATUS_LETTERS = { training: "T", idle: "I", library: "L", blacksmith: "B", dead: "D", following: "F" };
   const CREW_STATUS_LETTERS_REVERSE = { T: "training", I: "idle", L: "library", B: "blacksmith", D: "dead", F: "following" };
-  function encodeCrew(){
-    return player.crew.map(c => {
-      const idNum = c.id.replace("c", "");
-      const statusCode = CREW_STATUS_LETTERS[c.status] || "I";
-      const knownStr = (c.spellsKnown || []).map(k => {
-        const entry = ALL_SPELL_LETTERS.find(e => e.key === k);
-        return entry ? entry.letter : "";
-      }).filter(Boolean).join(".");
-      return idNum + "-" + c.strength + "-" + statusCode + "-" + Math.round(c.framesRemaining || 0) + "-" + (c.spellsLearned || 0) + "-" + knownStr;
-    }).join("|");
-  }
+  // (encodeCrew was removed in Phase 8a — new saves are JSON now, this
+  // decoder only exists for migrating old ones.)
   function decodeCrew(str){
     if (!str) return [];
     return str.split("|").filter(Boolean).map(entry => {
@@ -1334,12 +1441,8 @@
     });
   }
 
-  function encodeHomebase(){
-    const levels = HOMEBASE_HOUSES.map(h => player.houseLevels[h.id] || 0);
-    return levels.join(",") + "," + (player.castleRebuilt ? "1" : "0") + "," + player.shrineLevel
-      + "," + player.libraryLevel + "," + (player.blacksmithBuilt ? "1" : "0") + "," + (player.trainingGroundsBuilt ? "1" : "0");
-  }
-
+  // (encodeHomebase was removed in Phase 8a — new saves are JSON now,
+  // this decoder only exists for migrating old ones.)
   function decodeHomebase(str){
     const result = { houseLevels: HOMEBASE_HOUSES.map(() => 0), castleRebuilt: false, shrineLevel: 0, libraryLevel: 0, blacksmithBuilt: false, trainingGroundsBuilt: false };
     if (!str) return result;
@@ -1363,20 +1466,8 @@
   // amulet, in AMULET_ORDER sequence, x = empty slot>. Replaces the old
   // single-amulet-only format (flagged in an earlier pass as needing a
   // redesign once a second amulet existed — this is that redesign).
-  function encodeAmulets(){
-    const ownedBits = AMULET_ORDER.map(k => player.amuletsOwned.has(k) ? "1" : "0").join("");
-    const equippedIndex = player.equippedAmulet ? AMULET_ORDER.indexOf(player.equippedAmulet) : -1;
-    const slotBlocks = AMULET_ORDER.filter(k => player.amuletsOwned.has(k)).map(k => {
-      const slots = player.amuletSlots[k] || new Array(9).fill(null);
-      return slots.map(s => {
-        if (!s) return "x";
-        const entry = ALL_SPELL_LETTERS.find(e => e.key === s);
-        return entry ? entry.letter : "x";
-      }).join("");
-    }).join("");
-    return ownedBits + equippedIndex + ":" + slotBlocks;
-  }
-
+  // (encodeAmulets was removed in Phase 8a — new saves are JSON now,
+  // this decoder only exists for migrating old ones.)
   function decodeAmulets(str){
     const result = { ownedKeys: [], equippedKey: null, slotsByKey: {} };
     if (!str) return result;
@@ -1426,7 +1517,10 @@
     return result;
   }
 
-  function decodeProgress(str){
+  // Kept exactly as it was — this is now purely the migration path's
+  // parser for pre-JSON saves, untouched so its battle-tested behavior
+  // (including every backward-compat quirk it already handles) survives.
+  function decodeLegacyCodex(str){
     const result = {
       silver: 0, crystals: 0, armor: "none", armorOwned: {}, armorBroken: {}, spells: new Set(), maxMana: MAX_MANA_START,
       crewHired: false, land1ChestCollected: false,
@@ -1487,39 +1581,36 @@
 
   function applyLoadedProgress(){
     if (!loadedProgress) return;
-    player.silver = loadedProgress.silver;
-    player.bankedCrystals = loadedProgress.crystals;
-    player.maxMana = loadedProgress.maxMana;
-    player.mana = loadedProgress.maxMana; // start each session with mana full, same as HP
-    player.crewHired = loadedProgress.crewHired;
-    player.land1ChestCollected = loadedProgress.land1ChestCollected;
-    loadedProgress.spells.forEach(key => spellUnlocked.add(key));
+    const s = loadedProgress;
+    player.silver = s.playerStats.silver;
+    player.bankedCrystals = s.playerStats.bankedCrystals;
+    player.maxMana = s.playerStats.maxMana;
+    player.mana = s.playerStats.maxMana; // start each session with mana full, same as HP
+    player.crewHired = s.flags.crewHired;
+    player.land1ChestCollected = s.flags.land1ChestCollected;
+    s.spells.unlocked.forEach(key => spellUnlocked.add(key));
     ARMOR_ORDER.forEach(key => {
-      player.armorInventory[key] = {
-        owned: !!loadedProgress.armorOwned[key],
-        broken: !!loadedProgress.armorBroken[key]
-      };
+      const item = s.armorInventory.items[key];
+      player.armorInventory[key] = { owned: !!(item && item.owned), broken: !!(item && item.broken) };
     });
-    if (loadedProgress.armor !== "none" && player.armorInventory[loadedProgress.armor] && player.armorInventory[loadedProgress.armor].owned){
-      equipArmor(loadedProgress.armor);
+    if (s.armorInventory.equipped && player.armorInventory[s.armorInventory.equipped] && player.armorInventory[s.armorInventory.equipped].owned){
+      equipArmor(s.armorInventory.equipped);
     }
-    loadedProgress.amuletOwnedKeys.forEach(key => {
+    s.amuletLibrary.owned.forEach(key => {
       player.amuletsOwned.add(key);
-      player.amuletSlots[key] = loadedProgress.amuletSlotsByKey[key] || new Array(9).fill(null);
+      player.amuletSlots[key] = s.amuletLibrary.slots[key] || new Array(9).fill(null);
     });
-    if (loadedProgress.amuletEquippedKey) player.equippedAmulet = loadedProgress.amuletEquippedKey;
-    HOMEBASE_HOUSES.forEach((h, i) => { player.houseLevels[h.id] = loadedProgress.houseLevels[i] || 0; });
-    player.castleRebuilt = loadedProgress.castleRebuilt;
-    player.shrineLevel = loadedProgress.shrineLevel || 0;
-    player.libraryLevel = loadedProgress.libraryLevel || 0;
-    player.blacksmithBuilt = !!loadedProgress.blacksmithBuilt;
-    player.trainingGroundsBuilt = !!loadedProgress.trainingGroundsBuilt;
-    player.crew = loadedProgress.crew || [];
-    if (loadedProgress.ghostArmyUnlocked) spellUnlocked.add("ghostArmy");
+    if (s.amuletLibrary.equipped) player.equippedAmulet = s.amuletLibrary.equipped;
+    HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = s.homeBase.houseLevels[h.id] || 0; });
+    player.castleRebuilt = s.homeBase.castleRebuilt;
+    player.shrineLevel = s.homeBase.shrineLevel || 0;
+    player.libraryLevel = s.homeBase.libraryLevel || 0;
+    player.blacksmithBuilt = !!s.homeBase.blacksmithBuilt;
+    player.trainingGroundsBuilt = !!s.homeBase.trainingGroundsBuilt;
+    player.crew = s.crewRoster || [];
     const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
     player.nextCrewId = maxLoadedCrewId + 1;
-    // worldSeed is no longer applied here — lands re-roll per visit now, not per player.
-    player.highestUnlockedLand = loadedProgress.highestUnlockedLand;
+    player.highestUnlockedLand = s.worldProgress.highestUnlockedLand;
     if (player.crewHired){
       const spawn = spawnPoint();
       player.x = spawn.x;
