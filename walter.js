@@ -5342,6 +5342,38 @@
     document.getElementById("wvw-castle-close").addEventListener("click", closeCastleUi);
   }
 
+  function renderSOTGKPreviewSVG(){
+    return `
+      <svg viewBox="0 0 120 220" width="140" height="auto" style="display:block;margin:10px auto;">
+        <!-- soft glow behind the blade, to make it feel a little magical -->
+        <ellipse cx="60" cy="80" rx="34" ry="80" fill="${COLORS.sotgkUltimate}" opacity="0.12"/>
+
+        <!-- blade: opaque grey core, bright white edge outline -->
+        <polygon points="60,8 74,60 70,140 50,140 46,60"
+          fill="${COLORS.sotgkBladeCore}" stroke="${COLORS.sotgkBladeEdge}" stroke-width="3" stroke-linejoin="round"/>
+        <!-- a thin center highlight line down the blade -->
+        <line x1="60" y1="20" x2="60" y2="135" stroke="${COLORS.sotgkBladeEdge}" stroke-width="1.5" opacity="0.7"/>
+
+        <!-- crossguard -->
+        <rect x="30" y="140" width="60" height="9" rx="2" fill="${COLORS.sotgkUltimate}"/>
+
+        <!-- brown leather-wrapped hilt -->
+        <rect x="52" y="149" width="16" height="48" fill="${COLORS.swordHiltSOTGK}"/>
+        ${[157, 166, 175, 184].map(y => `<line x1="52" y1="${y}" x2="68" y2="${y}" stroke="#4A331A" stroke-width="2"/>`).join("")}
+
+        <!-- pommel -->
+        <circle cx="60" cy="203" r="9" fill="${COLORS.sotgkUltimate}"/>
+
+        <!-- sparkle accents around the blade, to sell the crystalline/magic feel -->
+        ${[[30,45,5],[92,75,4],[36,100,3.5],[86,35,3]].map(([x,y,r]) => `
+          <g transform="translate(${x},${y})" fill="${COLORS.sotgkBladeEdge}">
+            <polygon points="0,-${r*2} ${r*0.6},-${r*0.6} ${r*2},0 ${r*0.6},${r*0.6} 0,${r*2} -${r*0.6},${r*0.6} -${r*2},0 -${r*0.6},-${r*0.6}"/>
+          </g>
+        `).join("")}
+      </svg>
+    `;
+  }
+
   function renderSOTGKSection(){
     const owned = player.swordInventory.swords.some(s => s.id === "sotgk");
     const affordable = player.silver >= SOTGK_COST_SILVER;
@@ -5351,6 +5383,7 @@
     }
     return `<p>The Castle stands rebuilt, restored to its former glory.</p>
       <p style="font-weight:700;margin:14px 0 4px;">Sword of the Great King</p>
+      ${renderSOTGKPreviewSVG()}
       <p style="opacity:0.85;font-size:0.85rem;">The ultimate endgame weapon — a crystalline blade that stacks Lightning, Fire, and Freeze simultaneously, unlike any other sword.</p>
       <button type="button" class="btn" id="wvw-sotgk-buy-btn" ${affordable ? "" : "disabled"}>Forge the Sword of the Great King (${SOTGK_COST_SILVER.toLocaleString()} silver)</button>`;
   }
