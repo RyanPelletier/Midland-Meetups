@@ -1077,6 +1077,7 @@
     const c = player.crew.find(x => x.id === crewId && x.status === "following");
     if (!c) return false;
     c.status = "idle";
+    if (c.maxHp !== undefined) c.hp = c.maxHp; // heals up now that they're heading back to safety
     // Reappear wandering the village near wherever the player currently
     // is, rather than snapping back to a stale old village position.
     c.x = clamp(player.x, HOMEBASE_DOCK_END + 20, HOMEBASE_VILLAGE2_END - 20);
@@ -6366,6 +6367,9 @@
         const disabled = r === "mage" && !canMage;
         return `<button type="button" class="btn ${role === r ? "" : "light"}" style="padding:4px 8px;font-size:0.72rem;" data-set-role="${c.id}:${r}" ${disabled ? "disabled" : ""}>${roleLabel[r]}</button>`;
       }).join(" ");
+      const unassignButton = c.status === "following"
+        ? `<button type="button" class="btn light" style="padding:4px 8px;font-size:0.72rem;" data-unassign-crew="${c.id}">Unassign</button>`
+        : "";
       return `
         <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
           <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -6374,7 +6378,7 @@
           </div>
           <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Strength ${c.strength} — ${hpText}</p>
           <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Spells known: ${spellsText}</p>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${roleButtons}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${roleButtons} ${unassignButton}</div>
         </div>
       `;
     }).join("");
@@ -6446,6 +6450,14 @@
       btn.addEventListener("click", () => {
         const [crewId, role] = btn.dataset.setRole.split(":");
         if (assignCrewRole(crewId, role)){
+          renderAltar();
+          saveProgress();
+        }
+      });
+    });
+    overlayInner.querySelectorAll("button[data-unassign-crew]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (unassignCrewFromFollow(btn.dataset.unassignCrew)){
           renderAltar();
           saveProgress();
         }
