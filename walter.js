@@ -130,6 +130,8 @@
     lightning: "#7FD4E8",
     freeze: "#8FE3F0",
     blackHole: "#2B1B4A",
+    nebulaRing: "#9B6FE8", nebulaParticle: "#6B5FC9",
+    eelSkinBody: "#3A4A5C", eelSkinTrim: "#5FD4E8", eelSkinEmblem: "#7FD4E8",
     ally: "#F6A93B",
     allyYellow: "#F5D742",
     demonBody: "#B8283A", demonWing: "#7A1420",
@@ -695,6 +697,9 @@
     // Trait armors — repriced up significantly (roadmap balancing pass).
     goblin:  { label: "Goblin Armor",       cost: 500, multiplier: 1.5, trait: "pacifyGoblinOgre" },
     siren:   { label: "Siren Scale Armor",  cost: 500, multiplier: 1.5, trait: "waterBreathing" },
+    // Cost wasn't specified anywhere in the Phase 8c roadmap — priced to
+    // match the other trait armors, same 500-silver tier.
+    eelSkin: { label: "Eel Skin Armor",     cost: 500, multiplier: 1.5, trait: "lightningMitigation" },
     // Tier-0 utility — no HP buffer at all (multiplier: 0). Its value is
     // the activated ability, not damage soak.
     cloak:   { label: "Invisibility Cloak", cost: 200, multiplier: 0,   trait: "cloak" }
@@ -702,14 +707,14 @@
   // Tiered repair: standard armor is cheap to fix, special/trait armor costs more.
   const ARMOR_REPAIR_COST_STANDARD = 20;
   const ARMOR_REPAIR_COST_SPECIAL = 50;
-  const ARMOR_SPECIAL_TYPES = new Set(["goblin", "siren", "cloak"]);
+  const ARMOR_SPECIAL_TYPES = new Set(["goblin", "siren", "cloak", "eelSkin"]);
   function armorRepairCost(key){
     return ARMOR_SPECIAL_TYPES.has(key) ? ARMOR_REPAIR_COST_SPECIAL : ARMOR_REPAIR_COST_STANDARD;
   }
-  const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "cloak"];
+  const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "eelSkin", "cloak"];
   // Letters for the save codex — S is already steel, so siren uses R.
-  const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C" };
-  const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak" };
+  const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C", eelSkin: "E" };
+  const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak", E: "eelSkin" };
 
   // Format: <equipped char><5 owned bits><5 broken bits>, bits in
   // ARMOR_ORDER sequence. Old saves only ever stored the single equipped
@@ -1707,6 +1712,7 @@
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
     player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
+    player.eelChargeMeter = 0; // 0-100, builds from incoming lightning damage while Eel Skin Armor is equipped
     // Village Expansion state. Villagers wander and can be recruited;
     // once recruited they move into the crew roster and villagers[] is
     // regenerated to keep the village populated.
@@ -2151,6 +2157,16 @@
   // Fires a short lightning arc from the player to nearby enemies,
   // reusing the same "nearest, not yet hit" chaining approach the
   // Lightning spell already uses, just capped at a different count.
+  // Reaching 100% charge fires a big lightning arc and resets — reuses
+  // the same "nearest, not yet hit" arc helper the SOTGK's combos use.
+  function dischargeEelSkin(){
+    const lightningDamage = SPELLS.lightning.damage * spellDamageMultiplier();
+    fireSwordArc(10, lightningDamage * 2);
+    player.eelChargeMeter = 0;
+    effects.push({ type: "eel-discharge", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2, life: 15 });
+    if (DEBUG) console.log("[WvW] Eel Skin discharged — 10-target arc for " + Math.round(lightningDamage * 2) + " each");
+  }
+
   function fireSwordArc(maxTargets, damage){
     const hitSoFar = [];
     let fromX = player.x + PLAYER_W/2, fromY = player.y + PLAYER_H/2;
@@ -2254,6 +2270,18 @@
       let fromX = chainPoints[0].x, fromY = chainPoints[0].y;
 
       for (let i = 0; i < chainMax; i++){
+        // Elemental combo: an untransitioned Black Hole in range is a
+        // high-priority target — checked before the nearest-enemy search,
+        // per the roadmap's combo table.
+        const nearbyBlackHole = effects.find(fx => fx.type === "black-hole" && !fx.isNebula &&
+          Math.hypot(fx.x - fromX, fx.y - fromY) <= cfg.range);
+        if (nearbyBlackHole){
+          nearbyBlackHole.isNebula = true;
+          chainPoints.push({ x: nearbyBlackHole.x, y: nearbyBlackHole.y });
+          fromX = nearbyBlackHole.x; fromY = nearbyBlackHole.y;
+          if (DEBUG) console.log("[WvW] Black Hole struck by Lightning — transitioned to Nebula");
+          continue;
+        }
         let nearest = null, nearestDist = Infinity;
         enemies.forEach(en => {
           if (en.hp <= 0 || hitSoFar.includes(en)) return;
@@ -2279,7 +2307,11 @@
       const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
       enemies.forEach(en => {
         const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
-        if (Math.sqrt(dx*dx + dy*dy) < cfg.radius) en.frozenFrames = cfg.duration;
+        if (Math.sqrt(dx*dx + dy*dy) < cfg.radius){
+          en.frozenFrames = cfg.duration;
+          // Elemental combo: Freeze extinguishes an active burn, per the roadmap's combo table.
+          if (en.burningFrames > 0){ en.burningFrames = 0; en.whiteBurn = false; }
+        }
       });
       player.burningFrames = 0; // ice puts out fire — extinguishes an active cyclops burn early
       effects.push({ type: "freeze-burst", x: originX, y: originY, radius: cfg.radius, life: 20 });
@@ -2369,6 +2401,16 @@
   function damagePlayer(amount, opts){
     opts = opts || {};
     if (!opts.ignoreInvuln && player.invulnFrames > 0) return;
+
+    // Eel Skin Armor: halves incoming lightning damage and charges toward
+    // a big discharge. Charges off the RAW incoming amount (how hard the
+    // attack hit), not what actually got through, same as it charging off
+    // "damage received" rather than "damage suffered".
+    if (opts.source === "lightning" && player.armorType === "eelSkin"){
+      player.eelChargeMeter = Math.min(100, player.eelChargeMeter + amount);
+      amount *= 0.5;
+      if (player.eelChargeMeter >= 100) dischargeEelSkin();
+    }
 
     let remaining = amount;
     if (player.armorHp > 0){
@@ -2729,7 +2771,10 @@
       if (p.hit) return;
       enemies.forEach(en => {
         if (en.hp > 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, en.x, en.y, en.w, en.h)){
-          damageEnemy(en, p.damage);
+          // Elemental combo: Frozen + Fireball doubles the hit — a
+          // "shatter" interaction, matching the roadmap's combo table.
+          const dmg = (p.type === "fireball" && en.frozenFrames > 0) ? p.damage * 2 : p.damage;
+          damageEnemy(en, dmg);
           p.hit = true;
           if (p.type === "fireball") triggerFireSplash(p.x, p.y);
         }
@@ -2750,7 +2795,7 @@
           const s = ENEMY_STATS.siren;
           applyCharmToPlayer(s.charmDuration, s.charmSlowMultiplier); // before damagePlayer, which sets invuln
         }
-        damagePlayer(p.damage);
+        damagePlayer(p.damage, { source: p.type === "lightning" ? "lightning" : undefined });
         p.hit = true;
       }
     });
@@ -3899,6 +3944,54 @@
     }
   }
 
+  // Eel Skin Armor's segmented charge display — drawn as an overlay on
+  // top of the normal humanoid rig, since it's the one armor with a
+  // dynamic, charge-driven look. Segments light from the waist upward
+  // as charge builds; full charge adds flickering arcs off the shoulders.
+  function drawEelSkinOverlay(x, y){
+    const cx = x + PLAYER_W / 2;
+    const torsoTop = y + 14, torsoH = 14, torsoW = 12;
+    const segments = 4;
+    const litSegments = Math.round((player.eelChargeMeter / 100) * segments);
+
+    for (let i = 0; i < segments; i++){
+      const segY = torsoTop + (segments - 1 - i) * (torsoH / segments); // i=0 is the waist, filling upward
+      const isLit = i < litSegments;
+      ctx.strokeStyle = isLit ? COLORS.eelSkinTrim : "rgba(95,212,232,0.25)";
+      ctx.lineWidth = isLit ? 1.5 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - torsoW/2, segY);
+      ctx.lineTo(cx + torsoW/2, segY);
+      ctx.stroke();
+    }
+
+    // small lightning-bolt emblem, center chest
+    ctx.strokeStyle = COLORS.eelSkinEmblem;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 1, torsoTop + 3);
+    ctx.lineTo(cx + 2, torsoTop + 7);
+    ctx.lineTo(cx - 1, torsoTop + 7);
+    ctx.lineTo(cx + 2, torsoTop + 11);
+    ctx.stroke();
+
+    // full charge: every segment glows, plus a few flickering arcs off the shoulders/forearms
+    if (player.eelChargeMeter >= 100){
+      ctx.strokeStyle = COLORS.eelSkinTrim;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame * 0.3);
+      [[cx - torsoW/2 - 3, torsoTop + 2], [cx + torsoW/2 + 3, torsoTop + 2]].forEach(([sx, sy]) => {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + 3, sy + 4);
+        ctx.lineTo(sx - 2, sy + 6);
+        ctx.lineTo(sx + 4, sy + 10);
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function drawPlayer(){
     const x = worldToScreen(player.x);
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
@@ -3906,6 +3999,7 @@
       : player.armorType === "steel" ? COLORS.playerSteel
       : player.armorType === "goblin" ? COLORS.playerGoblin
       : player.armorType === "siren" ? COLORS.playerSiren
+      : player.armorType === "eelSkin" ? COLORS.eelSkinBody
       : player.armorType === "cloak" ? COLORS.playerCloak
       : COLORS.player;
 
@@ -3918,6 +4012,7 @@
       climbing: player.onLadder
     };
     drawWalterFigure(x, player.y, bodyColor, playerMovement, null);
+    if (player.armorType === "eelSkin") drawEelSkinOverlay(x, player.y);
 
     if (isOverOpenWater(player.x) && player.y > GROUND_Y - PLAYER_H){
       ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
@@ -4640,6 +4735,37 @@
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius, 0, Math.PI*2);
       ctx.stroke();
+      if (fx.isNebula){
+        // thin glowing violet ring
+        ctx.strokeStyle = COLORS.nebulaRing;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, fx.y, fx.radius * 0.7, 0, Math.PI*2);
+        ctx.stroke();
+        // orbiting particles
+        ctx.fillStyle = COLORS.nebulaParticle;
+        for (let i = 0; i < 4; i++){
+          const angle = frame * 0.04 + i * (Math.PI / 2);
+          const ox = x + Math.cos(angle) * fx.radius * 0.85;
+          const oy = fx.y + Math.sin(angle) * fx.radius * 0.85;
+          ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI*2); ctx.fill();
+        }
+        // persistent lightning — random flickering zigzag arcs radiating
+        // outward, regenerated most frames so they constantly crackle
+        const arcCount = 6; // within the spec's 4-8 range
+        ctx.strokeStyle = COLORS.lightning;
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < arcCount; i++){
+          const angle = (i / arcCount) * Math.PI * 2 + frame * 0.02;
+          const len = fx.radius * (0.6 + Math.random() * 0.7);
+          const midAngle = angle + (Math.random() - 0.5) * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x + Math.cos(angle) * fx.radius, fx.y + Math.sin(angle) * fx.radius);
+          ctx.lineTo(x + Math.cos(midAngle) * len * 0.6, fx.y + Math.sin(midAngle) * len * 0.6);
+          ctx.lineTo(x + Math.cos(angle) * len, fx.y + Math.sin(angle) * len);
+          ctx.stroke();
+        }
+      }
     }
   }
 
@@ -4666,6 +4792,21 @@
         ctx.textAlign = "left";
         ctx.fillText("broken — repair for " + armorRepairCost(player.armorType) + " silver", 138, 34);
       }
+    }
+
+    if (player.armorType === "eelSkin"){
+      const chargeY = (player.armorType && player.armorMaxHp > 0) ? 38 : 27;
+      ctx.fillStyle = COLORS.armorBg;
+      ctx.fillRect(12, chargeY, 120, 6);
+      ctx.fillStyle = COLORS.eelSkinTrim;
+      ctx.fillRect(12, chargeY, 120 * (player.eelChargeMeter / 100), 6);
+      ctx.strokeStyle = COLORS.hud;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(12, chargeY, 120, 6);
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 9px 'JetBrains Mono', monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("eel charge " + Math.floor(player.eelChargeMeter) + "%", 138, chargeY + 6);
     }
 
     ctx.fillStyle = COLORS.manaBg;
