@@ -132,6 +132,8 @@
     blackHole: "#2B1B4A",
     nebulaRing: "#9B6FE8", nebulaParticle: "#6B5FC9",
     eelSkinBody: "#3A4A5C", eelSkinTrim: "#5FD4E8", eelSkinEmblem: "#7FD4E8",
+    giantEelBody: "#1B4A52", giantEelBodyDark: "#123338", giantEelSpine: "#5FD4E8",
+    giantEelEye: "#7FE8F5", giantEelSpike: "#2A6B75", giantEelSpikeCharged: "#8FF0FF",
     ally: "#F6A93B",
     allyYellow: "#F5D742",
     demonBody: "#B8283A", demonWing: "#7A1420",
@@ -510,8 +512,7 @@
     player.x = currentGeneratedLandLayout.dockX + 10;
     player.y = GROUND_Y - PLAYER_H;
     player.vy = 0;
-    enemies = [];
-    enemyProjectiles = [];
+    clearEntities();
     if (DEBUG) console.log("[WvW] set sail for generated Land " + landNumber + " — biomes: " + currentGeneratedLandLayout.land.biomes.map(b => b.id).join(","));
   }
 
@@ -609,7 +610,13 @@
     siren:    { hp: 28, speed: 1.0, damage: 8,  attackCooldown: 90, preferredRange: 240, projectileSpeed: 6, w: 24, h: 38, charmDuration: 150, charmSlowMultiplier: 0.65 },
     mermaid:  { hp: 30, speed: 1.0, damage: 11, attackCooldown: 70, preferredRange: 240, projectileSpeed: 8.5, w: 24, h: 38, dropsSilver: true },
     ogre:     { hp: 60, speed: 0.6, damage: 18, attackCooldown: 100, contactRange: 34, w: 34, h: 46, dropsSilver: true },
-    snake:    { hp: 20, speed: 1.3, damage: 6,  attackCooldown: 130, contactRange: 32, lungeRange: 140, poisonDuration: 300, poisonDps: 2, w: 22, h: 18 }
+    snake:    { hp: 20, speed: 1.3, damage: 6,  attackCooldown: 130, contactRange: 32, lungeRange: 140, poisonDuration: 300, poisonDps: 2, w: 22, h: 18 },
+    // A rare, unscripted field encounter (like the Cyclops) rather than a
+    // guaranteed land boss — distinct from Leviathan, the Under Water
+    // biome's actual scripted boss. Sized between Snake and Leviathan
+    // per its spec: noticeably bulkier than Snake, far slimmer/more
+    // agile than Leviathan.
+    giantEel: { hp: 550, speed: 1.6, damage: 16, attackCooldown: 90, contactRange: 42, w: 56, h: 26, hazardCooldown: 300, chargeDuration: 60 }
   };
 
   // Tougher wizard variants — same base stats as a regular wizard, just
@@ -788,7 +795,7 @@
      holds a spell key; the amulet's passive buff only applies while its
      specific buffSpell is actually sitting in one of the 9 slots.
      Only one amulet exists so far — the cyclops is the only boss. */
-  const AMULET_ORDER = ["cyclopsEye", "banner_of_valor", "champions_crest", "moon_blossom", "emerald_fang", "bog_core", "buried_heart", "heartwood_seed", "leviathan_scale"];
+  const AMULET_ORDER = ["cyclopsEye", "banner_of_valor", "champions_crest", "moon_blossom", "emerald_fang", "bog_core", "buried_heart", "heartwood_seed", "leviathan_scale", "lightning_glass"];
   const AMULETS = {
     cyclopsEye:      { label: "The Cyclops's Eye", buffSpell: "fireball",  burnDurationMultiplier: 1.5 },
     // Reinterpreted from spec: "fires one additional projectile" / "Chain
@@ -806,7 +813,13 @@
     bog_core:        { label: "Bog Core",          buffSpell: null },
     buried_heart:    { label: "Buried Heart",      buffSpell: null },
     heartwood_seed:  { label: "Heartwood Seed",    buffSpell: null },
-    leviathan_scale: { label: "Leviathan Scale",   buffSpell: null }
+    leviathan_scale: { label: "Leviathan Scale",   buffSpell: null },
+    // While Lightning is slotted, casting it also leaves a lingering
+    // hazard zone at the final chain point that periodically zaps nearby
+    // enemies — a player-scale version of the same "electrical charge
+    // hazard" mechanic the Giant Eel boss uses, per the roadmap's framing
+    // that the boss "mirrors the function of" this amulet.
+    lightning_glass: { label: "Lightning Glass Amulet", buffSpell: "lightning", leavesHazard: true }
   };
 
   function isAmuletBuffActive(spellKey){
@@ -1252,13 +1265,38 @@
       : { x: TOWER_X, y: GROUND_Y - PLAYER_H };
   }
 
+  // Consolidates what used to be duplicated, incomplete clearing logic
+  // scattered across every sail function (each only cleared enemies +
+  // enemyProjectiles, missing playerProjectiles/effects/ghosts/allies)
+  // and entirely absent from respawnPlayer. Triggered on both a death
+  // and any map transition, so nothing carries over across either.
+  function crewDisplayName(c){
+    return c.name || c.id;
+  }
+
+  function renameCrew(crewId, newName){
+    const c = player.crew.find(x => x.id === crewId);
+    if (!c) return false;
+    const trimmed = (newName || "").trim().slice(0, 24); // reasonable UI-safe length cap
+    c.name = trimmed || null; // empty input clears back to the default id-based display
+    return true;
+  }
+
+  function clearEntities(){
+    enemies = [];
+    enemyProjectiles = [];
+    playerProjectiles = [];
+    effects = [];
+    ghosts = [];
+    allies = [];
+  }
+
   function sailToLand1(){
     currentMap = "land1";
     player.x = LAND1_DOCK_X + 10;
     player.y = GROUND_Y - PLAYER_H;
     player.vy = 0;
-    enemies = [];
-    enemyProjectiles = [];
+    clearEntities();
     if (DEBUG) console.log("[WvW] set sail for the first land");
   }
 
@@ -1267,8 +1305,7 @@
     player.x = LAND2_DOCK_X + 10;
     player.y = GROUND_Y - PLAYER_H;
     player.vy = 0;
-    enemies = [];
-    enemyProjectiles = [];
+    clearEntities();
     if (DEBUG) console.log("[WvW] set sail for the second land");
   }
 
@@ -1277,8 +1314,7 @@
     player.x = HOMEBASE_DOCK_X + 10;
     player.y = GROUND_Y - PLAYER_H;
     player.vy = 0;
-    enemies = [];
-    enemyProjectiles = [];
+    clearEntities();
     if (DEBUG) console.log("[WvW] set sail for home base");
   }
 
@@ -1288,8 +1324,7 @@
     player.x = spawn.x;
     player.y = spawn.y;
     player.vy = 0;
-    enemies = [];
-    enemyProjectiles = [];
+    clearEntities();
     if (DEBUG) console.log("[WvW] sailed home");
   }
 
@@ -1805,6 +1840,7 @@
     updateBlacksmithAutoRepair();
     updateWaveSpawning();
     updateCyclopsEncounter();
+    updateGiantEelEncounter();
     updateGeneratedBossEncounter();
     updateEnemies();
     updateProjectiles();
@@ -1848,6 +1884,36 @@
 
   function difficultyMultiplier(){
     return 1 + playerPower() * POWER_SCALING_FACTOR;
+  }
+
+  // Not a deterministic trigger like the Cyclops — genuinely random,
+  // matching how this was described: a small per-frame chance while
+  // exploring an Under Water biome zone in a generated land. ~0.05%/frame
+  // averages out to roughly once every 30-60s of continuous exposure;
+  // not specified anywhere, easy to retune.
+  const GIANT_EEL_SPAWN_CHANCE_PER_FRAME = 0.0005;
+
+  function updateGiantEelEncounter(){
+    if (currentMap !== "generated") return;
+    const zone = currentGeneratedZone(player.x);
+    if (!zone || zone.type !== "biome" || zone.id !== "underwater") return;
+    if (enemies.some(en => en.type === "giantEel" && en.hp > 0)) return;
+    if (Math.random() < GIANT_EEL_SPAWN_CHANCE_PER_FRAME) spawnGiantEel();
+  }
+
+  function spawnGiantEel(){
+    const stats = ENEMY_STATS.giantEel;
+    const mult = difficultyMultiplier();
+    const offset = (Math.random() < 0.5 ? -1 : 1) * (250 + Math.random() * 150);
+    const x = clamp(player.x + offset, 0, currentWorldWidth() - stats.w);
+    enemies.push({
+      type: "giantEel", x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
+      attackCooldown: 0, hazardCooldown: stats.hazardCooldown, charging: false, chargeFrames: 0,
+      frozenFrames: 0, burningFrames: 0, counted: false
+    });
+    if (DEBUG) console.log("[WvW] Giant Eel surfaces nearby (power " + playerPower() + ", x" + mult.toFixed(2) + ")");
   }
 
   function spawnCyclops(){
@@ -2302,6 +2368,14 @@
       }
 
       effects.push({ type: "lightning-chain", points: chainPoints, life: 10 });
+      // Lightning Glass Amulet: leaves a lingering hazard zone at the
+      // final chain point, periodically zapping nearby enemies.
+      if (isAmuletBuffActive("lightning") && AMULETS[player.equippedAmulet].leavesHazard){
+        effects.push({
+          type: "lightning-hazard", x: fromX, y: fromY, radius: 70,
+          life: 180, tickCooldown: 0, damagePerTick: cfg.damage * spellDamageMultiplier() * 0.4
+        });
+      }
     }else if (key === "freeze"){
       applyImbueToSword("freeze");
       const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
@@ -2375,6 +2449,22 @@
         if (DEBUG) console.log("[WvW] earned amulet: cyclopsEye");
         saveProgress();
       }
+      if (en.type === "giantEel"){
+        const GIANT_EEL_SILVER_REWARD = 400, GIANT_EEL_CRYSTAL_REWARD = 5; // not specified — a rare-encounter tier reward
+        player.silver += GIANT_EEL_SILVER_REWARD;
+        player.bankedCrystals += GIANT_EEL_CRYSTAL_REWARD;
+        let amuletMsg = "";
+        if (!player.amuletsOwned.has("lightning_glass")){
+          player.amuletsOwned.add("lightning_glass");
+          player.amuletSlots.lightning_glass = new Array(9).fill(null);
+          if (!player.equippedAmulet) player.equippedAmulet = "lightning_glass";
+          amuletMsg = " " + AMULETS.lightning_glass.label + " earned.";
+        }
+        respawnMessageText = "Giant Eel defeated!" + amuletMsg;
+        respawnMessageTimer = 240;
+        if (DEBUG) console.log("[WvW] Giant Eel defeated");
+        saveProgress();
+      }
       if (en.isBoss && currentGeneratedLandLayout && !currentGeneratedLandLayout.bossDefeated){
         currentGeneratedLandLayout.bossDefeated = true;
         const bossInfo = BOSS_ROSTER[en.bossBiomeId];
@@ -2436,6 +2526,7 @@
   // wasn't actually hurt.
   function teleportToSafety(){
     currentMap = "home";
+    clearEntities();
     const spawn = spawnPoint();
     player.x = spawn.x;
     player.y = spawn.y;
@@ -2452,6 +2543,7 @@
     player.hp = PLAYER_MAX_HP;
     player.burningFrames = 0;
     currentMap = "home"; // dying anywhere (including land1) sends you back home
+    clearEntities();
     const spawn = spawnPoint();
     player.x = spawn.x;
     player.y = spawn.y;
@@ -2595,7 +2687,40 @@
 
       if (en.attackCooldown > 0) en.attackCooldown--;
 
-      if (en.type === "knight" || en.type === "ogre"){
+      if (en.type === "giantEel"){
+        if (en.charging){
+          en.chargeFrames--;
+          if (en.chargeFrames <= 0){
+            en.charging = false;
+            en.hazardCooldown = stats.hazardCooldown;
+            const hazardCount = 2 + Math.floor(Math.random() * 2); // 2-3, "arena-wide" hazards
+            for (let i = 0; i < hazardCount; i++){
+              effects.push({
+                type: "lightning-hazard", targetsPlayer: true,
+                x: player.x + PLAYER_W/2 + (Math.random() * 240 - 120), y: GROUND_Y - 60,
+                radius: 50, life: 120, tickCooldown: 0, damagePerTick: en.scaledDamage * 0.5
+              });
+            }
+            if (DEBUG) console.log("[WvW] Giant Eel released " + hazardCount + " lightning hazards");
+          }
+        }else{
+          if (en.hazardCooldown > 0) en.hazardCooldown--;
+          if (Math.abs(dist) > stats.contactRange){
+            en.x += Math.sign(dist) * stats.speed;
+            en.moving = true;
+          }else{
+            en.moving = false;
+            if (en.attackCooldown <= 0){
+              damagePlayer(en.scaledDamage, { source: "lightning" }); // its whole body carries a charge
+              en.attackCooldown = stats.attackCooldown;
+            }
+          }
+          if (en.hazardCooldown <= 0){
+            en.charging = true;
+            en.chargeFrames = stats.chargeDuration;
+          }
+        }
+      }else if (en.type === "knight" || en.type === "ogre"){
         if (Math.abs(dist) > stats.contactRange){
           en.x += Math.sign(dist) * stats.speed;
           en.moving = true;
@@ -2714,16 +2839,33 @@
     enemies = enemies.filter(en => en.hp > 0);
   }
 
+  const WIZARD_TYPES = new Set(WIZARD_TIERS.map(t => t.key));
+
   function fireEnemyProjectile(en, dir){
     const stats = ENEMY_STATS[en.type];
     const type = en.type === "archer" ? "arrow"
       : en.type === "fairy" ? "arrow"
       : en.type === "siren" ? "charm"
       : (Math.random() < 0.5 ? "lightning" : "fireball");
+    // Standardized to an instant straight-line strike, matching the
+    // player's own Lightning spell — that's also instant, not a slow
+    // traveling bolt, unlike everything else fired here. Fireball is
+    // untouched; only "wizard lightning emitters" were called out.
+    if (type === "lightning" && WIZARD_TYPES.has(en.type)){
+      fireWizardLightning(en);
+      return;
+    }
     enemyProjectiles.push({
       type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
       damage: en.scaledDamage, sourceType: en.type
     });
+  }
+
+  function fireWizardLightning(en){
+    const fromX = en.x + en.w/2, fromY = en.y + en.h/2;
+    const targetX = player.x + PLAYER_W/2, targetY = player.y + PLAYER_H/2;
+    effects.push({ type: "wizard-lightning", x1: fromX, y1: fromY, x2: targetX, y2: targetY, life: 10 });
+    damagePlayer(en.scaledDamage, { source: "lightning" });
   }
 
   // Instant hitscan, not a traveling projectile — a slow horizontal shot
@@ -2958,6 +3100,21 @@
             damageEnemy(en, fx.damagePerFrame);
           }
         });
+      }else if (fx.type === "lightning-hazard"){
+        if (fx.tickCooldown > 0){ fx.tickCooldown--; }
+        else{
+          fx.tickCooldown = 30; // zaps twice a second
+          if (fx.targetsPlayer){
+            const dx = (player.x + PLAYER_W/2) - fx.x, dy = (player.y + PLAYER_H/2) - fx.y;
+            if (Math.sqrt(dx*dx + dy*dy) < fx.radius) damagePlayer(fx.damagePerTick, { source: "lightning" });
+          }else{
+            enemies.forEach(en => {
+              if (en.hp <= 0) return;
+              const dx = (en.x + en.w/2) - fx.x, dy = (en.y + en.h/2) - fx.y;
+              if (Math.sqrt(dx*dx + dy*dy) < fx.radius) damageEnemy(en, fx.damagePerTick);
+            });
+          }
+        }
       }
     });
     effects = effects.filter(fx => fx.life > 0);
@@ -4558,6 +4715,63 @@
       ctx.moveTo(hx + 9, hy - 2); ctx.lineTo(hx + 11, hy);
       ctx.stroke();
 
+    }else if (en.type === "giantEel"){
+      const gw = en.w, gh = en.h, gy = en.y, gcx = x + gw/2;
+      // wide horizontal S-curve from overlapping circles — bulkier than
+      // the standard Snake, but a much longer/flatter profile
+      const gBodyPts = [
+        [gcx - gw * 0.42, gy + gh * 0.6], [gcx - gw * 0.18, gy + gh * 0.35], [gcx + gw * 0.05, gy + gh * 0.55],
+        [gcx + gw * 0.28, gy + gh * 0.3], [gcx + gw * 0.45, gy + gh * 0.45]
+      ];
+      ctx.fillStyle = COLORS.giantEelBody;
+      gBodyPts.forEach(([px, py], i) => {
+        ctx.beginPath();
+        ctx.arc(px, py, gh * 0.32 * (1 - i * 0.05), 0, Math.PI * 2);
+        ctx.fill();
+      });
+      // continuous glowing cyan stripe along the spine
+      ctx.strokeStyle = COLORS.giantEelSpine;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      gBodyPts.forEach(([px, py], i) => { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+      ctx.stroke();
+      // broad wedge head with bright cyan eyes
+      const [ghx, ghy] = gBodyPts[gBodyPts.length - 1];
+      ctx.fillStyle = COLORS.giantEelBody;
+      ctx.beginPath();
+      ctx.moveTo(ghx - 4, ghy + 8); ctx.lineTo(ghx + 14, ghy - 2); ctx.lineTo(ghx - 4, ghy - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.giantEelEye;
+      ctx.beginPath(); ctx.arc(ghx + 5, ghy - 2, 2, 0, Math.PI * 2); ctx.fill();
+      // ring of jagged lightning spikes along the back — brighten and
+      // arc between neighbors while charging, clearly telegraphing the
+      // hazard release
+      const spikeColor = en.charging ? COLORS.giantEelSpikeCharged : COLORS.giantEelSpike;
+      ctx.fillStyle = spikeColor;
+      gBodyPts.forEach(([px, py]) => {
+        ctx.beginPath();
+        ctx.moveTo(px - 3, py - gh * 0.25);
+        ctx.lineTo(px, py - gh * 0.45);
+        ctx.lineTo(px + 3, py - gh * 0.25);
+        ctx.closePath();
+        ctx.fill();
+      });
+      if (en.charging){
+        ctx.strokeStyle = COLORS.giantEelSpikeCharged;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(frame * 0.5);
+        for (let i = 0; i < gBodyPts.length - 1; i++){
+          const [ax, ay] = gBodyPts[i], [bx, by] = gBodyPts[i + 1];
+          ctx.beginPath();
+          ctx.moveTo(ax, ay - gh * 0.4);
+          ctx.lineTo((ax + bx) / 2, ay - gh * 0.55);
+          ctx.lineTo(bx, by - gh * 0.4);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
     }else if (en.isBoss){
       drawBossFigure(en, x);
     }else{
@@ -4710,6 +4924,22 @@
       ctx.beginPath();
       ctx.moveTo(worldToScreen(fx.x1), fx.y1);
       ctx.lineTo(worldToScreen(fx.x2), fx.y2);
+      ctx.stroke();
+    }else if (fx.type === "lightning-hazard"){
+      ctx.strokeStyle = COLORS.lightning;
+      ctx.globalAlpha = 0.4 + 0.3 * Math.sin(frame * 0.2);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }else if (fx.type === "wizard-lightning"){
+      const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
+      ctx.strokeStyle = COLORS.lightning;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
       ctx.stroke();
     }else if (fx.type === "cyclops-beam"){
       const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
@@ -5158,7 +5388,7 @@
       ? c.spellsKnown.map(k => SPELLS[k] ? SPELLS[k].label : k).join(", ")
       : "None yet — assign them to the Library to learn some.";
     overlayInner.innerHTML = `
-      <h3>Trained Crew — ${c.id}</h3>
+      <h3>Trained Crew — ${crewDisplayName(c)}</h3>
       <p>Strength: ${c.strength} (sword damage). Spells known: ${knownLabel}</p>
       <button type="button" class="btn ${following ? "light" : ""}" id="wvw-crew-follow-toggle">${following ? "Unassign" : "Assign to follow you"}</button>
       <button type="button" class="btn light" id="wvw-villager-close" style="margin-top:10px;">Close</button>
@@ -5218,13 +5448,13 @@
     const learningCrew = player.crew.filter(c => c.status === "library");
     const crewRows = idleCrew.map(c => `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-        <span>${c.id} (Str ${c.strength})</span>
+        <span>${crewDisplayName(c)} (Str ${c.strength})</span>
         <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-assign-library="${c.id}">Assign to learn a spell</button>
       </div>
     `).join("");
     const learningRows = learningCrew.map(c => `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;">
-        <span>${c.id} — learning (${Math.ceil(c.framesRemaining / FRAMES_PER_MINUTE)} min left)</span>
+        <span>${crewDisplayName(c)} — learning (${Math.ceil(c.framesRemaining / FRAMES_PER_MINUTE)} min left)</span>
         <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-unassign="${c.id}">Recall</button>
       </div>
     `).join("");
@@ -5301,7 +5531,7 @@
     const idleCrew = player.crew.filter(c => c.status === "idle");
     const idleRows = idleCrew.map(c => `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-        <span>${c.id} (Str ${c.strength})</span>
+        <span>${crewDisplayName(c)} (Str ${c.strength})</span>
         <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-assign-blacksmith="${c.id}">Employ (${BLACKSMITH_UPKEEP_PER_MINUTE} silver/min)</button>
       </div>
     `).join("");
@@ -5387,7 +5617,11 @@
       }[c.status] || c.status;
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-          <span>${c.id} (Str ${c.strength}) — ${statusLabel}</span>
+          <span>${crewDisplayName(c)} (Str ${c.strength}) — ${statusLabel}</span>
+          <span style="display:flex;gap:4px;">
+            <input type="text" placeholder="rename" value="${c.name || ""}" maxlength="24" data-rename-input="${c.id}" style="width:80px;font-size:0.75rem;padding:3px 5px;">
+            <button type="button" class="btn light" style="padding:4px 8px;font-size:0.75rem;" data-rename-btn="${c.id}">Save</button>
+          </span>
         </div>
       `;
     }).join("");
@@ -5399,6 +5633,16 @@
       <div style="text-align:left;">${rosterRows || `<p style="opacity:0.7;font-size:0.85rem;">No crew recruited yet.</p>`}</div>
       <button type="button" class="btn light" id="wvw-training-close" style="margin-top:14px;">Close</button>
     `;
+    overlayInner.querySelectorAll("button[data-rename-btn]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.renameBtn;
+        const input = overlayInner.querySelector(`input[data-rename-input="${id}"]`);
+        if (renameCrew(id, input ? input.value : "")){
+          renderTrainingUi();
+          saveProgress();
+        }
+      });
+    });
     document.getElementById("wvw-training-close").addEventListener("click", closeTrainingUi);
   }
 
@@ -5417,7 +5661,7 @@
     const affordable = totalCrystals() >= NECROMANCY_COST_CRYSTALS;
     const rows = dead.map(c => `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-        <span>${c.id} (Str ${c.strength})</span>
+        <span>${crewDisplayName(c)} (Str ${c.strength})</span>
         <button type="button" class="btn light" style="padding:5px 10px;font-size:0.78rem;" data-resurrect="${c.id}" ${affordable ? "" : "disabled"}>Resurrect (${NECROMANCY_COST_CRYSTALS} crystals)</button>
       </div>
     `).join("");
@@ -6008,9 +6252,17 @@
     document.addEventListener("fullscreenchange", () => {
       const isFull = !!document.fullscreenElement;
       btn.textContent = isFull ? "✕ Exit Fullscreen" : "⛶ Fullscreen";
+      // The site header is position:sticky with its own z-index, so it
+      // stays pinned and visually overlaps the top of the canvas once
+      // fullscreened — simplest fix is to just not show site navigation
+      // during actual gameplay, rather than trying to compute the canvas
+      // size and position around a header that has no reason to be
+      // there in the first place.
+      const siteHeader = document.querySelector(".site-header");
       if (isFull){
         applyFullscreenCanvasSize();
         window.addEventListener("resize", onFullscreenResize);
+        if (siteHeader) siteHeader.style.display = "none";
         // The overlay (shop/menu UI) isn't a canvas descendant, so it
         // doesn't automatically track the now-resized canvas — pin it
         // to the same full-viewport box explicitly, rather than relying
@@ -6032,6 +6284,7 @@
         canvas.style.left = "";
         canvas.style.transform = "";
         window.removeEventListener("resize", onFullscreenResize);
+        if (siteHeader) siteHeader.style.display = "";
         if (overlay){
           overlay.style.position = "";
           overlay.style.top = "";
