@@ -327,6 +327,7 @@
   const LIBRARY_LEARNING_DURATION_MINUTES = 45;
   const BLACKSMITH_REMODEL_COST = 300;
   const BLACKSMITH_UPKEEP_PER_MINUTE = 50;
+  const BLACKSMITH_IMBUE_COST_SILVER = 75; // not specified — priced near the special-armor repair tier (50), since it's a comparable maintenance purchase
   const BLACKSMITH_FALL_CHANCE_PER_MINUTE = 0.01; // not specified — see the assumption noted when this phase started: nothing else in the roadmap defines how crew can die, so working the blacksmith (the only ongoing active job) carries a small risk
   const TRAINING_REMODEL_COST = 500;
   const NECROMANCY_COST_CRYSTALS = 75;
@@ -574,6 +575,31 @@
   const MELEE_RANGE = 34;
   const MELEE_DAMAGE = 30; // was 18 — now a one-shot against knights/archers/wizards
   const MELEE_COOLDOWN = 22;
+
+  // Crew roles. Soldier is melee-only (the original following-crew
+  // behavior). Archer and Mage are both ranged, keeping a preferred
+  // distance like the Demon/Angel allies rather than closing to melee.
+  // Medic never fights — it periodically tops off whichever ally (the
+  // player or another following crew member) is hurt worst.
+  const CREW_ROLES = ["soldier", "medic", "archer", "mage"];
+  const CREW_ARCHER_RANGE = 200;
+  const CREW_MAGE_RANGE = 220;
+  const CREW_ARCHER_COOLDOWN = 50;
+  const CREW_MAGE_SPELL_COOLDOWN = 100;
+  const CREW_MEDIC_HEAL_COOLDOWN = 180; // 3s
+  const CREW_MEDIC_HEAL_AMOUNT = 15;
+  // Following crew previously couldn't take damage at all, which left
+  // "Medic heals crew members" with nothing to actually act on. Rather
+  // than build a full enemy-targets-crew AI system (a much bigger
+  // change than what's being asked here), crew now have real HP and a
+  // bounded, contained way to take damage: whenever the player is hit,
+  // there's a chance a nearby following crew member also catches some
+  // of it, scaled down from the player's own damage. This also finally
+  // gives real stakes to the Graveyard/Necromancy system for crew lost
+  // in the field, not just the Blacksmith's random risk from Phase 3.
+  const CREW_INCIDENTAL_DAMAGE_CHANCE = 0.3;
+  const CREW_INCIDENTAL_DAMAGE_FRACTION = 0.4;
+  const CREW_HP_BASE = 20, CREW_HP_PER_STRENGTH = 2;
 
   // Sword Inventory / imbuing ("And So I Wander" Phase 8b). The roadmap
   // specifies imbue *outcomes* in detail (combo table, visuals) but never
@@ -1038,6 +1064,15 @@
     return true;
   }
 
+  function assignCrewRole(crewId, role){
+    if (!CREW_ROLES.includes(role)) return false;
+    const c = player.crew.find(x => x.id === crewId);
+    if (!c) return false;
+    if (role === "mage" && !(c.spellsKnown && c.spellsKnown.length > 0)) return false; // must know at least one spell
+    c.role = role;
+    return true;
+  }
+
   function unassignCrewFromFollow(crewId){
     const c = player.crew.find(x => x.id === crewId && x.status === "following");
     if (!c) return false;
@@ -1390,7 +1425,10 @@
       crewRoster: player.crew.map(c => ({
         id: c.id, name: c.name || null, strength: c.strength, status: c.status,
         framesRemaining: Math.round(c.framesRemaining || 0),
-        spellsKnown: (c.spellsKnown || []).slice()
+        spellsKnown: (c.spellsKnown || []).slice(),
+        role: c.role || "soldier",
+        hp: c.hp !== undefined ? Math.round(c.hp) : null,
+        maxHp: c.maxHp !== undefined ? c.maxHp : null
       })),
       worldProgress: {
         highestUnlockedLand: player.highestUnlockedLand
@@ -1453,7 +1491,8 @@
       crewRoster: (legacy.crew || []).map(c => ({
         id: c.id, name: null, strength: c.strength, status: c.status,
         framesRemaining: c.framesRemaining || 0,
-        spellsKnown: c.spellsKnown || []
+        spellsKnown: c.spellsKnown || [],
+        role: "soldier", hp: null, maxHp: null
       })),
       worldProgress: {
         highestUnlockedLand: legacy.highestUnlockedLand || 2
@@ -1670,7 +1709,11 @@
     player.libraryLevel = s.homeBase.libraryLevel || 0;
     player.blacksmithBuilt = !!s.homeBase.blacksmithBuilt;
     player.trainingGroundsBuilt = !!s.homeBase.trainingGroundsBuilt;
-    player.crew = s.crewRoster || [];
+    player.crew = (s.crewRoster || []).map(c => ({
+      ...c,
+      hp: c.hp === null || c.hp === undefined ? undefined : c.hp,
+      maxHp: c.maxHp === null || c.maxHp === undefined ? undefined : c.maxHp
+    }));
     if (s.swordInventory && s.swordInventory.swords && s.swordInventory.swords.length){
       player.swordInventory.swords = s.swordInventory.swords.map(sw => ({ ...sw, activeImbues: {} }));
       player.swordInventory.equippedSwordId = s.swordInventory.equippedSwordId || player.swordInventory.swords[0].id;
@@ -2516,6 +2559,23 @@
     }
     if (remaining > 0) player.hp -= remaining;
 
+    // Crew fighting alongside the player can catch some of the chaos too
+    // — see the constant block near CREW_INCIDENTAL_DAMAGE_CHANCE for why
+    // this exists. Scaled off the same (possibly mitigated) amount the
+    // player itself took, not the raw pre-mitigation figure.
+    if (Math.random() < CREW_INCIDENTAL_DAMAGE_CHANCE){
+      const nearby = player.crew.filter(c => c.status === "following" && c.maxHp !== undefined && c.hp > 0);
+      if (nearby.length > 0){
+        const victim = nearby[Math.floor(Math.random() * nearby.length)];
+        victim.hp -= Math.max(1, Math.round(amount * CREW_INCIDENTAL_DAMAGE_FRACTION));
+        if (victim.hp <= 0){
+          victim.hp = 0;
+          victim.status = "dead";
+          if (DEBUG) console.log("[WvW] " + crewDisplayName(victim) + " fell in battle");
+        }
+      }
+    }
+
     if (!opts.ignoreInvuln) player.invulnFrames = HIT_INVULN_FRAMES;
     if (player.hp <= 0) respawnPlayer();
   }
@@ -2945,6 +3005,73 @@
   }
 
   /* ---------------- allies ---------------- */
+  function updateCrewArcher(c, dist){
+    if (Math.abs(dist) > CREW_ARCHER_RANGE + 20){
+      c.x += Math.sign(dist) * 2.4;
+      c.moving = true;
+    }else if (Math.abs(dist) < CREW_ARCHER_RANGE - 20){
+      c.x -= Math.sign(dist) * 2.4;
+      c.moving = true;
+    }else{
+      c.moving = false;
+      if (c.attackCooldown <= 0){
+        playerProjectiles.push({
+          type: "crewArrow", x: c.x + PLAYER_W/2, y: c.y + PLAYER_H/2,
+          vx: 7 * (Math.sign(dist) || c.facing), damage: c.strength
+        });
+        c.attackCooldown = CREW_ARCHER_COOLDOWN;
+      }
+    }
+  }
+
+  function updateCrewMage(c, dist){
+    if (Math.abs(dist) > CREW_MAGE_RANGE + 20){
+      c.x += Math.sign(dist) * 2.4;
+      c.moving = true;
+    }else if (Math.abs(dist) < CREW_MAGE_RANGE - 20){
+      c.x -= Math.sign(dist) * 2.4;
+      c.moving = true;
+    }else{
+      c.moving = false;
+    }
+    if (c.spellsKnown && c.spellsKnown.length > 0 && c.spellCooldown <= 0 && Math.abs(dist) < CREW_MAGE_RANGE + 40){
+      const spellKey = c.spellsKnown[Math.floor(Math.random() * c.spellsKnown.length)];
+      const spellCfg = SPELLS[spellKey];
+      playerProjectiles.push({
+        type: "crewBolt", x: c.x + PLAYER_W/2, y: c.y + PLAYER_H/2,
+        vx: 7 * (Math.sign(dist) || c.facing), damage: Math.round((spellCfg.damage || c.strength) * 0.8)
+      });
+      c.spellCooldown = CREW_MAGE_SPELL_COOLDOWN;
+    }
+  }
+
+  // Medics never engage — they just stay close and keep whoever's hurt
+  // worst (the player or another following crew member) topped off.
+  function updateCrewMedic(c){
+    if (c.attackCooldown > 0) return; // reused as the heal cooldown for this role
+    let healTarget = null, healTargetIsPlayer = false, worstRatio = 1;
+    if (player.hp < PLAYER_MAX_HP){
+      worstRatio = player.hp / PLAYER_MAX_HP;
+      healTargetIsPlayer = true;
+    }
+    player.crew.forEach(other => {
+      if (other === c || other.status !== "following" || other.maxHp === undefined) return;
+      if (other.hp < other.maxHp){
+        const ratio = other.hp / other.maxHp;
+        if (ratio < worstRatio){ worstRatio = ratio; healTarget = other; healTargetIsPlayer = false; }
+      }
+    });
+    if (!healTargetIsPlayer && !healTarget) return; // nobody hurt
+    if (healTargetIsPlayer){
+      player.hp = Math.min(PLAYER_MAX_HP, player.hp + CREW_MEDIC_HEAL_AMOUNT);
+      effects.push({ type: "heal-sparkle", x: player.x + PLAYER_W/2, y: player.y, life: 20 });
+    }else{
+      healTarget.hp = Math.min(healTarget.maxHp, healTarget.hp + CREW_MEDIC_HEAL_AMOUNT);
+      effects.push({ type: "heal-sparkle", x: healTarget.x + PLAYER_W/2, y: healTarget.y, life: 20 });
+    }
+    c.attackCooldown = CREW_MEDIC_HEAL_COOLDOWN;
+  }
+
   function updateFollowingCrew(){
     const followers = player.crew.filter(c => c.status === "following");
     followers.forEach((c, i) => {
@@ -2954,6 +3081,11 @@
         c.facing = 1;
         c.attackCooldown = 0;
         c.spellCooldown = 0;
+      }
+      c.role = c.role || "soldier"; // pre-role saves and existing followers default to the original behavior
+      if (c.maxHp === undefined){
+        c.maxHp = CREW_HP_BASE + c.strength * CREW_HP_PER_STRENGTH;
+        c.hp = c.maxHp;
       }
       // Catch up instantly on a map change or if left far behind — avoids
       // needing to hook every single sail/teleport/respawn function
@@ -2968,32 +3100,42 @@
       if (c.attackCooldown > 0) c.attackCooldown--;
       if (c.spellCooldown > 0) c.spellCooldown--;
 
+      if (c.role === "medic"){
+        updateCrewMedic(c);
+        const followTargetX = player.x - 40 - i * 24;
+        const followDist = followTargetX - c.x;
+        if (Math.abs(followDist) > 10){
+          c.x += Math.sign(followDist) * Math.min(3, Math.abs(followDist) * 0.1);
+          c.facing = followDist >= 0 ? 1 : -1;
+          c.moving = true;
+        }else{
+          c.moving = false;
+        }
+        return;
+      }
+
       const alive = enemies.filter(en => en.hp > 0 && Math.abs(en.x - c.x) < 280);
       const target = alive.sort((p, q) => Math.abs(p.x - c.x) - Math.abs(q.x - c.x))[0];
 
       if (target){
         const dist = (target.x + target.w/2) - (c.x + PLAYER_W/2);
         c.facing = dist >= 0 ? 1 : -1;
-        if (Math.abs(dist) > 30){
-          c.x += Math.sign(dist) * 2.4;
-          c.moving = true;
+        if (c.role === "archer"){
+          updateCrewArcher(c, dist);
+        }else if (c.role === "mage"){
+          updateCrewMage(c, dist);
         }else{
-          c.moving = false;
-          if (c.attackCooldown <= 0){
-            damageEnemy(target, c.strength); // sword — always available, "sword to start"
-            c.attackCooldown = MELEE_COOLDOWN;
+          // soldier — melee only
+          if (Math.abs(dist) > 30){
+            c.x += Math.sign(dist) * 2.4;
+            c.moving = true;
+          }else{
+            c.moving = false;
+            if (c.attackCooldown <= 0){
+              damageEnemy(target, c.strength);
+              c.attackCooldown = MELEE_COOLDOWN;
+            }
           }
-        }
-        // spells, if any are known — an additional ranged option layered
-        // on top of the sword, not a replacement for it
-        if (c.spellsKnown && c.spellsKnown.length > 0 && c.spellCooldown <= 0){
-          const spellKey = c.spellsKnown[Math.floor(Math.random() * c.spellsKnown.length)];
-          const spellCfg = SPELLS[spellKey];
-          playerProjectiles.push({
-            type: "crewBolt", x: c.x + PLAYER_W/2, y: c.y + PLAYER_H/2,
-            vx: 7 * (Math.sign(dist) || c.facing), damage: Math.round((spellCfg.damage || c.strength) * 0.6)
-          });
-          c.spellCooldown = 180; // 3s between casts
         }
       }else{
         // nothing nearby to fight — follow the player, staggered so
@@ -3017,8 +3159,55 @@
       const sx = worldToScreen(c.x);
       if (sx < -40 || sx > CANVAS_W + 40) return;
       drawWalterFigure(sx, c.y, COLORS.playerSteel, { moving: !!c.moving, airborne: false, climbing: false }, "crewHelmet");
-      drawSword(sx, c.y, c.facing || 1, c.attackCooldown || 0, MELEE_COOLDOWN, false, null); // same sword + swing as the player, always available
+      if (c.role === "archer"){
+        drawCrewBow(sx, c.y, c.facing || 1);
+      }else if (c.role === "mage" || c.role === "medic"){
+        // no melee weapon for support/caster roles — a small staff prop instead of a blank hand
+        drawCrewStaff(sx, c.y, c.facing || 1, c.role);
+      }else{
+        drawSword(sx, c.y, c.facing || 1, c.attackCooldown || 0, MELEE_COOLDOWN, false, null); // soldier — same sword + swing as the player
+      }
     });
+  }
+
+  // Reuses the same bow-arc shape the Archer enemy already draws, just
+  // anchored to a following crew member instead.
+  function drawCrewBow(x, y, facing){
+    const cx = x + PLAYER_W / 2;
+    ctx.strokeStyle = COLORS.archerBow;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx + 10 * facing, y + 20, 12, -Math.PI/2.3, Math.PI/2.3);
+    ctx.stroke();
+  }
+
+  // A simple staff for casters/support — visually distinct from the
+  // sword without inventing a whole new prop system. Medic's staff gets
+  // a small cross accent so the role reads at a glance.
+  function drawCrewStaff(x, y, facing, role){
+    const cx = x + PLAYER_W / 2;
+    const staffX = cx + 9 * facing;
+    ctx.strokeStyle = COLORS.swordHilt;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(staffX, y + 34);
+    ctx.lineTo(staffX, y + 10);
+    ctx.stroke();
+    if (role === "medic"){
+      ctx.strokeStyle = "#E14B3C";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(staffX - 4, y + 8);
+      ctx.lineTo(staffX + 4, y + 8);
+      ctx.moveTo(staffX, y + 4);
+      ctx.lineTo(staffX, y + 12);
+      ctx.stroke();
+    }else{
+      ctx.fillStyle = COLORS.imbueLightning;
+      ctx.beginPath();
+      ctx.arc(staffX, y + 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   function updateAllies(){
@@ -4937,6 +5126,13 @@
     }else if (p.type === "crewBolt"){
       ctx.fillStyle = COLORS.playerSteel;
       ctx.beginPath(); ctx.arc(x, p.y, 4, 0, Math.PI*2); ctx.fill();
+    }else if (p.type === "crewArrow"){
+      ctx.strokeStyle = COLORS.arrow;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, p.y);
+      ctx.lineTo(x + 10, p.y);
+      ctx.stroke();
     }else if (p.type === "demonBolt"){
       ctx.fillStyle = COLORS.demonBody;
       ctx.beginPath(); ctx.arc(x, p.y, 5, 0, Math.PI*2); ctx.fill();
@@ -4975,7 +5171,15 @@
 
   function drawEffect(fx){
     const x = worldToScreen(fx.x);
-    if (fx.type === "freeze-burst"){
+    if (fx.type === "heal-sparkle"){
+      ctx.fillStyle = "rgba(80,220,140," + (fx.life / 20) + ")";
+      for (let i = 0; i < 3; i++){
+        const rise = (20 - fx.life) * 1.5 + i * 4;
+        ctx.beginPath();
+        ctx.arc(x + (i - 1) * 6, fx.y - rise, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }else if (fx.type === "freeze-burst"){
       ctx.strokeStyle = COLORS.freeze;
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -5615,18 +5819,46 @@
       </div>
     `).join("");
 
+    const sword = getEquippedSword();
+    const imbues = sword ? Object.keys(sword.activeImbues) : [];
+    const imbueLabel = imbues.length
+      ? imbues.map(el => el[0].toUpperCase() + el.slice(1)).join(" + ")
+      : "None";
+    const imbueShopSection = worker ? `
+      <p style="font-weight:700;margin:14px 0 4px;">Imbue your sword</p>
+      <p style="opacity:0.85;font-size:0.85rem;">${sword ? sword.label : "No sword equipped"} — currently imbued: ${imbueLabel}.
+        ${sword && sword.type === "sotgk" ? "The SOTGK stacks multiple imbues at once." : "A standard sword only holds one imbue — a new one replaces it."}</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-buy-imbue="lightning" ${player.silver >= BLACKSMITH_IMBUE_COST_SILVER ? "" : "disabled"}>Lightning (${BLACKSMITH_IMBUE_COST_SILVER} silver)</button>
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-buy-imbue="fire" ${player.silver >= BLACKSMITH_IMBUE_COST_SILVER ? "" : "disabled"}>Fire (${BLACKSMITH_IMBUE_COST_SILVER} silver)</button>
+        <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-buy-imbue="freeze" ${player.silver >= BLACKSMITH_IMBUE_COST_SILVER ? "" : "disabled"}>Freeze (${BLACKSMITH_IMBUE_COST_SILVER} silver)</button>
+      </div>
+    ` : `<p style="opacity:0.7;font-size:0.85rem;margin-top:14px;">Imbuing your sword requires a blacksmith on duty.</p>`;
+
     overlayInner.innerHTML = `
       <h3>Blacksmith</h3>
       <p>Auto-repairs your broken gear whenever you're in the village with a blacksmith on duty. Costs ${BLACKSMITH_UPKEEP_PER_MINUTE} silver/minute to keep staffed.</p>
       ${worker
         ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;">
-             <span>${worker.id} is working the forge.</span>
+             <span>${crewDisplayName(worker)} is working the forge.</span>
              <button type="button" class="btn light" style="padding:6px 12px;font-size:0.8rem;" data-unassign="${worker.id}">Dismiss</button>
            </div>`
         : `<p style="font-weight:700;margin:14px 0 4px;">Assign idle crew</p><div style="text-align:left;">${idleRows || `<p style="opacity:0.7;font-size:0.85rem;">No idle crew available.</p>`}</div>`
       }
+      ${imbueShopSection}
       <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:14px;">Close</button>
     `;
+    overlayInner.querySelectorAll("button[data-buy-imbue]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const element = btn.dataset.buyImbue;
+        if (player.silver >= BLACKSMITH_IMBUE_COST_SILVER){
+          player.silver -= BLACKSMITH_IMBUE_COST_SILVER;
+          applyImbueToSword(element); // same imbue mechanic casting a spell already uses — same duration, same stacking rules
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    });
     overlayInner.querySelectorAll("button[data-assign-blacksmith]").forEach(btn => {
       btn.addEventListener("click", () => {
         if (assignCrewToBlacksmith(btn.dataset.assignBlacksmith)){
@@ -6001,7 +6233,7 @@
   }
 
   function tabBarHtml(){
-    const tabs = [["spells","Spells"],["inventory","Inventory"],["shops","Shops"],["amulets","Amulets"]];
+    const tabs = [["spells","Spells"],["inventory","Inventory"],["shops","Shops"],["amulets","Amulets"],["crew","Crew"]];
     return `
       <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
         ${tabs.map(([id, label]) => `
@@ -6116,6 +6348,40 @@
     `;
   }
 
+  function renderCrewTab(){
+    if (player.crew.length === 0) return `<p style="opacity:0.7;">No crew recruited yet — start at the Training Grounds.</p>`;
+
+    const statusLabel = {
+      training: "Training", idle: "Idle", library: "At the Library",
+      blacksmith: "At the Blacksmith", following: "Following you", dead: "Fallen"
+    };
+    const roleLabel = { soldier: "Soldier", medic: "Medic", archer: "Archer", mage: "Mage" };
+
+    const rows = player.crew.map(c => {
+      const hpText = c.maxHp !== undefined ? `${Math.max(0, Math.round(c.hp))}/${c.maxHp} HP` : "—";
+      const spellsText = (c.spellsKnown && c.spellsKnown.length) ? c.spellsKnown.map(k => SPELLS[k] ? SPELLS[k].label : k).join(", ") : "None";
+      const role = c.role || "soldier";
+      const canMage = c.spellsKnown && c.spellsKnown.length > 0;
+      const roleButtons = CREW_ROLES.map(r => {
+        const disabled = r === "mage" && !canMage;
+        return `<button type="button" class="btn ${role === r ? "" : "light"}" style="padding:4px 8px;font-size:0.72rem;" data-set-role="${c.id}:${r}" ${disabled ? "disabled" : ""}>${roleLabel[r]}</button>`;
+      }).join(" ");
+      return `
+        <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:700;">${crewDisplayName(c)}</span>
+            <span style="opacity:0.75;font-size:0.78rem;">${statusLabel[c.status] || c.status}</span>
+          </div>
+          <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Strength ${c.strength} — ${hpText}</p>
+          <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Spells known: ${spellsText}</p>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${roleButtons}</div>
+        </div>
+      `;
+    }).join("");
+
+    return `<div style="text-align:left;">${rows}</div>`;
+  }
+
   function renderAmuletsTab(){
     if (player.amuletsOwned.size === 0) return `<p style="opacity:0.7;">No amulets earned yet — boss drops only.</p>`;
 
@@ -6160,7 +6426,8 @@
     if (altarActiveTab === "spells") bodyHtml = renderSpellsTab();
     else if (altarActiveTab === "inventory") bodyHtml = renderInventoryTab();
     else if (altarActiveTab === "shops") bodyHtml = renderShopsTab();
-    else bodyHtml = renderAmuletsTab();
+    else if (altarActiveTab === "amulets") bodyHtml = renderAmuletsTab();
+    else bodyHtml = renderCrewTab();
 
     overlayInner.innerHTML = `
       <h3>Menu</h3>
@@ -6173,6 +6440,15 @@
       btn.addEventListener("click", () => {
         altarActiveTab = btn.dataset.menuTab;
         renderAltar();
+      });
+    });
+    overlayInner.querySelectorAll("button[data-set-role]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const [crewId, role] = btn.dataset.setRole.split(":");
+        if (assignCrewRole(crewId, role)){
+          renderAltar();
+          saveProgress();
+        }
       });
     });
     overlayInner.querySelectorAll("button[data-spell]").forEach(btn => {
