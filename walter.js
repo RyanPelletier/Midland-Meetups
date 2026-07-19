@@ -4741,11 +4741,14 @@
   function progressSummaryHTML(){
     if (walterGuestMode) return `<p style="font-size:0.8rem;opacity:0.8;">Playing as guest — progress won't be saved.</p>`;
     if (!loadedProgress) return "";
-    const spellCount = loadedProgress.spells.size;
-    const hasAnything = spellCount > 0 || loadedProgress.silver > 0 || loadedProgress.crystals > 0 || loadedProgress.armor !== "none";
+    const spellCount = loadedProgress.spells.unlocked.length;
+    const silver = loadedProgress.playerStats.silver;
+    const crystals = loadedProgress.playerStats.bankedCrystals;
+    const equippedArmor = loadedProgress.armorInventory.equipped;
+    const hasAnything = spellCount > 0 || silver > 0 || crystals > 0 || !!equippedArmor;
     if (!hasAnything) return `<p style="font-size:0.8rem;opacity:0.8;">New save — starting fresh.</p>`;
-    const armorLabel = loadedProgress.armor !== "none" ? ARMOR[loadedProgress.armor].label : "no armor";
-    return `<p style="font-size:0.8rem;opacity:0.8;">Welcome back — loaded ${spellCount} spell${spellCount === 1 ? "" : "s"}, ${loadedProgress.silver} silver, ${loadedProgress.crystals} banked crystals, ${armorLabel}.</p>`;
+    const armorLabel = equippedArmor && ARMOR[equippedArmor] ? ARMOR[equippedArmor].label : "no armor";
+    return `<p style="font-size:0.8rem;opacity:0.8;">Welcome back — loaded ${spellCount} spell${spellCount === 1 ? "" : "s"}, ${silver} silver, ${crystals} banked crystals, ${armorLabel}.</p>`;
   }
 
   function showStartOverlay(){
@@ -4830,7 +4833,18 @@
       walterName = name;
       walterPassword = password;
       if (typeof setStoredName === "function") setStoredName(name);
-      loadedProgress = decodeProgress(res.progress);
+      // Decoding is separated from the network call on purpose: a
+      // successful login with a save that fails to parse is a totally
+      // different problem than "couldn't reach the server", and was
+      // previously reported with the same misleading message either way.
+      try{
+        loadedProgress = decodeProgress(res.progress);
+      }catch(decodeErr){
+        console.error("[WvW] save data failed to load — starting fresh instead of blocking login", decodeErr);
+        loadedProgress = null; // resetState()'s defaults apply; nothing is lost server-side, the raw save string is untouched
+        statusEl.textContent = "Logged in, but your save couldn't be read — starting fresh this session.";
+        statusEl.style.color = "var(--red)";
+      }
       loginComplete = true;
       showStartOverlay();
     }catch(err){
