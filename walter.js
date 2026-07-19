@@ -4273,26 +4273,37 @@
     const w = en.w, h = en.h, y = en.y;
     const cx = x + w / 2;
     if (en.bossBiomeId === "village"){
-      // Commander — broad armored knight with a crimson cape
+      // Commander — broad armored knight with a crimson cape, now with
+      // a subtle idle bob and a cape that actually ripples as it hangs
+      const bob = Math.sin(frame * 0.05) * 2;
+      const ripple = Math.sin(frame * 0.08) * 4;
       ctx.fillStyle = COLORS.commanderCape;
       ctx.beginPath();
-      ctx.moveTo(x + 6, y + 14);
-      ctx.lineTo(x - 6, y + h);
-      ctx.lineTo(x + w * 0.4, y + h);
-      ctx.lineTo(x + w * 0.3, y + 14);
+      ctx.moveTo(x + 6, y + 14 + bob);
+      ctx.quadraticCurveTo(x - 8 + ripple, y + h * 0.6 + bob, x - 6, y + h + bob);
+      ctx.lineTo(x + w * 0.4, y + h + bob);
+      ctx.quadraticCurveTo(x + w * 0.32 - ripple * 0.5, y + h * 0.6 + bob, x + w * 0.3, y + 14 + bob);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = COLORS.commanderArmor;
-      ctx.fillRect(x + w * 0.15, y, w * 0.7, h * 0.85);
-      ctx.fillRect(x + w * 0.25, y - 10, w * 0.5, 14); // helm
+      ctx.fillRect(x + w * 0.15, y + bob, w * 0.7, h * 0.85);
+      ctx.fillRect(x + w * 0.25, y - 10 + bob, w * 0.5, 14); // helm
+      // helm crest, a small plume of the same cape color
       ctx.fillStyle = COLORS.commanderCape;
-      ctx.fillRect(x + w * 0.15, y + h * 0.3, w * 0.7, 6); // trim band
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.5 - 2, y - 10 + bob);
+      ctx.lineTo(x + w * 0.5, y - 18 + bob);
+      ctx.lineTo(x + w * 0.5 + 2, y - 10 + bob);
+      ctx.fill();
+      ctx.fillRect(x + w * 0.15, y + h * 0.3 + bob, w * 0.7, 6); // trim band
 
     }else if (en.bossBiomeId === "castlewalls"){
-      // Royal Champion — slim duelist with an oversized kite shield
+      // Royal Champion — slim duelist with an oversized kite shield,
+      // now with an idle stance shift and a glinting shield rim
+      const shift = Math.sin(frame * 0.06) * 2;
       ctx.fillStyle = COLORS.championArmor;
-      ctx.fillRect(x + w * 0.32, y, w * 0.36, h * 0.85);
-      ctx.fillRect(x + w * 0.36, y - 8, w * 0.28, 10); // helm
+      ctx.fillRect(x + w * 0.32 + shift, y, w * 0.36, h * 0.85);
+      ctx.fillRect(x + w * 0.36 + shift, y - 8, w * 0.28, 10); // helm
       ctx.fillStyle = COLORS.championShield;
       ctx.beginPath();
       ctx.moveTo(x, y + 10);
@@ -4305,21 +4316,34 @@
       ctx.strokeStyle = COLORS.championShieldRim;
       ctx.lineWidth = 2;
       ctx.stroke();
+      // a brief glint that sweeps across the shield rim periodically
+      const glintPhase = (frame * 2) % 240;
+      if (glintPhase < 20){
+        ctx.globalAlpha = 1 - glintPhase / 20;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.arc(x + w * 0.15, y + 10 + glintPhase * 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
 
     }else if (en.bossBiomeId === "forest"){
-      // Fey Queen — floating green robe, antler crown
+      // Fey Queen — floating green robe, antler crown; now with a
+      // pulsing antler glow and a rippling robe hem
       const hover = Math.sin(frame * 0.05) * 4;
+      const hemRipple = Math.sin(frame * 0.1) * 3;
       ctx.fillStyle = COLORS.feyQueenRobe;
       ctx.beginPath();
       ctx.moveTo(x + w * 0.2, y + h * 0.3 + hover);
       ctx.lineTo(x + w * 0.8, y + h * 0.3 + hover);
-      ctx.lineTo(x + w, y + h * 0.9 + hover);
-      ctx.lineTo(x, y + h * 0.9 + hover);
+      ctx.lineTo(x + w + hemRipple, y + h * 0.9 + hover);
+      ctx.lineTo(x - hemRipple, y + h * 0.9 + hover);
       ctx.closePath();
       ctx.fill();
       ctx.fillRect(x + w * 0.3, y + hover, w * 0.4, h * 0.35); // torso/head block
       ctx.strokeStyle = COLORS.feyQueenAntler;
       ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(frame * 0.15); // gentle magical pulse
       [-1, 1].forEach(dir => {
         ctx.beginPath();
         ctx.moveTo(cx + dir * 6, y + hover);
@@ -4328,16 +4352,20 @@
         ctx.lineTo(cx + dir * 20, y - 8 + hover);
         ctx.stroke();
       });
+      ctx.globalAlpha = 1;
 
     }else if (en.bossBiomeId === "jungle"){
-      // Serpent King — coiled cobra with hood and crown
+      // Serpent King — coiled cobra with hood and crown; the coil now
+      // genuinely undulates like a real slither instead of sitting static
+      const s = frame * 0.06;
+      const u1 = Math.sin(s) * 4, u2 = Math.sin(s + 1.2) * 4, u3 = Math.sin(s + 2.4) * 4;
       ctx.fillStyle = COLORS.serpentKingScale;
       ctx.beginPath();
       ctx.moveTo(x + w * 0.5, y + h);
-      ctx.quadraticCurveTo(x, y + h * 0.7, x + w * 0.3, y + h * 0.4);
-      ctx.quadraticCurveTo(x + w * 0.5, y + h * 0.15, x + w * 0.5, y + 10);
-      ctx.quadraticCurveTo(x + w * 0.7, y + h * 0.4, x + w * 0.5, y + h * 0.55);
-      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.75, x + w * 0.5, y + h);
+      ctx.quadraticCurveTo(x + u1, y + h * 0.7, x + w * 0.3, y + h * 0.4);
+      ctx.quadraticCurveTo(x + w * 0.5 + u2, y + h * 0.15, x + w * 0.5, y + 10);
+      ctx.quadraticCurveTo(x + w * 0.7 + u3, y + h * 0.4, x + w * 0.5, y + h * 0.55);
+      ctx.quadraticCurveTo(x + w * 0.75 + u1, y + h * 0.75, x + w * 0.5, y + h);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = COLORS.serpentKingHood;
@@ -4350,27 +4378,50 @@
       ctx.fill();
       ctx.fillStyle = COLORS.serpentKingCrown;
       ctx.fillRect(x + w * 0.42, y - 16, w * 0.16, 8);
+      // an occasional tongue flick
+      if (Math.floor(frame / 90) % 3 === 0 && frame % 90 < 15){
+        ctx.strokeStyle = COLORS.serpentKingHood;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.5, y - 6);
+        ctx.lineTo(x + w * 0.5 - 5, y - 12);
+        ctx.moveTo(x + w * 0.5, y - 6);
+        ctx.lineTo(x + w * 0.5 + 5, y - 12);
+        ctx.stroke();
+      }
 
     }else if (en.bossBiomeId === "swamp"){
-      // Bog Titan — huge moss brute with a stone shoulder
+      // Bog Titan — huge moss brute with a stone shoulder; now with a
+      // heavy lumbering sway and moss drips
+      const sway = Math.sin(frame * 0.03) * 3;
       ctx.fillStyle = COLORS.bogTitanMoss;
-      ctx.fillRect(x - 4, y, w + 8, h); // extra-wide, bulky
+      ctx.fillRect(x - 4 + sway, y, w + 8, h); // extra-wide, bulky
       ctx.fillStyle = COLORS.bogTitanMossDark;
-      ctx.fillRect(x - 4, y + h * 0.55, w + 8, 10);
+      ctx.fillRect(x - 4 + sway, y + h * 0.55, w + 8, 10);
       ctx.fillStyle = COLORS.bogTitanStone;
       ctx.beginPath();
-      ctx.arc(x + w * 0.78, y + h * 0.18, 16, 0, Math.PI * 2);
+      ctx.arc(x + w * 0.78 + sway, y + h * 0.18, 16, 0, Math.PI * 2);
       ctx.fill();
+      // moss drips trickling off the shoulder
+      ctx.fillStyle = COLORS.bogTitanMossDark;
+      for (let i = 0; i < 3; i++){
+        const dripPhase = (frame + i * 40) % 120;
+        ctx.globalAlpha = 1 - dripPhase / 120;
+        ctx.fillRect(x + w * 0.7 + sway + i * 5, y + h * 0.3 + dripPhase * 0.5, 2, 5);
+      }
+      ctx.globalAlpha = 1;
 
     }else if (en.bossBiomeId === "desert"){
-      // Sand Colossus — blocky sandstone giant with orbiting shards
+      // Sand Colossus — blocky sandstone giant with orbiting shards;
+      // the blocks now shift slightly against each other, like grinding stone
+      const grind1 = Math.sin(frame * 0.04) * 2, grind2 = Math.sin(frame * 0.04 + 1.5) * 2;
       ctx.fillStyle = COLORS.sandColossusBody;
       ctx.fillRect(x, y, w, h * 0.4);
-      ctx.fillRect(x + 4, y + h * 0.4, w - 8, h * 0.3);
-      ctx.fillRect(x + 8, y + h * 0.7, w - 16, h * 0.3);
+      ctx.fillRect(x + 4 + grind1, y + h * 0.4, w - 8, h * 0.3);
+      ctx.fillRect(x + 8 + grind2, y + h * 0.7, w - 16, h * 0.3);
       ctx.fillStyle = COLORS.sandColossusDark;
       ctx.fillRect(x, y + h * 0.38, w, 4);
-      ctx.fillRect(x + 4, y + h * 0.68, w - 8, 4);
+      ctx.fillRect(x + 4 + grind1, y + h * 0.68, w - 8, 4);
       for (let i = 0; i < 3; i++){
         const angle = frame * 0.03 + i * (Math.PI * 2 / 3);
         const ox = cx + Math.cos(angle) * (w * 0.75);
@@ -4378,12 +4429,28 @@
         ctx.fillStyle = COLORS.sandColossusShard;
         ctx.fillRect(ox - 3, oy - 3, 6, 6);
       }
+      // a trickle of sand off the lower block edge
+      ctx.fillStyle = COLORS.sandColossusDark;
+      const trickle = frame % 60;
+      ctx.globalAlpha = 1 - trickle / 60;
+      ctx.fillRect(x + 8 + grind2, y + h * 0.7 + trickle * 0.3, 2, 2);
+      ctx.globalAlpha = 1;
 
     }else if (en.bossBiomeId === "treehouses"){
-      // Elder Dryad — floating tree spirit with a leaf halo
+      // Elder Dryad — floating tree spirit with a leaf halo; the leaves
+      // now breathe (pulse in size/brightness) instead of sitting fixed
       const hover = Math.sin(frame * 0.05) * 4;
       ctx.fillStyle = COLORS.elderDryadTrunk;
       ctx.fillRect(x + w * 0.3, y + 12 + hover, w * 0.4, h * 0.8);
+      // simple bark texture lines
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++){
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.35 + i * 5, y + 14 + hover);
+        ctx.lineTo(x + w * 0.35 + i * 5, y + h * 0.85 + hover);
+        ctx.stroke();
+      }
       ctx.beginPath();
       ctx.moveTo(x + w * 0.15, y + h + hover);
       ctx.lineTo(x + w * 0.3, y + h * 0.75 + hover);
@@ -4392,39 +4459,51 @@
       ctx.lineTo(x + w * 0.7, y + h * 0.75 + hover);
       ctx.lineTo(x + w * 0.6, y + h + hover);
       ctx.fill();
-      ctx.fillStyle = COLORS.elderDryadLeaf;
       for (let i = 0; i < 8; i++){
-        const angle = (i / 8) * Math.PI * 2;
+        const angle = (i / 8) * Math.PI * 2 + frame * 0.01; // slow halo rotation
+        const breathe = 4.5 + Math.sin(frame * 0.08 + i) * 1;
         const lx = cx + Math.cos(angle) * 20;
         const ly = y + hover + Math.sin(angle) * 14;
+        ctx.fillStyle = COLORS.elderDryadLeaf;
         ctx.beginPath();
-        ctx.arc(lx, ly, 5, 0, Math.PI * 2);
+        ctx.arc(lx, ly, breathe, 0, Math.PI * 2);
         ctx.fill();
       }
 
     }else if (en.bossBiomeId === "underwater"){
-      // Leviathan — giant sea serpent with a towering dorsal fin
+      // Leviathan — giant sea serpent with a towering dorsal fin; the
+      // whole body now undulates like a real swimming motion, with
+      // rising bubbles for atmosphere
+      const swim = Math.sin(frame * 0.04) * 6;
       ctx.fillStyle = COLORS.leviathanBody;
       ctx.beginPath();
       ctx.moveTo(x, y + h);
-      ctx.quadraticCurveTo(x + w * 0.2, y + h * 0.3, x + w * 0.5, y + h * 0.5);
-      ctx.quadraticCurveTo(x + w * 0.8, y + h * 0.7, x + w, y + h * 0.2);
+      ctx.quadraticCurveTo(x + w * 0.2, y + h * 0.3 + swim, x + w * 0.5, y + h * 0.5);
+      ctx.quadraticCurveTo(x + w * 0.8, y + h * 0.7 - swim, x + w, y + h * 0.2);
       ctx.lineTo(x + w, y + h * 0.45);
-      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.85, x + w * 0.45, y + h * 0.65);
-      ctx.quadraticCurveTo(x + w * 0.25, y + h * 0.5, x + w * 0.15, y + h);
+      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.85 - swim, x + w * 0.45, y + h * 0.65);
+      ctx.quadraticCurveTo(x + w * 0.25, y + h * 0.5 + swim, x + w * 0.15, y + h);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = COLORS.leviathanFin;
       ctx.beginPath();
-      ctx.moveTo(x + w * 0.35, y + h * 0.4);
-      ctx.lineTo(x + w * 0.5, y - 22);
-      ctx.lineTo(x + w * 0.6, y + h * 0.35);
+      ctx.moveTo(x + w * 0.35, y + h * 0.4 + swim * 0.3);
+      ctx.lineTo(x + w * 0.5, y - 22 + swim * 0.3);
+      ctx.lineTo(x + w * 0.6, y + h * 0.35 + swim * 0.3);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = COLORS.leviathanBodyDark;
       ctx.beginPath();
       ctx.arc(x + w * 0.85, y + h * 0.35, 4, 0, Math.PI * 2);
       ctx.fill();
+      // rising bubbles
+      ctx.fillStyle = "rgba(200,230,240,0.5)";
+      for (let i = 0; i < 3; i++){
+        const bp = (frame + i * 30) % 90;
+        ctx.beginPath();
+        ctx.arc(x + w * 0.3 + i * 10, y + h - bp, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
     }else{
       // Fallback — any future boss without a bespoke design yet still
