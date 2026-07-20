@@ -46,6 +46,7 @@
     skyJungle: "#B4E0C5", jungleGround: "#2F5233", vineColor: "#3F7A3F", leafColor: "#3F8A4A", silhouetteColor: "#111111",
     skyUnderwater: "#4BA3C3", underwaterGround: "#C2A878", kelpColor: "#2F6B4A", bubbleColor: "rgba(255,255,255,0.6)", lightRayColor: "rgba(255,255,255,0.1)",
     treehousesSky: "#AEE2FF", trunkColor: "#6B4222", platformColor: "#8B5A2B", cloudColor: "rgba(255,255,255,0.85)",
+    treehousesGround: "#3F7A3A",
     bossArenaSky: "#3A2C4A",
     houseDecrepit: "#8A8378",
     houseDecrepitDark: "#5C574C",
@@ -556,7 +557,18 @@
     if (currentMap === "land1") return CLIMB_POINTS_LAND1;
     if (currentMap === "land2") return CLIMB_POINTS_LAND2;
     if (currentMap === "homebase") return CLIMB_POINTS_HOMEBASE;
-    if (currentMap === "generated") return [];
+    if (currentMap === "generated"){
+      // The zone check is deliberately bypassed here ("any") — each
+      // climb point's own tight x + halfWidth range already guarantees
+      // it only matches an actual trunk, which only exists inside a
+      // treehouses zone by construction. Relying on currentZone()
+      // instead would produce false negatives for a trunk sitting right
+      // at a zone's edge, since that check uses the player's left edge
+      // rather than their center.
+      return getGeneratedTreehouseTrunks().map(wx => ({
+        x: wx, halfWidth: 12, topY: GROUND_Y - 150, zone: "any", action: "none"
+      }));
+    }
     return CLIMB_POINTS_HOME;
   }
   function getTrees(){
@@ -2045,7 +2057,7 @@
     return getClimbPoints().find(c =>
       Math.abs(player.x + PLAYER_W/2 - c.x) < c.halfWidth &&
       player.y + PLAYER_H > c.topY - 20 &&
-      currentZone(player.x) === c.zone
+      (c.zone === "any" || currentZone(player.x) === c.zone)
     );
   }
 
@@ -2069,6 +2081,10 @@
     return false;
   }
 
+  function getGeneratedTreehousePlatforms(){
+    return getGeneratedTreehouseTrunks().map(wx => ({ x1: wx - 30, x2: wx + 60, topY: GROUND_Y - 150 }));
+  }
+
   function updatePlayerMovement(){
     const climb = activeClimbPoint();
 
@@ -2081,11 +2097,35 @@
       player.onGround = player.y >= GROUND_Y - PLAYER_H - 0.5;
     }else{
       player.onLadder = false;
+      const prevFeetY = player.y + PLAYER_H; // feet position before this frame's gravity step
       player.vy += GRAVITY;
       player.y += player.vy;
+      const newFeetY = player.y + PLAYER_H;
 
       const floorY = GROUND_Y - PLAYER_H;
-      if (isOverOpenWater(player.x) && !hasWaterBreathing()){
+
+      // One-way platform landing — generated lands' treehouse platforms
+      // only, deliberately contained to this specific map type so it
+      // can't affect physics anywhere else in the game. Falling onto a
+      // platform from above lands on it; jumping up through it, or
+      // walking off its edge, both pass through freely like normal.
+      let landedOnPlatform = false;
+      if (currentMap === "generated" && player.vy >= 0){
+        const cx = player.x + PLAYER_W / 2;
+        const platform = getGeneratedTreehousePlatforms().find(p =>
+          cx >= p.x1 && cx <= p.x2 && prevFeetY <= p.topY + 12 && newFeetY >= p.topY
+        );
+        if (platform){
+          player.y = platform.topY - PLAYER_H;
+          player.vy = 0;
+          player.onGround = true;
+          landedOnPlatform = true;
+        }
+      }
+
+      if (landedOnPlatform){
+        // already resolved above
+      }else if (isOverOpenWater(player.x) && !hasWaterBreathing()){
         const drownY = floorY + WATER_DROWN_DEPTH;
         const riseCeiling = floorY - WATER_MAX_RISE;
         if (player.y >= drownY){
@@ -3342,7 +3382,7 @@
     const climb = activeClimbPoint();
     const atClimbTop = !!climb && player.y <= climb.topY - PLAYER_H + 20;
 
-    nearMenuAction = walkupHit ? walkupHit.action : (atClimbTop ? climb.action : null);
+    nearMenuAction = walkupHit ? walkupHit.action : (atClimbTop && climb.action !== "none" ? climb.action : null);
   }
 
   function openMenuForAction(action){
@@ -3723,10 +3763,27 @@
     ctx.beginPath(); ctx.moveTo(CANVAS_W, 0); ctx.lineTo(CANVAS_W - 60, 0); ctx.lineTo(CANVAS_W, 80); ctx.closePath(); ctx.fill();
   }
 
+  // Single source of truth for treehouse trunk positions in the current
+  // generated land — the visual, the climb points, and the platform
+  // collision all derive from this so they can never drift out of sync
+  // with each other.
+  function getGeneratedTreehouseTrunks(){
+    if (!currentGeneratedLandLayout) return [];
+    const trunks = [];
+    currentGeneratedLandLayout.zones.forEach(z => {
+      if (z.id !== "treehouses") return;
+      for (let wx = z.start + 10; wx < z.end; wx += 130) trunks.push(wx);
+    });
+    return trunks;
+  }
+
   function drawTreehousesZone(z){
-    for (let wx = z.start + 10; wx < z.end; wx += 130){
+    ctx.fillStyle = COLORS.treehousesGround;
+    ctx.fillRect(Math.max(0, worldToScreen(z.start)), GROUND_Y, Math.min(CANVAS_W, worldToScreen(z.end)) - Math.max(0, worldToScreen(z.start)), CANVAS_H - GROUND_Y);
+    getGeneratedTreehouseTrunks().forEach(wx => {
+      if (wx < z.start || wx >= z.end) return; // this helper covers every treehouses zone in the land, only draw this one's own trunks
       const sx = worldToScreen(wx);
-      if (sx < -30 || sx > CANVAS_W + 30) continue;
+      if (sx < -30 || sx > CANVAS_W + 30) return;
       ctx.fillStyle = COLORS.trunkColor;
       ctx.fillRect(sx, 0, 24, CANVAS_H);
       ctx.fillStyle = COLORS.platformColor;
@@ -3736,7 +3793,7 @@
       for (let ly = GROUND_Y - 150; ly < GROUND_Y; ly += 18){
         ctx.beginPath(); ctx.moveTo(sx - 6, ly); ctx.lineTo(sx + 6, ly); ctx.stroke();
       }
-    }
+    });
     ctx.fillStyle = COLORS.cloudColor;
     for (let wx = z.start; wx < z.end; wx += 220){
       const sx = worldToScreen(wx);
