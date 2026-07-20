@@ -508,6 +508,96 @@
     lastGeneratedLandBiomeIds = land.biomes.map(b => b.id);
   }
 
+  // Deliberately much simpler than the horizontal Land 3+ generator —
+  // each Tower floor is one self-contained room (reusing the existing
+  // horizontal engine untouched), not a multi-biome sequence, so there's
+  // no need for the zone-array machinery that system needs.
+  function generateTowerFloor(floorNumber, prevBiomeId){
+    let biomeId = TOWER_BIOMES[Math.floor(Math.random() * TOWER_BIOMES.length)];
+    let attempts = 0;
+    while (biomeId === prevBiomeId && attempts < 10){ // no immediate repeats, same precedent as the Land 3+ generator
+      biomeId = TOWER_BIOMES[Math.floor(Math.random() * TOWER_BIOMES.length)];
+      attempts++;
+    }
+    // "Position switches dynamically every other level" — deterministic
+    // on floor parity, not random, so it reads as a genuine pattern.
+    const ladderSide = floorNumber % 2 === 1 ? "right" : "left";
+    const worldWidth = 700 + Math.floor(Math.random() * 200);
+    // Gradual difficulty scaling across the climb — not specified in the
+    // roadmap, added on top of the game's existing player-power-based
+    // scaling rather than replacing it.
+    const enemyCount = Math.min(8, 3 + Math.floor((floorNumber - 1) / 4));
+    return { floorNumber, biomeId, ladderSide, worldWidth, cleared: false, enemyCount };
+  }
+
+  function towerLadderX(){
+    if (!currentTowerFloor) return 0;
+    return currentTowerFloor.ladderSide === "right" ? currentTowerFloor.worldWidth - 60 : 60;
+  }
+
+  function spawnTowerFloorEnemies(){
+    if (!currentTowerFloor) return;
+    const floorScale = 1 + (currentTowerFloor.floorNumber - 1) * 0.08; // gradual climb-wide scaling
+    for (let i = 0; i < currentTowerFloor.enemyCount; i++){
+      const type = Math.random() < 0.5 ? "knight" : "wizard";
+      const stats = ENEMY_STATS[type];
+      const x = 150 + Math.random() * Math.max(50, currentTowerFloor.worldWidth - 300);
+      enemies.push({
+        type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        hp: Math.round(stats.hp * floorScale), maxHp: Math.round(stats.hp * floorScale),
+        scaledDamage: Math.round(stats.damage * floorScale) * difficultyMultiplier(),
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      });
+    }
+  }
+
+  function sailToTower(){
+    currentMap = "tower";
+    currentTowerFloor = generateTowerFloor(1, null);
+    player.x = 60;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    spawnTowerFloorEnemies();
+    if (DEBUG) console.log("[WvW] entered the Tower, floor 1 (" + currentTowerFloor.biomeId + ")");
+  }
+
+  function updateTowerProgress(){
+    if (currentMap !== "tower" || !currentTowerFloor || currentTowerFloor.cleared) return;
+    if (enemies.filter(en => en.hp > 0).length === 0) currentTowerFloor.cleared = true;
+  }
+
+  function advanceTowerFloor(){
+    if (!currentTowerFloor || !currentTowerFloor.cleared) return;
+    const nextFloorNumber = currentTowerFloor.floorNumber + 1;
+    if (nextFloorNumber > TOWER_TOTAL_FLOORS){
+      // Floor 20's boss and the Summit Chest are a later phase's scope —
+      // for now, a cleared floor 20 is simply a dead end.
+      return;
+    }
+    const prevBiomeId = currentTowerFloor.biomeId;
+    currentTowerFloor = generateTowerFloor(nextFloorNumber, prevBiomeId);
+    player.towerHighestFloor = Math.max(player.towerHighestFloor, nextFloorNumber);
+    player.x = 60;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    spawnTowerFloorEnemies();
+    saveProgress();
+    if (DEBUG) console.log("[WvW] advanced to Tower floor " + nextFloorNumber + " (" + currentTowerFloor.biomeId + ")");
+  }
+
+  function leaveTower(){
+    currentMap = "home";
+    currentTowerFloor = null;
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    clearEntities();
+    if (DEBUG) console.log("[WvW] left the Tower");
+  }
+
   function sailToGeneratedLand(landNumber){
     loadGeneratedLand(landNumber);
     currentMap = "generated";
@@ -535,6 +625,7 @@
     if (currentMap === "land2") return LAND2_WORLD_WIDTH;
     if (currentMap === "homebase") return HOMEBASE_WORLD_WIDTH;
     if (currentMap === "generated") return currentGeneratedLandLayout ? currentGeneratedLandLayout.worldWidth : 0;
+    if (currentMap === "tower") return currentTowerFloor ? currentTowerFloor.worldWidth : 0;
     return WORLD_WIDTH;
   }
   function getChests(){
@@ -542,6 +633,7 @@
     if (currentMap === "land2") return CHESTS_LAND2;
     if (currentMap === "homebase") return CHESTS_HOMEBASE;
     if (currentMap === "generated") return [];
+    if (currentMap === "tower") return [];
     return CHESTS_HOME;
   }
   function getWalkupAltars(){
@@ -551,12 +643,21 @@
     if (currentMap === "generated") return currentGeneratedLandLayout
       ? [{ x: currentGeneratedLandLayout.dockX + 40, w: 40, h: 40, action: "map" }]
       : [];
+    if (currentMap === "tower") return [{ x: 20, w: 40, h: 40, action: "leaveTower" }];
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
     if (currentMap === "land1") return CLIMB_POINTS_LAND1;
     if (currentMap === "land2") return CLIMB_POINTS_LAND2;
     if (currentMap === "homebase") return CLIMB_POINTS_HOMEBASE;
+    if (currentMap === "tower"){
+      // The ladder only becomes a real climb point once the floor is
+      // cleared — it's always drawn, but non-functional until then,
+      // which communicates "the way up is blocked" without a separate
+      // visual state.
+      if (!currentTowerFloor || !currentTowerFloor.cleared) return [];
+      return [{ x: towerLadderX(), halfWidth: 16, topY: GROUND_Y - 150, zone: "any", action: "towerLadder" }];
+    }
     if (currentMap === "generated"){
       // The zone check is deliberately bypassed here ("any") — each
       // climb point's own tight x + halfWidth range already guarantees
@@ -904,6 +1005,12 @@
   let walterName, walterPassword, walterGuestMode, loadedProgress, loginComplete;
   let currentMap; // "home" | "land1" | "land2" | "homebase" | "generated"
   let currentGeneratedLandLayout = null; // { land, zones, worldWidth, dockX } — rebuilt whenever a generated land is entered
+  let currentTowerFloor = null; // { floorNumber, biomeId, ladderSide, worldWidth, cleared, enemyCount } — rebuilt each floor
+  const TOWER_BIOMES = ["library", "study", "lounge", "potionLab", "prison"];
+  const TOWER_TOTAL_FLOORS = 20;
+  const TOWER_BIOME_COLORS = {
+    library: "#5A4530", study: "#5A2A2E", lounge: "#4A3560", potionLab: "#2A5A4A", prison: "#3A3A3E"
+  };
   let lastGeneratedLandBiomeIds = []; // whichever biomes were visited last, so a fresh re-roll doesn't immediately repeat them
 
   /* ---------------- helpers ---------------- */
@@ -915,6 +1022,7 @@
   }
 
   function currentZone(x){
+    if (currentMap === "tower") return "towerFloor";
     if (currentMap === "land1"){
       if (x < LAND1_DOCK_END) return "dock";
       if (x < LAND1_GRASS_END) return "grass";
@@ -1444,7 +1552,8 @@
         maxHp: c.maxHp !== undefined ? c.maxHp : null
       })),
       worldProgress: {
-        highestUnlockedLand: player.highestUnlockedLand
+        highestUnlockedLand: player.highestUnlockedLand,
+        towerHighestFloor: player.towerHighestFloor || 0
       },
       elementalComboStates: {}, // Phase 8c
       flags: {
@@ -1508,7 +1617,8 @@
         role: "soldier", hp: null, maxHp: null
       })),
       worldProgress: {
-        highestUnlockedLand: legacy.highestUnlockedLand || 2
+        highestUnlockedLand: legacy.highestUnlockedLand || 2,
+        towerHighestFloor: 0
       },
       elementalComboStates: {},
       flags: {
@@ -1734,6 +1844,7 @@
     const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
     player.nextCrewId = maxLoadedCrewId + 1;
     player.highestUnlockedLand = s.worldProgress.highestUnlockedLand;
+    player.towerHighestFloor = s.worldProgress.towerHighestFloor || 0;
     if (player.crewHired){
       const spawn = spawnPoint();
       player.x = spawn.x;
@@ -1818,6 +1929,7 @@
     player.nextVillagerId += VILLAGER_COUNT;
     // worldSeed is no longer generated/persisted per player — lands re-roll per visit now.
     player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
+    player.towerHighestFloor = 0; // 0 = never entered the Tower; each climb starts fresh from floor 1 regardless
     activeSpell = null; // null = sword
     meleeCooldown = 0;
     respawnMessageTimer = 0;
@@ -1890,6 +2002,7 @@
     updateMana();
     updatePassiveIncome();
     updateVillagers();
+    updateTowerProgress();
     updateVillagerProximity();
     updateCrewTimers();
     updateBlacksmithJob();
@@ -2672,6 +2785,7 @@
 
   function updateWaveSpawning(){
     if (currentMap === "generated"){ updateGeneratedWaveSpawning(); return; }
+    if (currentMap === "tower") return; // fixed per-floor enemy count, spawned once on entry — not a continuous wave
     const zone = currentZone(player.x);
     if (PEACEFUL_ZONES.includes(zone)) return;
 
@@ -3409,6 +3523,8 @@
     else if (action === "training" && !trainingUiOpen) openTrainingUi();
     else if (action === "graveyard" && !graveyardUiOpen) openGraveyardUi();
     else if (action === "land1Tower") openLand1Tower();
+    else if (action === "leaveTower") leaveTower();
+    else if (action === "towerLadder") advanceTowerFloor();
   }
 
   /* ---------------- draw ---------------- */
@@ -3437,6 +3553,8 @@
       drawGeneratedDock();
       drawGeneratedBiomeDecorations();
       drawGeneratedBossArena();
+    }else if (currentMap === "tower"){
+      drawTowerFloor();
     }else{
       drawWater();
       drawCastleWalls();
@@ -3494,6 +3612,8 @@
           : z.type === "bossArena" ? COLORS.bossArenaSky
           : (GENERATED_BIOME_SKY_COLORS[z.id] || COLORS.skyGrasslandsGen)
       }));
+    }else if (currentMap === "tower" && currentTowerFloor){
+      bands = [{ from: 0, to: currentTowerFloor.worldWidth, color: TOWER_BIOME_COLORS[currentTowerFloor.biomeId] || COLORS.skyWall }];
     }else{
       bands = [
         { from: 0, to: TOWER_END, color: COLORS.skyTower },
@@ -3625,6 +3745,68 @@
   function drawHomebaseDock(){ drawDockAt(HOMEBASE_DOCK_X); }
   function drawGeneratedDock(){
     if (currentGeneratedLandLayout) drawDockAt(currentGeneratedLandLayout.dockX);
+  }
+
+  function drawTowerFloor(){
+    if (!currentTowerFloor) return;
+    const ladderX = worldToScreen(towerLadderX());
+    if (ladderX > -30 && ladderX < CANVAS_W + 30){
+      const cleared = currentTowerFloor.cleared;
+      ctx.strokeStyle = cleared ? "#8B5A2B" : "#4A4A4A"; // brown once climbable, dull grey while locked
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(ladderX - 8, GROUND_Y); ctx.lineTo(ladderX - 8, GROUND_Y - 150);
+      ctx.moveTo(ladderX + 8, GROUND_Y); ctx.lineTo(ladderX + 8, GROUND_Y - 150);
+      for (let ly = GROUND_Y - 12; ly > GROUND_Y - 150; ly -= 18){
+        ctx.moveTo(ladderX - 8, ly); ctx.lineTo(ladderX + 8, ly);
+      }
+      ctx.stroke();
+      if (!cleared){
+        ctx.fillStyle = COLORS.hud;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("clear the floor", ladderX, GROUND_Y - 158);
+      }
+    }
+
+    // Simple, repeated per-biome props — same "step across the floor
+    // width" pattern already used for treehouse trunks and desert shards.
+    const biomeId = currentTowerFloor.biomeId;
+    for (let wx = 100; wx < currentTowerFloor.worldWidth - 60; wx += 160){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+      if (biomeId === "library"){
+        ctx.fillStyle = "#3E2F1C";
+        ctx.fillRect(sx, GROUND_Y - 70, 30, 70);
+        ctx.fillStyle = "#8B6B4A";
+        for (let by = GROUND_Y - 62; by < GROUND_Y - 8; by += 16) ctx.fillRect(sx + 3, by, 24, 4);
+      }else if (biomeId === "study"){
+        ctx.fillStyle = "#3E2020";
+        ctx.fillRect(sx, GROUND_Y - 28, 40, 28);
+        ctx.fillStyle = "#1E1010";
+        ctx.fillRect(sx + 4, GROUND_Y - 22, 32, 4);
+      }else if (biomeId === "lounge"){
+        ctx.fillStyle = "#6B4E8A";
+        ctx.fillRect(sx, GROUND_Y - 24, 44, 24);
+        ctx.fillStyle = "#8B6EA8";
+        ctx.fillRect(sx, GROUND_Y - 32, 10, 12);
+        ctx.fillRect(sx + 34, GROUND_Y - 32, 10, 12);
+      }else if (biomeId === "potionLab"){
+        ctx.fillStyle = "#1E4A3A";
+        ctx.beginPath(); ctx.arc(sx + 8, GROUND_Y - 8, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillRect(sx + 5, GROUND_Y - 24, 6, 16);
+        ctx.fillStyle = "#5FD4A8";
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(frame * 0.1);
+        ctx.beginPath(); ctx.arc(sx + 8, GROUND_Y - 10, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }else if (biomeId === "prison"){
+        ctx.strokeStyle = "#8A8A8A";
+        ctx.lineWidth = 3;
+        for (let bx = 0; bx < 30; bx += 8){
+          ctx.beginPath(); ctx.moveTo(sx + bx, GROUND_Y); ctx.lineTo(sx + bx, GROUND_Y - 60); ctx.stroke();
+        }
+      }
+    }
   }
 
   function drawGeneratedBossArena(){
@@ -6223,6 +6405,9 @@
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-homebase-btn">Home Village</button>
         </div>
+        <div style="margin-top:10px;">
+          <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
+        </div>
       `;
     }
 
@@ -6296,6 +6481,12 @@
     const sailHomebaseBtn = document.getElementById("wvw-sail-homebase-btn");
     if (sailHomebaseBtn) sailHomebaseBtn.addEventListener("click", () => {
       sailToHomebase();
+      closeMap();
+    });
+
+    const sailTowerBtn = document.getElementById("wvw-sail-tower-btn");
+    if (sailTowerBtn) sailTowerBtn.addEventListener("click", () => {
+      sailToTower();
       closeMap();
     });
 
