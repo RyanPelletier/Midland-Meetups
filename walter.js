@@ -2373,7 +2373,16 @@
     enemies.forEach(en => {
       if (en.hp > 0 && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
         damageEnemy(en, MELEE_DAMAGE);
-        if (en.hp <= 0) return;
+        // Imbue effects still apply even if this hit was lethal — the arc
+        // in particular reaches OTHER nearby enemies regardless of
+        // whether this specific target survived, and damageEnemy() is
+        // safe to call again on an already-dead enemy (kill rewards are
+        // gated behind a one-time flag). Previously this whole block was
+        // skipped outright whenever the base 30 damage killed the
+        // target, which is nearly always true for common enemies —
+        // Knight (30hp), Archer (22hp), and Wizard (26hp) all die to the
+        // base swing alone, so the imbue would silently never trigger
+        // against the enemies the player fights most often.
         if (sword && sword.type === "sotgk" && imbues.length >= 2){
           applySOTGKCombo(en);
         }else if (imbues.length === 1){
@@ -3020,6 +3029,11 @@
           damageEnemy(en, dmg);
           p.hit = true;
           if (p.type === "fireball") triggerFireSplash(p.x, p.y);
+          else if (p.type === "demonBolt") en.burningFrames = Math.max(en.burningFrames || 0, 90);
+          else if (p.type === "angelBolt"){
+            en.burningFrames = Math.max(en.burningFrames || 0, 90);
+            en.whiteBurn = true; // holy fire — same white-burn visual the SOTGK's Lightning+Fire combo already uses
+          }
         }
       });
     });
@@ -5176,6 +5190,22 @@
     ctx.globalAlpha = 1;
   }
 
+  // A small jagged lightning-bolt shape, shared by Demon (red) and
+  // Angel (white) — same silhouette, different color, matching the
+  // "red lightning" / "white lightning" distinction between the two.
+  function drawLightningZigzag(x, y, color){
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y - 6);
+    ctx.lineTo(x - 1, y - 1);
+    ctx.lineTo(x - 4, y + 1);
+    ctx.lineTo(x + 2, y + 6);
+    ctx.lineTo(x - 1, y);
+    ctx.lineTo(x + 5, y - 3);
+    ctx.stroke();
+  }
+
   function drawProjectile(p){
     const x = worldToScreen(p.x);
     if (p.type === "fireball"){
@@ -5192,15 +5222,9 @@
       ctx.lineTo(x + 10, p.y);
       ctx.stroke();
     }else if (p.type === "demonBolt"){
-      ctx.fillStyle = COLORS.demonBody;
-      ctx.beginPath(); ctx.arc(x, p.y, 5, 0, Math.PI*2); ctx.fill();
+      drawLightningZigzag(x, p.y, COLORS.demonBody);
     }else if (p.type === "angelBolt"){
-      ctx.strokeStyle = COLORS.angelBody;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x - 6, p.y - 4); ctx.lineTo(x, p.y); ctx.lineTo(x - 6, p.y + 4);
-      ctx.moveTo(x, p.y); ctx.lineTo(x + 6, p.y);
-      ctx.stroke();
+      drawLightningZigzag(x, p.y, COLORS.angelBody);
     }else if (p.type === "arrow"){
       ctx.strokeStyle = COLORS.arrow;
       ctx.lineWidth = 3;
