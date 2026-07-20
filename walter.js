@@ -2343,7 +2343,7 @@
           damageEnemy(en, IMBUE_BONUS_DAMAGE);
           if (el === "fire") en.burningFrames = Math.max(en.burningFrames || 0, 90);
           else if (el === "freeze") en.frozenFrames = Math.max(en.frozenFrames || 0, 45);
-          else if (el === "lightning") fireSwordArc(1, IMBUE_BONUS_DAMAGE);
+          else if (el === "lightning") fireSwordArc(SOTGK_COMBO_ARC_TARGETS, IMBUE_BONUS_DAMAGE);
         }
       }
     });
