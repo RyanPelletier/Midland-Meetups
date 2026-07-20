@@ -535,11 +535,15 @@
     return currentTowerFloor.ladderSide === "right" ? currentTowerFloor.worldWidth - 60 : 60;
   }
 
+  const TOWER_WIZARD_TIERS = ["wizardBlack", "wizardRed"]; // "hard-coded to Level 3 or 4" — the two toughest wizard tiers, bypassing the normal kill-count unlock
+  const TOWER_CAGE_HP = 20;
+
   function spawnTowerFloorEnemies(){
     if (!currentTowerFloor) return;
     const floorScale = 1 + (currentTowerFloor.floorNumber - 1) * 0.08; // gradual climb-wide scaling
     for (let i = 0; i < currentTowerFloor.enemyCount; i++){
-      const type = Math.random() < 0.5 ? "knight" : "wizard";
+      const isWizard = Math.random() < 0.5;
+      const type = isWizard ? TOWER_WIZARD_TIERS[Math.floor(Math.random() * TOWER_WIZARD_TIERS.length)] : "knight";
       const stats = ENEMY_STATS[type];
       const x = 150 + Math.random() * Math.max(50, currentTowerFloor.worldWidth - 300);
       enemies.push({
@@ -548,6 +552,18 @@
         scaledDamage: Math.round(stats.damage * floorScale) * difficultyMultiplier(),
         attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
       });
+    }
+    if (currentTowerFloor.biomeId === "prison"){
+      const cageCount = 1 + Math.floor(Math.random() * 2); // 1-2 per Prison floor
+      for (let i = 0; i < cageCount; i++){
+        const x = 150 + Math.random() * Math.max(50, currentTowerFloor.worldWidth - 300);
+        enemies.push({
+          isCage: true, type: "cage", x, y: GROUND_Y - 40, w: 30, h: 40,
+          hp: TOWER_CAGE_HP, maxHp: TOWER_CAGE_HP, scaledDamage: 0,
+          attackCooldown: 999999, frozenFrames: 0, burningFrames: 0, counted: false,
+          cagedStrength: VILLAGER_STRENGTH_MIN + Math.floor(Math.random() * (VILLAGER_STRENGTH_MAX - VILLAGER_STRENGTH_MIN + 1))
+        });
+      }
     }
   }
 
@@ -564,7 +580,7 @@
 
   function updateTowerProgress(){
     if (currentMap !== "tower" || !currentTowerFloor || currentTowerFloor.cleared) return;
-    if (enemies.filter(en => en.hp > 0).length === 0) currentTowerFloor.cleared = true;
+    if (enemies.filter(en => en.hp > 0 && !en.isCage).length === 0) currentTowerFloor.cleared = true;
   }
 
   function advanceTowerFloor(){
@@ -2588,6 +2604,13 @@
       enemies.forEach(en => {
         const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
         if (Math.sqrt(dx*dx + dy*dy) < cfg.radius){
+          if (en.isCage){
+            // A stationary cage doesn't benefit from "frozen" crowd
+            // control — the roadmap frames Freeze as an alternate way to
+            // break it outright, same end result as melee/spell damage.
+            if (en.hp > 0) damageEnemy(en, en.hp);
+            return;
+          }
           en.frozenFrames = cfg.duration;
           // Elemental combo: Freeze extinguishes an active burn, per the roadmap's combo table.
           if (en.burningFrames > 0){ en.burningFrames = 0; en.whiteBurn = false; }
@@ -2632,11 +2655,29 @@
     if (DEBUG) console.log("[WvW] cast " + key);
   }
 
+  // Breaking a cage grants a free, already-idle crew member — no
+  // recruit cost, no training wait, unlike the normal village pipeline.
+  // That's a deliberate reward for clearing a Prison floor, per the
+  // roadmap's own framing ("recruits them directly... for free").
+  function freeCagedVillager(cage){
+    const c = { id: "c" + player.nextCrewId, strength: cage.cagedStrength, status: "idle", spellsKnown: [] };
+    player.crew.push(c);
+    player.nextCrewId++;
+    respawnMessageText = "Freed a caged villager — joined your crew for free!";
+    respawnMessageTimer = 180;
+    if (DEBUG) console.log("[WvW] freed a caged villager: " + c.id + " (strength " + c.strength + ")");
+    saveProgress();
+  }
+
   function damageEnemy(en, amount){
     if (en.burrowed) return; // sand worms take no damage while burrowed
     en.hp -= amount;
     if (en.hp <= 0 && !en.counted){
       en.counted = true;
+      if (en.isCage){
+        freeCagedVillager(en);
+        return;
+      }
       totalKills++;
       if (ENEMY_STATS[en.type].dropsCrystal){
         player.carriedCrystals += CRYSTAL_PER_WIZARD;
@@ -2890,6 +2931,7 @@
   function updateEnemies(){
     enemies.forEach(en => {
       if (en.hp <= 0) return;
+      if (en.isCage) return; // stationary, passive — no AI, no status effects, just HP to break through
       if (en.frozenFrames > 0){ en.frozenFrames--; return; }
 
       if (en.burningFrames > 0){
@@ -4963,6 +5005,29 @@
     if (en.hp <= 0) return;
     const x = worldToScreen(en.x);
     if (x < -40 || x > CANVAS_W + 40) return;
+
+    if (en.type === "cage"){
+      const w = en.w, h = en.h, y = en.y;
+      // caged villager silhouette, behind the bars
+      ctx.fillStyle = COLORS.playerLeather;
+      ctx.beginPath(); ctx.arc(x + w/2, y + 8, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(x + w/2 - 5, y + 14, 10, h - 20);
+      // bars — same style already used for the Prison biome's decoration
+      ctx.strokeStyle = "#8A8A8A";
+      ctx.lineWidth = 3;
+      for (let bx = 2; bx < w; bx += 8){
+        ctx.beginPath(); ctx.moveTo(x + bx, y); ctx.lineTo(x + bx, y + h); ctx.stroke();
+      }
+      // cracks appear as the cage takes damage, telegraphing it's close to breaking
+      if (en.hp < en.maxHp * 0.5){
+        ctx.strokeStyle = "#4A4A4A";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 4, y + 6); ctx.lineTo(x + w - 6, y + h - 8);
+        ctx.stroke();
+      }
+      return;
+    }
 
     if (en.type === "knight"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
