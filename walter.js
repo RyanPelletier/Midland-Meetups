@@ -624,6 +624,104 @@
     saveProgress();
   }
 
+  // Same shape as generateTowerFloor, adapted per this phase's confirmed
+  // design: each room gets ONE randomly-chosen exit type (not a
+  // deterministic alternation like the Tower's ladder side), since that
+  // was the explicit call made before building this.
+  function generateDungeonRoom(roomNumber, prevBiomeId){
+    let biomeId = DUNGEON_BIOMES[Math.floor(Math.random() * DUNGEON_BIOMES.length)];
+    let attempts = 0;
+    while (biomeId === prevBiomeId && attempts < 10){
+      biomeId = DUNGEON_BIOMES[Math.floor(Math.random() * DUNGEON_BIOMES.length)];
+      attempts++;
+    }
+    const exitType = Math.random() < 0.5 ? "gate" : "trapdoor";
+    const worldWidth = 700 + Math.floor(Math.random() * 200);
+    const enemyCount = Math.min(8, 3 + Math.floor((roomNumber - 1) / 4));
+    return { roomNumber, biomeId, exitType, worldWidth, cleared: false, enemyCount, chestClaimed: false };
+  }
+
+  function dungeonExitX(){
+    if (!currentDungeonRoom) return 0;
+    return currentDungeonRoom.worldWidth - 60;
+  }
+
+  // Placeholder enemy pool for this phase — Cultist and Drake (the
+  // spec's actual dungeon enemies) are a separate phase's scope. Reusing
+  // Knight/Wizard here lets the room-progression system be fully built
+  // and tested now rather than blocking on enemies that don't exist yet,
+  // the same incremental approach the Tower itself used originally.
+  function spawnDungeonRoomEnemies(){
+    if (!currentDungeonRoom) return;
+    const roomScale = 1 + (currentDungeonRoom.roomNumber - 1) * 0.08;
+    for (let i = 0; i < currentDungeonRoom.enemyCount; i++){
+      const type = Math.random() < 0.5 ? "knight" : "wizard";
+      const stats = ENEMY_STATS[type];
+      const x = 150 + Math.random() * Math.max(50, currentDungeonRoom.worldWidth - 300);
+      enemies.push({
+        type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        hp: Math.round(stats.hp * roomScale), maxHp: Math.round(stats.hp * roomScale),
+        scaledDamage: Math.round(stats.damage * roomScale) * difficultyMultiplier(),
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      });
+    }
+  }
+
+  function sailToDungeon(){
+    currentMap = "dungeon";
+    currentDungeonRoom = generateDungeonRoom(1, null);
+    player.x = 60;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    spawnDungeonRoomEnemies();
+    if (DEBUG) console.log("[WvW] entered the Dungeon, room 1 (" + currentDungeonRoom.biomeId + ", " + currentDungeonRoom.exitType + ")");
+  }
+
+  function updateDungeonProgress(){
+    if (currentMap !== "dungeon" || !currentDungeonRoom || currentDungeonRoom.cleared) return;
+    if (enemies.filter(en => en.hp > 0 && !en.isCage).length === 0){
+      currentDungeonRoom.cleared = true;
+      // A small silver hoard per cleared room (Layer 3 loot per the
+      // spec), separate from the larger reward at the very end.
+      const hoard = 20 + Math.floor(Math.random() * 30) + currentDungeonRoom.roomNumber * 2;
+      player.silver += hoard;
+      respawnMessageText = "Silver hoard: +" + hoard;
+      respawnMessageTimer = 120;
+    }
+  }
+
+  function advanceDungeonRoom(){
+    if (!currentDungeonRoom || !currentDungeonRoom.cleared) return;
+    const nextRoomNumber = currentDungeonRoom.roomNumber + 1;
+    if (nextRoomNumber > DUNGEON_TOTAL_ROOMS){
+      // Mother Dragon and the final reward are a later phase's scope —
+      // for now, a cleared final room is simply a dead end.
+      return;
+    }
+    const prevBiomeId = currentDungeonRoom.biomeId;
+    currentDungeonRoom = generateDungeonRoom(nextRoomNumber, prevBiomeId);
+    player.dungeonHighestRoom = Math.max(player.dungeonHighestRoom, nextRoomNumber);
+    player.x = 60;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    spawnDungeonRoomEnemies();
+    saveProgress();
+    if (DEBUG) console.log("[WvW] advanced to Dungeon room " + nextRoomNumber + " (" + currentDungeonRoom.biomeId + ", " + currentDungeonRoom.exitType + ")");
+  }
+
+  function leaveDungeon(){
+    currentMap = "home";
+    currentDungeonRoom = null;
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    clearEntities();
+    if (DEBUG) console.log("[WvW] left the Dungeon");
+  }
+
   function leaveTower(){
     currentMap = "home";
     currentTowerFloor = null;
@@ -663,6 +761,7 @@
     if (currentMap === "homebase") return HOMEBASE_WORLD_WIDTH;
     if (currentMap === "generated") return currentGeneratedLandLayout ? currentGeneratedLandLayout.worldWidth : 0;
     if (currentMap === "tower") return currentTowerFloor ? currentTowerFloor.worldWidth : 0;
+    if (currentMap === "dungeon") return currentDungeonRoom ? currentDungeonRoom.worldWidth : 0;
     return WORLD_WIDTH;
   }
   function getChests(){
@@ -671,6 +770,7 @@
     if (currentMap === "homebase") return CHESTS_HOMEBASE;
     if (currentMap === "generated") return [];
     if (currentMap === "tower") return [];
+    if (currentMap === "dungeon") return [];
     return CHESTS_HOME;
   }
   function getWalkupAltars(){
@@ -684,6 +784,16 @@
       const altars = [{ x: 20, w: 40, h: 40, action: "leaveTower" }];
       if (currentTowerFloor && currentTowerFloor.floorNumber === TOWER_TOTAL_FLOORS && currentTowerFloor.cleared && !currentTowerFloor.chestClaimed){
         altars.push({ x: currentTowerFloor.worldWidth - 60, w: 40, h: 40, action: "summitChest" });
+      }
+      return altars;
+    }
+    if (currentMap === "dungeon"){
+      const altars = [{ x: 20, w: 40, h: 40, action: "leaveDungeon" }];
+      // The exit (Gate or Trap Door) is a simple walkup interaction, same
+      // as the Tower's ladder-top Q-press — it just isn't present as an
+      // interactable point at all until the room is cleared.
+      if (currentDungeonRoom && currentDungeonRoom.cleared){
+        altars.push({ x: dungeonExitX(), w: 40, h: 40, action: "dungeonExit" });
       }
       return altars;
     }
@@ -774,7 +884,7 @@
   const ENEMY_STATS = {
     knight:  { hp: 30, speed: 1.4, damage: 8,  attackCooldown: 50, contactRange: 30, w: 26, h: 40, dropsSilver: true },
     archer:  { hp: 22, speed: 1.1, damage: 10, attackCooldown: 80, preferredRange: 220, projectileSpeed: 6,   w: 24, h: 38, dropsSilver: true },
-    wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true },
+    wizard:  { hp: 26, speed: 1.0, damage: 14, attackCooldown: 90, preferredRange: 260, projectileSpeed: 6.5, w: 26, h: 40, dropsCrystal: true, dropsSilver: true },
     // 3x a knight's size, 6x a knight's HP (30 HP / 26x40 taken as the
     // "regular enemy" baseline). Damage is 0 — the laser doesn't deal a
     // direct hit, the burn it sets is the entire attack.
@@ -1053,6 +1163,10 @@
   let currentTowerFloor = null; // { floorNumber, biomeId, ladderSide, worldWidth, cleared, enemyCount } — rebuilt each floor
   const TOWER_BIOMES = ["library", "study", "lounge", "potionLab", "prison"];
   const TOWER_TOTAL_FLOORS = 20;
+  let currentDungeonRoom = null; // { roomNumber, biomeId, exitType, worldWidth, cleared, enemyCount, chestClaimed }
+  const DUNGEON_BIOMES = ["stalagmites", "stalactites", "crystalMine", "silverMine"];
+  const DUNGEON_TOTAL_ROOMS = 20;
+  const DUNGEON_ROOM_COLOR = "#0C0D10"; // Layer 0 base fill, per spec — same for every biome, only props differ
   const TOWER_BIOME_COLORS = {
     library: "#5A4530", study: "#5A2A2E", lounge: "#4A3560", potionLab: "#2A5A4A", prison: "#3A3A3E"
   };
@@ -1068,6 +1182,7 @@
 
   function currentZone(x){
     if (currentMap === "tower") return "towerFloor";
+    if (currentMap === "dungeon") return "dungeonRoom";
     if (currentMap === "land1"){
       if (x < LAND1_DOCK_END) return "dock";
       if (x < LAND1_GRASS_END) return "grass";
@@ -1625,7 +1740,8 @@
       })),
       worldProgress: {
         highestUnlockedLand: player.highestUnlockedLand,
-        towerHighestFloor: player.towerHighestFloor || 0
+        towerHighestFloor: player.towerHighestFloor || 0,
+        dungeonHighestRoom: player.dungeonHighestRoom || 0
       },
       elementalComboStates: {}, // Phase 8c
       flags: {
@@ -1690,7 +1806,8 @@
       })),
       worldProgress: {
         highestUnlockedLand: legacy.highestUnlockedLand || 2,
-        towerHighestFloor: 0
+        towerHighestFloor: 0,
+        dungeonHighestRoom: 0
       },
       elementalComboStates: {},
       flags: {
@@ -1917,6 +2034,7 @@
     player.nextCrewId = maxLoadedCrewId + 1;
     player.highestUnlockedLand = s.worldProgress.highestUnlockedLand;
     player.towerHighestFloor = s.worldProgress.towerHighestFloor || 0;
+    player.dungeonHighestRoom = s.worldProgress.dungeonHighestRoom || 0;
     if (player.crewHired){
       const spawn = spawnPoint();
       player.x = spawn.x;
@@ -2002,6 +2120,7 @@
     // worldSeed is no longer generated/persisted per player — lands re-roll per visit now.
     player.highestUnlockedLand = 2; // lands 1-2 are hand-built and always available; 3+ unlock progressively
     player.towerHighestFloor = 0; // 0 = never entered the Tower; each climb starts fresh from floor 1 regardless
+    player.dungeonHighestRoom = 0; // same pattern as the Tower — each run starts fresh from room 1
     activeSpell = null; // null = sword
     meleeCooldown = 0;
     respawnMessageTimer = 0;
@@ -2077,6 +2196,7 @@
     updateVillagers();
     updateTowerProgress();
     updateCageProximity();
+    updateDungeonProgress();
     updateVillagerProximity();
     updateCrewTimers();
     updateBlacksmithJob();
@@ -2749,11 +2869,11 @@
       totalKills++;
       if (ENEMY_STATS[en.type].dropsCrystal){
         player.carriedCrystals += CRYSTAL_PER_WIZARD;
-        if (DEBUG) console.log("[WvW] wizard defeated, crystal carried=" + player.carriedCrystals);
+        if (DEBUG) console.log("[WvW] " + en.type + " defeated, crystal carried=" + player.carriedCrystals);
       }
       if (ENEMY_STATS[en.type].dropsSilver){
         player.silver += SILVER_PER_KNIGHT;
-        if (DEBUG) console.log("[WvW] knight defeated, silver=" + player.silver);
+        if (DEBUG) console.log("[WvW] " + en.type + " defeated, silver=" + player.silver);
       }
       if (en.type === "cyclops" && !player.amuletsOwned.has("cyclopsEye")){
         player.amuletsOwned.add("cyclopsEye");
@@ -2896,6 +3016,7 @@
   function updateWaveSpawning(){
     if (currentMap === "generated"){ updateGeneratedWaveSpawning(); return; }
     if (currentMap === "tower") return; // fixed per-floor enemy count, spawned once on entry — not a continuous wave
+    if (currentMap === "dungeon") return; // same fixed-per-room pattern as the Tower
     const zone = currentZone(player.x);
     if (PEACEFUL_ZONES.includes(zone)) return;
 
@@ -3676,6 +3797,8 @@
     else if (action === "leaveTower") leaveTower();
     else if (action === "towerLadder") advanceTowerFloor();
     else if (action === "summitChest") openSummitChest();
+    else if (action === "leaveDungeon") leaveDungeon();
+    else if (action === "dungeonExit") advanceDungeonRoom();
   }
 
   /* ---------------- draw ---------------- */
@@ -3706,6 +3829,8 @@
       drawGeneratedBossArena();
     }else if (currentMap === "tower"){
       drawTowerFloor();
+    }else if (currentMap === "dungeon"){
+      drawDungeonRoom();
     }else{
       drawWater();
       drawCastleWalls();
@@ -3765,6 +3890,8 @@
       }));
     }else if (currentMap === "tower" && currentTowerFloor){
       bands = [{ from: 0, to: currentTowerFloor.worldWidth, color: TOWER_BIOME_COLORS[currentTowerFloor.biomeId] || COLORS.skyWall }];
+    }else if (currentMap === "dungeon" && currentDungeonRoom){
+      bands = [{ from: 0, to: currentDungeonRoom.worldWidth, color: DUNGEON_ROOM_COLOR }];
     }else{
       bands = [
         { from: 0, to: TOWER_END, color: COLORS.skyTower },
@@ -3896,6 +4023,69 @@
   function drawHomebaseDock(){ drawDockAt(HOMEBASE_DOCK_X); }
   function drawGeneratedDock(){
     if (currentGeneratedLandLayout) drawDockAt(currentGeneratedLandLayout.dockX);
+  }
+
+  // Layer 1 (biome structural props — stalagmites, crystal clusters,
+  // rail tracks, etc.) is intentionally not drawn here yet — that's the
+  // piece being handled via dungeon_biome_handoff.txt. Once that comes
+  // back, drawStalagmitesZone/drawStalactitesZone/drawCrystalMineZone/
+  // drawSilverMineZone get dispatched here by currentDungeonRoom.biomeId,
+  // the same way drawTowerFloor dispatches its own per-biome decoration.
+  function drawDungeonRoom(){
+    if (!currentDungeonRoom) return;
+    const exitX = worldToScreen(dungeonExitX());
+    if (exitX < -40 || exitX > CANVAS_W + 40) return;
+    const cleared = currentDungeonRoom.cleared;
+
+    if (currentDungeonRoom.exitType === "gate"){
+      // vertical iron bars
+      ctx.strokeStyle = "#2A2E33";
+      ctx.lineWidth = 5;
+      for (let bx = -14; bx <= 14; bx += 7){
+        ctx.beginPath();
+        if (cleared){
+          // swung open — bars angled outward instead of a flat row
+          ctx.moveTo(exitX + bx, GROUND_Y);
+          ctx.lineTo(exitX + bx + (bx > 0 ? 10 : -10), GROUND_Y - 96);
+        }else{
+          ctx.moveTo(exitX + bx, GROUND_Y);
+          ctx.lineTo(exitX + bx, GROUND_Y - 96);
+        }
+        ctx.stroke();
+      }
+      if (!cleared){
+        ctx.fillStyle = "#D4AF37";
+        ctx.beginPath(); ctx.arc(exitX, GROUND_Y - 48, 7, 0, Math.PI * 2); ctx.fill();
+      }
+    }else{
+      // trap door — floor-mounted hatch
+      ctx.fillStyle = "#3D2314";
+      if (cleared){
+        // swung upward, revealing a dark opening beneath
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(exitX - 32, GROUND_Y - 4, 64, 24);
+        ctx.fillStyle = "#3D2314";
+        ctx.save();
+        ctx.translate(exitX - 32, GROUND_Y - 4);
+        ctx.rotate(-Math.PI / 2.2);
+        ctx.fillRect(0, -24, 64, 24);
+        ctx.restore();
+      }else{
+        ctx.fillRect(exitX - 32, GROUND_Y - 24, 64, 24);
+        ctx.strokeStyle = "#4A525A";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(exitX - 32, GROUND_Y - 24, 64, 24);
+        ctx.fillStyle = "#8A929B";
+        ctx.beginPath(); ctx.arc(exitX, GROUND_Y - 12, 4, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    if (!cleared){
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 10px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("clear the room", exitX, GROUND_Y - 110);
+    }
   }
 
   function drawTowerFloor(){
@@ -6631,7 +6821,7 @@
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
-          <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons (New)</button>
+          <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons${player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : ""}</button>
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
@@ -6723,10 +6913,8 @@
 
     const dungeonsBtn = document.getElementById("wvw-dungeons-btn");
     if (dungeonsBtn) dungeonsBtn.addEventListener("click", () => {
-      // Placeholder only — no Dungeons system exists yet. Gives clear
-      // feedback rather than silently doing nothing when clicked.
-      dungeonsBtn.textContent = "Coming soon!";
-      dungeonsBtn.disabled = true;
+      sailToDungeon();
+      closeMap();
     });
 
     const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
