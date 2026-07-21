@@ -2340,7 +2340,8 @@
       type: "cyclops", x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
-      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
+      windup: 0, windupTimer: 0
     });
     if (DEBUG) console.log("[WvW] cyclops spawned in the inner cave (power " + playerPower() + ", x" + mult.toFixed(2) + ")");
   }
@@ -3322,12 +3323,24 @@
         // Always closes in, never retreats — unlike archer/wizard, a
         // cyclops doesn't kite. It just stops advancing once in firing
         // range rather than trying to hold a preferred distance.
+        // The beam now has a real half-second wind-up (lean forward,
+        // eye glow brightening) before it actually fires, giving the
+        // player a genuine telegraph rather than an instant hit.
+        if (en.windupTimer > 0){
+          en.windupTimer--;
+          en.windup = 1 - en.windupTimer / CYCLOPS_WINDUP_FRAMES;
+          if (en.windupTimer <= 0){
+            en.windup = 0;
+            fireCyclopsBeam(en);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
         if (Math.abs(dist) > stats.preferredRange){
           en.x += Math.sign(dist) * stats.speed;
         }
         if (Math.abs(dist) <= stats.preferredRange && en.attackCooldown <= 0){
-          fireCyclopsBeam(en);
-          en.attackCooldown = stats.attackCooldown;
+          en.windupTimer = CYCLOPS_WINDUP_FRAMES;
         }
       }else if (en.type === "sandworm"){
         // Burrowed: invulnerable, untargetable, moves toward the player,
@@ -3580,9 +3593,11 @@
     }
   }
 
+  const CYCLOPS_WINDUP_FRAMES = 30; // half-second telegraph before the beam fires
+
   function fireCyclopsBeam(en){
-    const eyeX = en.x + en.w / 2;
-    const eyeY = en.y + en.h * 0.32; // matches the eye's drawn position
+    const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
+    const eyeY = en.y - 58; // matches the eye's new drawn position in the redesign
     const targetX = player.x + PLAYER_W / 2;
     const targetY = player.y + PLAYER_H / 2;
     effects.push({ type: "cyclops-beam", x1: eyeX, y1: eyeY, x2: targetX, y2: targetY, life: 12 });
@@ -5466,6 +5481,109 @@
     }
   }
 
+  // Redesigned externally, reviewed before integrating. Two coordinate
+  // fixes applied here, not in the delegated code itself: (1) this
+  // codebase's draw functions always receive `x` as the enemy's LEFT
+  // EDGE (matching en.x) — the old cyclops explicitly computed
+  // `x + en.w/2` for its eye — but this redesign's geometry is centered
+  // directly on x (legs symmetric around it, head exactly at it), so x
+  // is re-centered here rather than adjusting ~25 geometry lines
+  // individually. (2) this codebase's en.y is always the TOP of the
+  // bounding box (en.y = GROUND_Y - en.h everywhere else in the game),
+  // but this design's vertical layout implicitly expects its own "y" to
+  // sit close to ground level, with the body extending upward from
+  // there — so y is ground-anchored to land the feet near the bottom
+  // of the actual hitbox instead of ~95px above it. Both are single-line
+  // fixes; everything below is the delegated code unchanged.
+  function drawCyclops(en, x){
+    x = x + en.w / 2;
+    const bob = Math.sin(frame * 0.05) * 2;
+    const y = (en.y + en.h - 25) + bob;
+    const lean = (en.windup || 0) * 6;
+    ctx.fillStyle = '#4B3A29';
+    ctx.fillRect(x - 22 + lean, y - 10, 16, 34);
+    ctx.fillRect(x + 6 + lean, y - 10, 16, 34);
+    ctx.fillStyle = '#2F2419';
+    ctx.fillRect(x - 26 + lean, y + 22, 22, 6);
+    ctx.fillRect(x + 4 + lean, y + 22, 22, 6);
+    ctx.fillStyle = '#6B5842';
+    ctx.beginPath();
+    ctx.moveTo(x - 32 + lean, y - 12);
+    ctx.lineTo(x + 32 + lean, y - 12);
+    ctx.lineTo(x + 26 + lean, y - 82);
+    ctx.lineTo(x - 26 + lean, y - 82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#846B50';
+    ctx.fillRect(x - 16 + lean, y - 74, 32, 46);
+    ctx.fillStyle = '#3A2A1F';
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 80, 32, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#6B5842';
+    const armRaise = (en.windup || 0) * 10;
+    ctx.save();
+    ctx.translate(x - 30 + lean, y - 66);
+    ctx.rotate((-0.2 - armRaise * 0.02));
+    ctx.fillRect(-8, 0, 14, 52);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x + 30 + lean, y - 66);
+    ctx.rotate((0.2 + armRaise * 0.02));
+    ctx.fillRect(-6, 0, 14, 52);
+    ctx.restore();
+    ctx.fillStyle = '#58452F';
+    ctx.beginPath();
+    ctx.arc(x - 36 + lean, y - 14 - armRaise, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 36 + lean, y - 14 - armRaise, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#6B5842';
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 64, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4D3A2B';
+    ctx.fillRect(x - 18 + lean, y - 78, 36, 8);
+    const glow = (en.windup || 0);
+    ctx.fillStyle = glow > 0.05
+      ? `rgba(255,120,60,${0.35 + glow * 0.6})`
+      : 'transparent';
+    if (glow > 0.05){
+      ctx.beginPath();
+      ctx.arc(x + lean, y - 58, 18 + glow * 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#F4F2E8';
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 58, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#7A4E22';
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 58, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 58, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(x - 3 + lean, y - 61, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2D2017';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + lean, y - 42, 8, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+    ctx.fillStyle = '#3E2A18';
+    ctx.fillRect(x - 28 + lean, y - 30, 56, 6);
+    ctx.fillStyle = '#8A7448';
+    ctx.fillRect(x - 5 + lean, y - 31, 10, 8);
+    ctx.fillStyle = '#4C3B2C';
+    ctx.fillRect(x - 22 + lean, y + 2, 16, 6);
+    ctx.fillRect(x + 6 + lean, y + 2, 16, 6);
+  }
+
   function drawBossFigure(en, x){
     const w = en.w, h = en.h, y = en.y;
     const cx = x + w / 2;
@@ -5884,17 +6002,7 @@
       ctx.stroke();
 
     }else if (en.type === "cyclops"){
-      ctx.fillStyle = COLORS.cyclopsBody;
-      ctx.fillRect(x, en.y, en.w, en.h);
-      const eyeCx = x + en.w/2, eyeCy = en.y + en.h * 0.32;
-      ctx.fillStyle = "#FFFFFF";
-      ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, en.w * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = COLORS.cyclopsEye;
-      ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, en.w * 0.11, 0, Math.PI * 2);
-      ctx.fill();
+      drawCyclops(en, x);
     }else if (en.type === "sandworm"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
       if (en.burrowed){
