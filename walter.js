@@ -1060,7 +1060,7 @@
   const MAX_MANA_START = 50;
   const MANA_UPGRADE_COST_SILVER = 100;
   const MANA_UPGRADE_AMOUNT = 10;
-  const HIRE_CREW_COST = 500; // silver, one-time — unlocks sailing to new lands from the map
+  const HIRE_CREW_COST = 200; // silver, one-time — unlocks sailing to new lands from the map
 
   // Letter code for each spell in the progress-save string (F/L/Z/S/B),
   // uppercase = unlocked, lowercase = locked. "fireball" and "freeze" both
