@@ -1587,7 +1587,11 @@
   }
 
   function manaRegenMultiplier(){
-    return 1 + player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL;
+    let mult = 1 + player.shrineLevel * SHRINE_MANA_BONUS_PER_LEVEL;
+    if (currentMap === "dungeon" && currentDungeonRoom && currentDungeonRoom.biomeId === "crystalMine"){
+      mult *= 10; // the crystal energy saturating the room
+    }
+    return mult;
   }
 
   function spellDamageMultiplier(){
@@ -2372,6 +2376,78 @@
   // Commander's (Village) signature mechanic — the one boss with its full
   // unique behavior built out this round. Every other boss uses the
   // shared generic AI in updateEnemies().
+  // Leviathan's real signature mechanic (redesigned externally, reviewed
+  // and integrated here) — a full state machine, not an add-on like
+  // Commander's rally, so it gets its own exclusive dispatch branch
+  // rather than layering on top of the generic boss AI. States: swim
+  // (chase + contact damage), submerge (sinks beneath the waterline),
+  // wave (telegraphs then fires a broad tidalWave projectile), surface
+  // (rises back up before returning to swim).
+  //
+  // Two things fixed during review, before trusting this as-is:
+  // - The original draft pushed "bubble" effects with no `life` field
+  //   during submerge/wave, but every effect in this game needs `life`
+  //   to survive the generic cleanup pass (`fx.life--` then filtered on
+  //   `fx.life > 0`) — without it they'd be discarded before ever
+  //   rendering. Dropped those calls entirely; drawLeviathan already
+  //   animates its own bubbles independently, so nothing is lost.
+  // - tidalWave's intended 56x40 hitbox was being silently ignored by
+  //   the enemy-projectile collision code, which hardcoded a 16x16 box
+  //   for every projectile type — see the fix in updateProjectiles().
+  function updateLeviathan(en){
+    if (en.attackCD > 0) en.attackCD--;
+    if (en.stateTimer > 0) en.stateTimer--;
+    if (!en.state){
+      en.state = "swim";
+      en.attackCD = 180;
+    }
+    switch (en.state){
+      case "swim": {
+        const dx = player.x - en.x;
+        en.vx = Math.sign(dx) * 1.8;
+        en.x += en.vx;
+        if (Math.abs(dx) < 40 && Math.abs(player.y - en.y) < 50){
+          damagePlayer(22);
+        }
+        if (en.attackCD <= 0){
+          en.state = "submerge";
+          en.stateTimer = 45;
+        }
+        break;
+      }
+      case "submerge": {
+        en.y += 0.7;
+        if (en.stateTimer <= 0){
+          en.waveTargetY = en.y;
+          en.state = "wave";
+          en.stateTimer = 55;
+        }
+        break;
+      }
+      case "wave": {
+        if (en.stateTimer === 10){
+          enemyProjectiles.push({
+            type: "tidalWave", x: en.x, y: GROUND_Y - 20,
+            vx: player.x > en.x ? 4 : -4, w: 56, h: 40, damage: 22
+          });
+        }
+        if (en.stateTimer <= 0){
+          en.state = "surface";
+          en.stateTimer = 35;
+        }
+        break;
+      }
+      case "surface": {
+        en.y -= 0.8;
+        if (en.stateTimer <= 0){
+          en.state = "swim";
+          en.attackCD = 240;
+        }
+        break;
+      }
+    }
+  }
+
   function updateCommanderRally(boss){
     const thresholds = [0.75, 0.5, 0.25];
     const hpFrac = boss.hp / boss.maxHp;
@@ -3312,6 +3388,8 @@
         }else if (Math.abs(dist) < stats.lungeRange - 20){
           en.x -= Math.sign(dist) * stats.speed; // circles just outside lunge range
         }
+      }else if (en.bossBiomeId === "underwater"){
+        updateLeviathan(en);
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3567,7 +3645,8 @@
 
     enemyProjectiles.forEach(p => {
       if (p.hit) return;
-      if (player.invulnFrames <= 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, player.x, player.y, PLAYER_W, PLAYER_H)){
+      const hw = p.w || 16, hh = p.h || 16; // custom size (e.g. tidalWave's broad AoE) if provided, else the existing default
+      if (player.invulnFrames <= 0 && rectsOverlap(p.x - hw/2, p.y - hh/2, hw, hh, player.x, player.y, PLAYER_W, PLAYER_H)){
         if (p.type === "charm"){
           const s = ENEMY_STATS.siren;
           applyCharmToPlayer(s.charmDuration, s.charmSlowMultiplier); // before damagePlayer, which sets invuln
@@ -5329,6 +5408,64 @@
   // still flat canvas primitives — no images — sized within the same
   // bounding box as the generic boss stats (w:60 h:92), so none of this
   // touches hitboxes or combat balance, purely the art on top of it.
+  function drawLeviathan(en, x){
+    const y = en.y;
+    const t = frame * 0.08;
+    const sway = Math.sin(t + en.x * 0.01) * 6;
+    ctx.fillStyle = '#145F74';
+    ctx.beginPath();
+    ctx.moveTo(x - 30, y + sway);
+    ctx.quadraticCurveTo(x, y - 26 + sway, x + 26, y + sway);
+    ctx.quadraticCurveTo(x, y + 34 + sway, x - 30, y + sway);
+    ctx.fill();
+    ctx.fillStyle = '#2E8FA0'; // lighter belly
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y + 8 + sway);
+    ctx.quadraticCurveTo(x, y + 22 + sway, x + 18, y + 8 + sway);
+    ctx.quadraticCurveTo(x, y + 14 + sway, x - 18, y + 8 + sway);
+    ctx.fill();
+    ctx.fillStyle = '#0D3943'; // head crest
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y - 10 + sway);
+    ctx.lineTo(x + 26, y - 24 + sway);
+    ctx.lineTo(x + 10, y - 4 + sway);
+    ctx.fill();
+    ctx.fillStyle = '#0F3A44'; // dorsal fins
+    for (let i = -16; i <= 12; i += 14){
+      ctx.beginPath();
+      ctx.moveTo(x + i, y + sway - 6);
+      ctx.lineTo(x + i + 4, y + sway - 20);
+      ctx.lineTo(x + i + 8, y + sway - 6);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#CFEFF5'; // jaw
+    ctx.beginPath();
+    ctx.moveTo(x + 16, y + 2 + sway);
+    ctx.lineTo(x + 28, y + 8 + sway);
+    ctx.lineTo(x + 14, y + 10 + sway);
+    ctx.fill();
+    ctx.fillStyle = '#7CF4FF'; // eye
+    ctx.beginPath();
+    ctx.arc(x + 10, y - 6 + sway, 3, 0, Math.PI * 2);
+    ctx.fill();
+    if (en.state === "wave"){ // charging glow — telegraphs the tidal wave attack
+      ctx.strokeStyle = 'rgba(120,240,255,0.8)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++){
+        ctx.beginPath();
+        ctx.arc(x, y + sway, 24 + i * 7 + (frame % 10), Math.PI * 0.2, Math.PI * 1.8);
+        ctx.stroke();
+      }
+    }
+    ctx.fillStyle = 'rgba(210,240,255,0.5)'; // bubbles
+    for (let i = 0; i < 3; i++){
+      let by = y - 18 - (frame * 0.8 + i * 12) % 30;
+      ctx.beginPath();
+      ctx.arc(x - 24 + i * 8, by, 2 + i * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function drawBossFigure(en, x){
     const w = en.w, h = en.h, y = en.y;
     const cx = x + w / 2;
@@ -5531,40 +5668,7 @@
       }
 
     }else if (en.bossBiomeId === "underwater"){
-      // Leviathan — giant sea serpent with a towering dorsal fin; the
-      // whole body now undulates like a real swimming motion, with
-      // rising bubbles for atmosphere
-      const swim = Math.sin(frame * 0.04) * 6;
-      ctx.fillStyle = COLORS.leviathanBody;
-      ctx.beginPath();
-      ctx.moveTo(x, y + h);
-      ctx.quadraticCurveTo(x + w * 0.2, y + h * 0.3 + swim, x + w * 0.5, y + h * 0.5);
-      ctx.quadraticCurveTo(x + w * 0.8, y + h * 0.7 - swim, x + w, y + h * 0.2);
-      ctx.lineTo(x + w, y + h * 0.45);
-      ctx.quadraticCurveTo(x + w * 0.75, y + h * 0.85 - swim, x + w * 0.45, y + h * 0.65);
-      ctx.quadraticCurveTo(x + w * 0.25, y + h * 0.5 + swim, x + w * 0.15, y + h);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.leviathanFin;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.35, y + h * 0.4 + swim * 0.3);
-      ctx.lineTo(x + w * 0.5, y - 22 + swim * 0.3);
-      ctx.lineTo(x + w * 0.6, y + h * 0.35 + swim * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.leviathanBodyDark;
-      ctx.beginPath();
-      ctx.arc(x + w * 0.85, y + h * 0.35, 4, 0, Math.PI * 2);
-      ctx.fill();
-      // rising bubbles
-      ctx.fillStyle = "rgba(200,230,240,0.5)";
-      for (let i = 0; i < 3; i++){
-        const bp = (frame + i * 30) % 90;
-        ctx.beginPath();
-        ctx.arc(x + w * 0.3 + i * 10, y + h - bp, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      drawLeviathan(en, x);
     }else{
       // Fallback — any future boss without a bespoke design yet still
       // reads clearly as a boss rather than breaking.
@@ -6250,6 +6354,22 @@
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(x, p.y, 14, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
+    }else if (p.type === "tidalWave"){
+      // broad wave shape, matching the Leviathan's own palette
+      const hw = (p.w || 56) / 2, hh = p.h || 40;
+      ctx.fillStyle = "rgba(46,143,160,0.85)";
+      ctx.beginPath();
+      ctx.moveTo(x - hw, p.y + hh * 0.4);
+      ctx.quadraticCurveTo(x - hw * 0.5, p.y - hh * 0.5, x, p.y);
+      ctx.quadraticCurveTo(x + hw * 0.5, p.y - hh * 0.5, x + hw, p.y + hh * 0.4);
+      ctx.lineTo(x + hw, p.y + hh);
+      ctx.lineTo(x - hw, p.y + hh);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(207,239,245,0.6)"; // foam crest
+      ctx.beginPath();
+      ctx.arc(x, p.y - hh * 0.1, hw * 0.3, 0, Math.PI * 2);
+      ctx.fill();
     }else{
       ctx.fillStyle = COLORS.lightning;
       ctx.beginPath();
