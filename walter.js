@@ -540,6 +540,15 @@
 
   function spawnTowerFloorEnemies(){
     if (!currentTowerFloor) return;
+    if (currentTowerFloor.floorNumber === TOWER_TOTAL_FLOORS){
+      const stats = ENEMY_STATS.towerSorcerer;
+      enemies.push({
+        type: "towerSorcerer", x: currentTowerFloor.worldWidth - 150, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        hp: stats.hp, maxHp: stats.hp, scaledDamage: stats.damage * difficultyMultiplier(),
+        attackCooldown: 60, frozenFrames: 0, burningFrames: 0, counted: false
+      });
+      return; // a scripted single-boss floor, not the normal pool + cages
+    }
     const floorScale = 1 + (currentTowerFloor.floorNumber - 1) * 0.08; // gradual climb-wide scaling
     for (let i = 0; i < currentTowerFloor.enemyCount; i++){
       const isWizard = Math.random() < 0.5;
@@ -603,6 +612,17 @@
     if (DEBUG) console.log("[WvW] advanced to Tower floor " + nextFloorNumber + " (" + currentTowerFloor.biomeId + ")");
   }
 
+  function openSummitChest(){
+    if (!currentTowerFloor || currentTowerFloor.chestClaimed) return;
+    currentTowerFloor.chestClaimed = true;
+    const reward = 100 + Math.floor(Math.random() * 401); // 100-500
+    player.bankedCrystals += reward;
+    respawnMessageText = "Summit Chest: +" + reward + " crystals!";
+    respawnMessageTimer = 180;
+    if (DEBUG) console.log("[WvW] Summit Chest opened: +" + reward + " crystals");
+    saveProgress();
+  }
+
   function leaveTower(){
     currentMap = "home";
     currentTowerFloor = null;
@@ -659,7 +679,13 @@
     if (currentMap === "generated") return currentGeneratedLandLayout
       ? [{ x: currentGeneratedLandLayout.dockX + 40, w: 40, h: 40, action: "map" }]
       : [];
-    if (currentMap === "tower") return [{ x: 20, w: 40, h: 40, action: "leaveTower" }];
+    if (currentMap === "tower"){
+      const altars = [{ x: 20, w: 40, h: 40, action: "leaveTower" }];
+      if (currentTowerFloor && currentTowerFloor.floorNumber === TOWER_TOTAL_FLOORS && currentTowerFloor.cleared && !currentTowerFloor.chestClaimed){
+        altars.push({ x: currentTowerFloor.worldWidth - 60, w: 40, h: 40, action: "summitChest" });
+      }
+      return altars;
+    }
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
@@ -803,6 +829,7 @@
     const b = BOSS_ROSTER[biomeId];
     ENEMY_STATS["boss_" + biomeId] = { hp: b.hp, damage: b.damage, speed: 0.7, attackCooldown: 90, contactRange: 55, w: 60, h: 92 };
   });
+  ENEMY_STATS.towerSorcerer = { hp: 900, speed: 1.0, damage: 24, attackCooldown: 100, preferredRange: 240, w: 26, h: 40 };
 
   const SPAWN_INTERVAL_MIN = 70;
   const SPAWN_INTERVAL_MAX = 140;
@@ -2359,6 +2386,7 @@
   function updatePlayerBurn(){
     if (player.burningFrames <= 0) return;
     player.burningFrames--;
+    if (player.burningFrames <= 0) player.blackBurn = false;
     damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true });
   }
 
@@ -2617,6 +2645,7 @@
         }
       });
       player.burningFrames = 0; // ice puts out fire — extinguishes an active cyclops burn early
+      player.blackBurn = false;
       effects.push({ type: "freeze-burst", x: originX, y: originY, radius: cfg.radius, life: 20 });
     }else if (key === "summonAlly"){
       allies = []; // only one summoned creature at a time — casting any summon spell replaces it
@@ -2806,6 +2835,7 @@
     player.carriedCrystals = 0;
     player.hp = PLAYER_MAX_HP;
     player.burningFrames = 0;
+    player.blackBurn = false;
     currentMap = "home"; // dying anywhere (including land1) sends you back home
     clearEntities();
     const spawn = spawnPoint();
@@ -2997,6 +3027,8 @@
             en.attackCooldown = stats.attackCooldown;
           }
         }
+      }else if (en.type === "towerSorcerer"){
+        updateTowerSorcerer(en);
       }else if (en.type === "cyclops"){
         // Always closes in, never retreats — unlike archer/wizard, a
         // cyclops doesn't kite. It just stops advancing once in firing
@@ -3138,6 +3170,41 @@
   // from a 3x-tall enemy would fly over the player's head most of the
   // time. This draws (and hits) directly from the eye to wherever the
   // player actually is the moment it fires, so it can't miss vertically.
+  // The Tower Sorcerer's three-spell arsenal. Freeze-on-player is new —
+  // no enemy has ever cast it before — so rather than invent a new
+  // player status for it, it reuses the exact same charm-slow mechanic
+  // Sirens already apply, just re-flavored as "frozen" rather than
+  // "charmed". Black Lightning is otherwise identical to the standard
+  // wizard-lightning instant hit, plus the new black-fire burn variant.
+  function updateTowerSorcerer(en){
+    const dist = (player.x + PLAYER_W/2) - (en.x + en.w/2);
+    const stats = ENEMY_STATS.towerSorcerer;
+    if (Math.abs(dist) > stats.preferredRange + 20){
+      en.x += Math.sign(dist) * stats.speed;
+    }else if (Math.abs(dist) < stats.preferredRange - 20){
+      en.x -= Math.sign(dist) * stats.speed;
+    }else if (en.attackCooldown <= 0){
+      const spell = ["lightning", "fireball", "freeze"][Math.floor(Math.random() * 3)];
+      if (spell === "lightning"){
+        const fromX = en.x + en.w/2, fromY = en.y + en.h/2;
+        const targetX = player.x + PLAYER_W/2, targetY = player.y + PLAYER_H/2;
+        effects.push({ type: "sorcerer-lightning", x1: fromX, y1: fromY, x2: targetX, y2: targetY, life: 10 });
+        damagePlayer(en.scaledDamage, { source: "lightning" });
+        player.burningFrames = Math.max(player.burningFrames || 0, 120);
+        player.blackBurn = true;
+      }else if (spell === "fireball"){
+        enemyProjectiles.push({
+          type: "fireball", x: en.x + en.w/2, y: en.y + en.h/2,
+          vx: 6 * (Math.sign(dist) || 1), damage: en.scaledDamage, sourceType: en.type
+        });
+      }else{
+        applyCharmToPlayer(120, 0.5); // "frozen" — same slow mechanic Sirens use
+        effects.push({ type: "freeze-burst", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2, radius: 40, life: 20 });
+      }
+      en.attackCooldown = stats.attackCooldown;
+    }
+  }
+
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2;
     const eyeY = en.y + en.h * 0.32; // matches the eye's drawn position
@@ -3567,6 +3634,7 @@
     else if (action === "land1Tower") openLand1Tower();
     else if (action === "leaveTower") leaveTower();
     else if (action === "towerLadder") advanceTowerFloor();
+    else if (action === "summitChest") openSummitChest();
   }
 
   /* ---------------- draw ---------------- */
@@ -3791,6 +3859,21 @@
 
   function drawTowerFloor(){
     if (!currentTowerFloor) return;
+
+    if (currentTowerFloor.floorNumber === TOWER_TOTAL_FLOORS && currentTowerFloor.cleared && !currentTowerFloor.chestClaimed){
+      const chestX = worldToScreen(currentTowerFloor.worldWidth - 60);
+      if (chestX > -30 && chestX < CANVAS_W + 30){
+        ctx.fillStyle = "#8B5A2B";
+        ctx.fillRect(chestX - 16, GROUND_Y - 20, 32, 20);
+        ctx.fillStyle = "#D4AF37";
+        ctx.fillRect(chestX - 16, GROUND_Y - 12, 32, 4);
+        ctx.fillStyle = COLORS.hud;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("[Q] Open", chestX, GROUND_Y - 26);
+      }
+    }
+
     const ladderX = worldToScreen(towerLadderX());
     if (ladderX > -30 && ladderX < CANVAS_W + 30){
       const cleared = currentTowerFloor.cleared;
@@ -4661,7 +4744,7 @@
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
     if (player.burningFrames > 0){
-      ctx.fillStyle = "rgba(225,75,60,0.45)"; // on fire, same treatment as a burning enemy
+      ctx.fillStyle = player.blackBurn ? "rgba(20,20,25,0.55)" : "rgba(225,75,60,0.45)"; // on fire, same treatment as a burning enemy
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
 
@@ -5361,6 +5444,40 @@
 
     }else if (en.isBoss){
       drawBossFigure(en, x);
+    }else if (en.type === "towerSorcerer"){
+      // Black wizard cloak (same tone as the Black Wizard tier), but with
+      // the two props the roadmap specifically calls out: a red hat and
+      // a black staff topped with a white ball.
+      ctx.fillStyle = "#1F2430";
+      ctx.beginPath();
+      ctx.moveTo(x + 3, en.y + en.h);
+      ctx.lineTo(x, en.y + en.h * 0.4);
+      ctx.lineTo(x + en.w, en.y + en.h * 0.4);
+      ctx.lineTo(x + en.w - 3, en.y + en.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#B8283A";
+      ctx.beginPath();
+      ctx.moveTo(x + en.w/2, en.y - 10);
+      ctx.lineTo(x + 3, en.y + en.h * 0.4);
+      ctx.lineTo(x + en.w - 3, en.y + en.h * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.wizardBeard;
+      ctx.beginPath();
+      ctx.arc(x + en.w/2, en.y + en.h * 0.5, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // staff, held to one side
+      ctx.strokeStyle = "#1A1A1E";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x + en.w + 4, en.y + en.h);
+      ctx.lineTo(x + en.w + 4, en.y + en.h * 0.25);
+      ctx.stroke();
+      ctx.fillStyle = "#F5F0E6";
+      ctx.beginPath();
+      ctx.arc(x + en.w + 4, en.y + en.h * 0.2, 5, 0, Math.PI * 2);
+      ctx.fill();
     }else{
       const tier = WIZARD_TIERS.find(t => t.key === en.type);
       const cloakColor = (tier && tier.cloakColor) ? tier.cloakColor : COLORS.wizardCloak;
@@ -5545,6 +5662,14 @@
       ctx.arc(x, fx.y, fx.radius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = 1;
+    }else if (fx.type === "sorcerer-lightning"){
+      const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
+      ctx.strokeStyle = "#1A1A1E";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
+      ctx.stroke();
     }else if (fx.type === "wizard-lightning"){
       const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
       ctx.strokeStyle = COLORS.lightning;
@@ -5687,8 +5812,8 @@
       }
     }
     if (player.burningFrames > 0){
-      ctx.fillStyle = COLORS.fireball;
-      ctx.fillText("ON FIRE " + Math.ceil(player.burningFrames / 60) + "s", CANVAS_W - 12, 56);
+      ctx.fillStyle = player.blackBurn ? "#3A3A3E" : COLORS.fireball;
+      ctx.fillText((player.blackBurn ? "BLACK FIRE " : "ON FIRE ") + Math.ceil(player.burningFrames / 60) + "s", CANVAS_W - 12, 56);
     }
   }
 
