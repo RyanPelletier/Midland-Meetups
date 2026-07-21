@@ -655,14 +655,17 @@
     if (!currentDungeonRoom) return;
     const roomScale = 1 + (currentDungeonRoom.roomNumber - 1) * 0.08;
     for (let i = 0; i < currentDungeonRoom.enemyCount; i++){
-      const type = Math.random() < 0.5 ? "knight" : "wizard";
+      const type = Math.random() < 0.5 ? "cultist" : "drake";
       const stats = ENEMY_STATS[type];
       const x = 150 + Math.random() * Math.max(50, currentDungeonRoom.worldWidth - 300);
+      const y = type === "drake" ? GROUND_Y - stats.h - stats.hoverHeight : GROUND_Y - stats.h;
       enemies.push({
-        type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        type, x, y, w: stats.w, h: stats.h,
         hp: Math.round(stats.hp * roomScale), maxHp: Math.round(stats.hp * roomScale),
         scaledDamage: Math.round(stats.damage * roomScale) * difficultyMultiplier(),
-        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
+        breathPrepTimer: 0, flyPhase: Math.random() * Math.PI * 2,
+        scaleColor: Math.random() < 0.5 ? "#1E4D2B" : "#8B2500"
       });
     }
   }
@@ -901,6 +904,13 @@
     fairy:    { hp: 16, speed: 1.6, damage: 7,  attackCooldown: 40, preferredRange: 200, projectileSpeed: 7, w: 16, h: 20 },
     siren:    { hp: 28, speed: 1.0, damage: 8,  attackCooldown: 90, preferredRange: 240, projectileSpeed: 6, w: 24, h: 38, charmDuration: 150, charmSlowMultiplier: 0.65 },
     mermaid:  { hp: 30, speed: 1.0, damage: 11, attackCooldown: 70, preferredRange: 240, projectileSpeed: 8.5, w: 24, h: 38, dropsSilver: true },
+    // Dungeon enemies (Phase 10b) — the spec gave visuals/animation states
+    // only, no numeric stats, so these are calibrated against the closest
+    // existing enemies: Cultist plays like a slightly tougher Wizard,
+    // Drake plays like a hovering, harder-hitting mid-tier threat with a
+    // real telegraph before it fires (BREATH_PREP from the spec).
+    cultist: { hp: 24, speed: 0.95, damage: 12, attackCooldown: 85, preferredRange: 200, projectileSpeed: 6, w: 32, h: 48 },
+    drake:   { hp: 46, speed: 1.0, damage: 16, attackCooldown: 130, preferredRange: 260, projectileSpeed: 6.5, w: 64, h: 48, hoverHeight: 55, breathPrepFrames: 40 },
     ogre:     { hp: 60, speed: 0.6, damage: 18, attackCooldown: 100, contactRange: 34, w: 34, h: 46, dropsSilver: true },
     snake:    { hp: 20, speed: 1.3, damage: 6,  attackCooldown: 130, contactRange: 32, lungeRange: 140, poisonDuration: 300, poisonDps: 2, w: 22, h: 18 },
     // A rare, unscripted field encounter (like the Cyclops) rather than a
@@ -3189,6 +3199,8 @@
         }
       }else if (en.type === "towerSorcerer"){
         updateTowerSorcerer(en);
+      }else if (en.type === "drake"){
+        updateDrake(en);
       }else if (en.type === "cyclops"){
         // Always closes in, never retreats — unlike archer/wizard, a
         // cyclops doesn't kite. It just stops advancing once in firing
@@ -3304,6 +3316,7 @@
     const type = en.type === "archer" ? "arrow"
       : en.type === "fairy" ? "arrow"
       : en.type === "siren" ? "charm"
+      : en.type === "cultist" ? "glyph"
       : (Math.random() < 0.5 ? "lightning" : "fireball");
     // Standardized to an instant straight-line strike, matching the
     // player's own Lightning spell — that's also instant, not a slow
@@ -3336,6 +3349,39 @@
   // Sirens already apply, just re-flavored as "frozen" rather than
   // "charmed". Black Lightning is otherwise identical to the standard
   // wizard-lightning instant hit, plus the new black-fire burn variant.
+  // Hovers rather than standing on the ground — reuses the exact same
+  // gentle sine-wave bob the Demon/Angel allies already use for their
+  // own flight, rather than inventing a new hover technique. The
+  // telegraph (breathPrepTimer) before firing is what the spec calls
+  // BREATH_PREP — a real wind-up beat, not an instant shot.
+  function updateDrake(en){
+    en.flyPhase = (en.flyPhase || 0) + 0.05;
+    const stats = ENEMY_STATS.drake;
+    en.y = GROUND_Y - en.h - stats.hoverHeight + Math.sin(en.flyPhase) * 6;
+    const dist = (player.x + PLAYER_W/2) - (en.x + en.w/2);
+    if (en.breathPrepTimer > 0){
+      en.breathPrepTimer--;
+      if (en.breathPrepTimer === 0){
+        enemyProjectiles.push({
+          type: "dragonBreath", x: en.x + en.w/2, y: en.y + en.h/2,
+          vx: stats.projectileSpeed * (Math.sign(dist) || 1), damage: en.scaledDamage, sourceType: "drake"
+        });
+        en.attackCooldown = stats.attackCooldown;
+      }
+      return;
+    }
+    if (Math.abs(dist) > stats.preferredRange + 20){
+      en.x += Math.sign(dist) * stats.speed;
+      en.moving = true;
+    }else if (Math.abs(dist) < stats.preferredRange - 20){
+      en.x -= Math.sign(dist) * stats.speed;
+      en.moving = true;
+    }else{
+      en.moving = false;
+      if (en.attackCooldown <= 0) en.breathPrepTimer = stats.breathPrepFrames;
+    }
+  }
+
   function updateTowerSorcerer(en){
     const dist = (player.x + PLAYER_W/2) - (en.x + en.w/2);
     const stats = ENEMY_STATS.towerSorcerer;
@@ -5339,6 +5385,74 @@
       return;
     }
 
+    if (en.type === "cultist"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
+      const bob = en.moving ? 0 : Math.sin(frame / 30) * 1; // IDLE: subtle vertical bob
+      const sway = en.moving ? Math.sin(frame * 0.3) * 3 : 0; // WALK: 4-frame robe sway
+      ctx.fillStyle = "#4A0E17";
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.3 + sway, y + h + bob);
+      ctx.lineTo(cx - w * 0.22, y + h * 0.25 + bob);
+      ctx.lineTo(cx + w * 0.22, y + h * 0.25 + bob);
+      ctx.lineTo(cx + w * 0.3 + sway, y + h + bob);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#1F0509"; // hood shadow, obscuring the face
+      ctx.beginPath();
+      ctx.ellipse(cx, y + h * 0.18 + bob, w * 0.22, h * 0.16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700"; // only the eyes visible inside the hood
+      ctx.beginPath(); ctx.arc(cx - 4, y + h * 0.18 + bob, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 4, y + h * 0.18 + bob, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#708090"; // dagger, held at the hip
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx + w * 0.3, y + h * 0.5 + bob); ctx.lineTo(cx + w * 0.42, y + h * 0.62 + bob); ctx.stroke();
+      if (!en.moving && en.attackCooldown < 15){ // CAST: arms extended, glyph particle at hands
+        ctx.strokeStyle = "#4A0E17";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(cx, y + h * 0.4 + bob); ctx.lineTo(cx + w * 0.5, y + h * 0.35 + bob); ctx.stroke();
+        ctx.fillStyle = "#E5484D";
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath(); ctx.arc(cx + w * 0.55, y + h * 0.35 + bob, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      return;
+    }
+
+    if (en.type === "drake"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w / 2, cy = y + h / 2;
+      const scaleColor = en.scaleColor || "#1E4D2B";
+      const wingFlap = Math.sin((en.flyPhase || 0) * 3) * 12; // HOVER: wing flap cycle
+      ctx.fillStyle = "#122E1A"; // wing membranes
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.15, cy);
+      ctx.lineTo(cx - w * 0.55, cy - 14 - wingFlap);
+      ctx.lineTo(cx - w * 0.25, cy + 6);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + w * 0.15, cy);
+      ctx.lineTo(cx + w * 0.55, cy - 14 - wingFlap);
+      ctx.lineTo(cx + w * 0.25, cy + 6);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = scaleColor; // quadrupedal body
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, w * 0.32, h * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(cx - w * 0.22, cy + h * 0.15, 5, 14);
+      ctx.fillRect(cx + w * 0.16, cy + h * 0.15, 5, 14);
+      ctx.beginPath(); // head
+      ctx.ellipse(cx + w * 0.35, cy - 4, w * 0.14, h * 0.16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const isPrepping = en.breathPrepTimer > 0; // BREATH_PREP: throat scales pulse
+      if (isPrepping){ ctx.shadowBlur = 10; ctx.shadowColor = "#FF4500"; }
+      ctx.fillStyle = "#FF4500";
+      ctx.globalAlpha = isPrepping ? (0.6 + 0.4 * Math.sin(frame * 0.4)) : 0.8;
+      ctx.beginPath(); ctx.arc(cx + w * 0.42, cy - 4, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      return;
+    }
+
     if (en.type === "knight"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
       // legs, with a walking swing while approaching (same pattern as
@@ -5827,6 +5941,27 @@
       ctx.fillStyle = COLORS.sirenBody;
       ctx.beginPath();
       ctx.arc(x, p.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }else if (p.type === "glyph"){
+      // small glowing red glyph particle, per the Cultist spec
+      ctx.fillStyle = "#E5484D";
+      ctx.beginPath();
+      ctx.arc(x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#FFD700";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, p.y, 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }else if (p.type === "dragonBreath"){
+      // matches the Drake's throat glow color
+      ctx.fillStyle = "#FF4500";
+      ctx.beginPath();
+      ctx.arc(x, p.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700";
+      ctx.beginPath();
+      ctx.arc(x, p.y, 4, 0, Math.PI * 2);
       ctx.fill();
     }else{
       ctx.fillStyle = COLORS.lightning;
