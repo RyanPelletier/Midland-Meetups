@@ -653,6 +653,21 @@
   // the same incremental approach the Tower itself used originally.
   function spawnDungeonRoomEnemies(){
     if (!currentDungeonRoom) return;
+    if (currentDungeonRoom.roomNumber === DUNGEON_TOTAL_ROOMS){
+      const stats = ENEMY_STATS.motherDragon;
+      const dm = difficultyMultiplier();
+      enemies.push({
+        type: "motherDragon", x: currentDungeonRoom.worldWidth - 220, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        hp: stats.hp, maxHp: stats.hp,
+        // per-attack damage, scaled by overall difficulty same as every other enemy — not a single flat scaledDamage,
+        // since Blue Fireball is deliberately meant to hit harder than the standard triple
+        fireballDamageScaled: Math.round(stats.fireballDamage * dm),
+        blueFireballDamageScaled: Math.round(stats.blueFireballDamage * dm),
+        attackCooldown: 60, frozenFrames: 0, burningFrames: 0, counted: false,
+        breathPrepTimer: 0, pendingBlueFireball: false
+      });
+      return; // a scripted single-boss floor, not the normal pool
+    }
     const roomScale = 1 + (currentDungeonRoom.roomNumber - 1) * 0.08;
     for (let i = 0; i < currentDungeonRoom.enemyCount; i++){
       const type = Math.random() < 0.5 ? "cultist" : "drake";
@@ -685,6 +700,18 @@
     if (currentMap !== "dungeon" || !currentDungeonRoom || currentDungeonRoom.cleared) return;
     if (enemies.filter(en => en.hp > 0 && !en.isCage).length === 0){
       currentDungeonRoom.cleared = true;
+      if (currentDungeonRoom.roomNumber === DUNGEON_TOTAL_ROOMS){
+        // Mother Dragon's Hoard — the climactic final reward, distinct
+        // from and larger than the normal per-room silver hoard below.
+        const silverReward = 500 + Math.floor(Math.random() * 501); // 500-1000
+        const crystalReward = 100 + Math.floor(Math.random() * 401); // 100-500, matching the Tower's Summit Chest range
+        player.silver += silverReward;
+        player.bankedCrystals += crystalReward;
+        respawnMessageText = "Mother Dragon's Hoard: +" + silverReward + " silver, +" + crystalReward + " crystals!";
+        respawnMessageTimer = 240;
+        saveProgress();
+        return;
+      }
       // A small silver hoard per cleared room (Layer 3 loot per the
       // spec), separate from the larger reward at the very end.
       const hoard = 20 + Math.floor(Math.random() * 30) + currentDungeonRoom.roomNumber * 2;
@@ -951,6 +978,18 @@
     ENEMY_STATS["boss_" + biomeId] = { hp: b.hp, damage: b.damage, speed: 0.7, attackCooldown: 90, contactRange: 55, w: 60, h: 92 };
   });
   ENEMY_STATS.towerSorcerer = { hp: Math.round(900 * 1.2), speed: 1.0, damage: 24, attackCooldown: 100, preferredRange: 240, w: 26, h: 40 };
+  // Mother Dragon (Phase 10c) — like Cultist/Drake, the spec gave visuals
+  // and attack phases but no combat numbers. Calibrated above the Tower
+  // Sorcerer given she's the climactic final boss of a full 20-room
+  // dungeon, and the spec explicitly frames her as "large scale."
+  // fireballDamage is per-fireball (three fire at once on the standard
+  // attack); blueFireballDamage is exactly 2x, matching the spec's own
+  // "(2x DMG)" label on the Blue Fireball attack.
+  ENEMY_STATS.motherDragon = {
+    hp: 1600, speed: 0.5, attackCooldown: 150, preferredRange: 280, projectileSpeed: 6,
+    fireballDamage: 15, blueFireballDamage: 30, breathPrepFrames: 50, blueFireballChance: 0.3,
+    w: 160, h: 120
+  };
 
   const SPAWN_INTERVAL_MIN = 70;
   const SPAWN_INTERVAL_MAX = 140;
@@ -3201,6 +3240,8 @@
         updateTowerSorcerer(en);
       }else if (en.type === "drake"){
         updateDrake(en);
+      }else if (en.type === "motherDragon"){
+        updateMotherDragon(en);
       }else if (en.type === "cyclops"){
         // Always closes in, never retreats — unlike archer/wizard, a
         // cyclops doesn't kite. It just stops advancing once in firing
@@ -3354,6 +3395,54 @@
   // own flight, rather than inventing a new hover technique. The
   // telegraph (breathPrepTimer) before firing is what the spec calls
   // BREATH_PREP — a real wind-up beat, not an instant shot.
+  // The spec frames the throat color as telegraphing the *upcoming*
+  // attack, not just decorating the one currently firing — so the 30%
+  // roll and the color choice both happen at the START of the prep
+  // window (pendingAttack), and the actual fireballs only launch once
+  // that telegraph finishes. Reuses the same prep-timer shape as Drake's
+  // BREATH_PREP, just with a real branch (three normal fireballs, or one
+  // blue one) instead of always firing the same thing.
+  function updateMotherDragon(en){
+    const stats = ENEMY_STATS.motherDragon;
+    const dist = (player.x + PLAYER_W/2) - (en.x + en.w/2);
+    if (en.breathPrepTimer > 0){
+      en.breathPrepTimer--;
+      if (en.breathPrepTimer === 0){
+        const dir = Math.sign(dist) || 1;
+        if (en.pendingBlueFireball){
+          enemyProjectiles.push({
+            type: "dragonBlueFireball", x: en.x + en.w/2, y: en.y + en.h * 0.4,
+            vx: stats.projectileSpeed * dir, damage: en.blueFireballDamageScaled, sourceType: "motherDragon"
+          });
+        }else{
+          // Standard Triple Fireball — three in a tight vertical spread
+          [-16, 0, 16].forEach(offsetY => {
+            enemyProjectiles.push({
+              type: "dragonFireball", x: en.x + en.w/2, y: en.y + en.h * 0.4 + offsetY,
+              vx: stats.projectileSpeed * dir, damage: en.fireballDamageScaled, sourceType: "motherDragon"
+            });
+          });
+        }
+        en.attackCooldown = stats.attackCooldown;
+        en.pendingBlueFireball = false;
+      }
+      return;
+    }
+    if (Math.abs(dist) > stats.preferredRange + 20){
+      en.x += Math.sign(dist) * stats.speed;
+      en.moving = true;
+    }else if (Math.abs(dist) < stats.preferredRange - 20){
+      en.x -= Math.sign(dist) * stats.speed;
+      en.moving = true;
+    }else{
+      en.moving = false;
+      if (en.attackCooldown <= 0){
+        en.pendingBlueFireball = Math.random() < stats.blueFireballChance;
+        en.breathPrepTimer = stats.breathPrepFrames;
+      }
+    }
+  }
+
   function updateDrake(en){
     en.flyPhase = (en.flyPhase || 0) + 0.05;
     const stats = ENEMY_STATS.drake;
@@ -5453,6 +5542,57 @@
       return;
     }
 
+    if (en.type === "motherDragon"){
+      const w = en.w, h = en.h, y = en.y, cx = x + w / 2, cy = y + h * 0.55;
+      ctx.fillStyle = "#111215"; // obsidian scales, main body
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, w * 0.38, h * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#2C2D35"; // horns
+      ctx.beginPath();
+      ctx.moveTo(cx + w * 0.2, y + h * 0.15);
+      ctx.lineTo(cx + w * 0.28, y - h * 0.05);
+      ctx.lineTo(cx + w * 0.3, y + h * 0.18);
+      ctx.closePath(); ctx.fill();
+      // jagged back spines
+      ctx.fillStyle = "#2C2D35";
+      for (let i = 0; i < 5; i++){
+        const sx = cx - w * 0.2 + i * (w * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - h * 0.24);
+        ctx.lineTo(sx + 8, cy - h * 0.4);
+        ctx.lineTo(sx + 16, cy - h * 0.24);
+        ctx.closePath(); ctx.fill();
+      }
+      // lava rib veins — glowing lines down the neck/belly
+      ctx.strokeStyle = "#FF3300";
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 3; i++){
+        const vx = cx - w * 0.1 + i * (w * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(vx, cy - h * 0.2);
+        ctx.lineTo(vx, cy + h * 0.22);
+        ctx.stroke();
+      }
+      // Throat: telegraphs the UPCOMING attack, not the one currently
+      // firing — orange for the standard triple fireball, blue with a
+      // pulsing aura for the Blue Fireball attack. Both only appear once
+      // she's actually decided (pendingBlueFireball gets set the instant
+      // the prep window starts), matching the spec's own framing that
+      // the color change is a genuine "what's coming" telegraph.
+      const isPrepping = en.breathPrepTimer > 0;
+      const throatColor = en.pendingBlueFireball ? "#00BFFF" : "#FF4500";
+      if (isPrepping && en.pendingBlueFireball){ ctx.shadowBlur = 14; ctx.shadowColor = "#00BFFF"; }
+      ctx.fillStyle = throatColor;
+      ctx.globalAlpha = isPrepping ? (0.6 + 0.4 * Math.sin(frame * 0.4)) : 0.7;
+      ctx.beginPath();
+      ctx.ellipse(cx + w * 0.32, cy + h * 0.05, w * 0.06, h * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      return;
+    }
+
     if (en.type === "knight"){
       const w = en.w, h = en.h, y = en.y, cx = x + w/2;
       // legs, with a walking swing while approaching (same pattern as
@@ -5963,6 +6103,27 @@
       ctx.beginPath();
       ctx.arc(x, p.y, 4, 0, Math.PI * 2);
       ctx.fill();
+    }else if (p.type === "dragonFireball"){
+      // Multi-layer radial gradient per the spec: center #FFFF00, mid
+      // #FF4500, outer transparent
+      const grad = ctx.createRadialGradient(x, p.y, 0, x, p.y, 10);
+      grad.addColorStop(0, "#FFFF00");
+      grad.addColorStop(0.5, "#FF4500");
+      grad.addColorStop(1, "#00000000");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(x, p.y, 10, 0, Math.PI * 2); ctx.fill();
+    }else if (p.type === "dragonBlueFireball"){
+      // 2x damage variant — larger, glowing, distinctly cold-colored so
+      // it reads as more dangerous than the standard fireball at a glance
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = "#00BFFF";
+      const grad = ctx.createRadialGradient(x, p.y, 0, x, p.y, 14);
+      grad.addColorStop(0, "#FFFFFF");
+      grad.addColorStop(0.5, "#00BFFF");
+      grad.addColorStop(1, "#0000FF");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(x, p.y, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
     }else{
       ctx.fillStyle = COLORS.lightning;
       ctx.beginPath();
