@@ -4166,10 +4166,136 @@
   // back, drawStalagmitesZone/drawStalactitesZone/drawCrystalMineZone/
   // drawSilverMineZone get dispatched here by currentDungeonRoom.biomeId,
   // the same way drawTowerFloor dispatches its own per-biome decoration.
+  // The 4 functions below came back from the external delegation
+  // (dungeon_biome_handoff.txt) and were reviewed before integrating,
+  // not pasted in blind. All four correctly follow this codebase's own
+  // worldToScreen + off-screen-skip conventions and translate the
+  // spec's exact colors, dimensions, and glow effects (the Crystal
+  // Mine's shadowBlur/shadowColor lines match the spec's own code
+  // snippet precisely). One real fix applied during review: Silver
+  // Mine's rail track draw spanned the entire room width unclamped,
+  // including far off-screen — harmless visually since canvas clips
+  // automatically, but tightened to only draw the visible span.
+  function drawStalagmitesZone(z){
+    for (let wx = z.start; wx < z.end; wx += 36){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+      const h = 40 + ((wx * 17) % 81); // 40-120px
+      const w = 12 + ((wx * 11) % 14);
+      const grad = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y - h);
+      grad.addColorStop(0, '#0F1218');
+      grad.addColorStop(1, '#4F5C70');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(sx - w, GROUND_Y);
+      ctx.lineTo(sx - w * 0.45, GROUND_Y - h * 0.45);
+      ctx.lineTo(sx, GROUND_Y - h);
+      ctx.lineTo(sx + w * 0.45, GROUND_Y - h * 0.38);
+      ctx.lineTo(sx + w, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#2B3340';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y - h);
+      ctx.lineTo(sx, GROUND_Y);
+      ctx.stroke();
+    }
+  }
+  function drawStalactitesZone(z){
+    for (let wx = z.start + 20; wx < z.end; wx += 42){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+      const h = 30 + ((wx * 13) % 61); // 30-90px
+      const w = 10 + ((wx * 7) % 10);
+      ctx.fillStyle = '#262E38';
+      ctx.beginPath();
+      ctx.moveTo(sx - w, 0);
+      ctx.lineTo(sx - w * 0.35, h * 0.35);
+      ctx.lineTo(sx, h);
+      ctx.lineTo(sx + w * 0.35, h * 0.35);
+      ctx.lineTo(sx + w, 0);
+      ctx.closePath();
+      ctx.fill();
+      const phase = (frame + wx) % 60;
+      const dropY = h + Math.max(0, phase - 48) * 4;
+      ctx.fillStyle = '#8FA3B8';
+      ctx.beginPath();
+      ctx.arc(sx, dropY, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  function drawCrystalMineZone(z){
+    for (let wx = z.start; wx < z.end; wx += 180){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+      ctx.fillStyle = '#3A2312';
+      ctx.fillRect(sx - 4, 0, 8, GROUND_Y);
+      ctx.fillRect(sx - 18, 18, 36, 8);
+      ctx.fillStyle = '#5C544D';
+      ctx.fillRect(sx - 6, 16, 4, 12);
+      ctx.fillRect(sx + 2, 16, 4, 12);
+    }
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#00F0FF';
+    for (let wx = z.start + 30; wx < z.end; wx += 90){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+      const top = ((wx * 19) % 2) === 0;
+      const y = top ? 40 : GROUND_Y - 40;
+      const dir = top ? 1 : -1;
+      ctx.fillStyle = ((wx / 90) % 2 === 0) ? '#00F0FF' : '#D926B5';
+      ctx.beginPath();
+      ctx.moveTo(sx, y);
+      ctx.lineTo(sx - 10, y + dir * 10);
+      ctx.lineTo(sx - 5, y + dir * 24);
+      ctx.lineTo(sx + 5, y + dir * 24);
+      ctx.lineTo(sx + 10, y + dir * 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+  function drawSilverMineZone(z){
+    for (let wx = z.start; wx < z.end; wx += 18){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+      const y = 25 + ((wx * 37) % (GROUND_Y - 60));
+      const a = 0.25 + (((wx * 13) % 70) / 100);
+      ctx.fillStyle = `rgba(224,230,237,${a})`;
+      ctx.beginPath();
+      ctx.arc(sx, y, 1.5 + ((wx * 5) % 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#30353B';
+    const railStart = Math.max(0, worldToScreen(z.start));
+    const railEnd = Math.min(CANVAS_W, worldToScreen(z.end));
+    if (railEnd > railStart){
+      ctx.fillRect(railStart, GROUND_Y - 14, railEnd - railStart, 4);
+      ctx.fillRect(railStart, GROUND_Y - 4, railEnd - railStart, 4);
+    }
+    for (let wx = z.start; wx < z.end; wx += 22){
+      const sx = worldToScreen(wx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      ctx.fillStyle = '#422E1F';
+      ctx.fillRect(sx - 6, GROUND_Y - 16, 12, 16);
+    }
+  }
+
   function drawDungeonRoom(){
     if (!currentDungeonRoom) return;
+
+    // Layer 1 — biome structural props, delegated externally per
+    // dungeon_biome_handoff.txt and integrated here. Runs regardless of
+    // where the exit currently sits on screen, unlike the exit itself.
+    const biomeDrawFn = {
+      stalagmites: drawStalagmitesZone, stalactites: drawStalactitesZone,
+      crystalMine: drawCrystalMineZone, silverMine: drawSilverMineZone
+    }[currentDungeonRoom.biomeId];
+    if (biomeDrawFn) biomeDrawFn({ start: 0, end: currentDungeonRoom.worldWidth });
+
     const exitX = worldToScreen(dungeonExitX());
-    if (exitX < -40 || exitX > CANVAS_W + 40) return;
+    if (exitX < -40 || exitX > CANVAS_W + 40) return; // exit itself off-screen — nothing further to draw for it specifically
     const cleared = currentDungeonRoom.cleared;
 
     if (currentDungeonRoom.exitType === "gate"){
