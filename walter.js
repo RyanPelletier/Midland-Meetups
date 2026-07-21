@@ -6630,11 +6630,14 @@
         <button type="button" class="btn" id="wvw-sail-land1-btn">Grasslands</button>
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
         <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
-          <button type="button" class="btn" id="wvw-sail-tower-btn" style="margin-left:8px;">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
+          <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
+          <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons (New)</button>
         </div>
         <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-homebase-btn">Home Village</button>
+          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
+        </div>
+        <div style="margin-top:10px;">
+          <button type="button" class="btn green" id="wvw-sail-homebase-btn">Home Village</button>
         </div>
       `;
     }
@@ -6716,6 +6719,14 @@
     if (sailTowerBtn) sailTowerBtn.addEventListener("click", () => {
       sailToTower();
       closeMap();
+    });
+
+    const dungeonsBtn = document.getElementById("wvw-dungeons-btn");
+    if (dungeonsBtn) dungeonsBtn.addEventListener("click", () => {
+      // Placeholder only — no Dungeons system exists yet. Gives clear
+      // feedback rather than silently doing nothing when clicked.
+      dungeonsBtn.textContent = "Coming soon!";
+      dungeonsBtn.disabled = true;
     });
 
     const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
