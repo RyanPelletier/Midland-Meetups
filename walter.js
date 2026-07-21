@@ -193,6 +193,7 @@
   const PLAYER_BURN_DURATION_FRAMES = 600; // 10 seconds
   const PLAYER_BURN_DPS = 5;
   const PLAYER_BURN_DAMAGE_PER_FRAME = PLAYER_BURN_DPS / 60;
+  const PLAYER_BLACK_FIRE_MANA_DRAIN_PER_FRAME = 5 / 60; // 5 mana/sec while afflicted
 
   const CHESTS_HOME = [
     { x: CHEST_X, w: CHEST_W, h: CHEST_H },
@@ -829,7 +830,7 @@
     const b = BOSS_ROSTER[biomeId];
     ENEMY_STATS["boss_" + biomeId] = { hp: b.hp, damage: b.damage, speed: 0.7, attackCooldown: 90, contactRange: 55, w: 60, h: 92 };
   });
-  ENEMY_STATS.towerSorcerer = { hp: 900, speed: 1.0, damage: 24, attackCooldown: 100, preferredRange: 240, w: 26, h: 40 };
+  ENEMY_STATS.towerSorcerer = { hp: Math.round(900 * 1.2), speed: 1.0, damage: 24, attackCooldown: 100, preferredRange: 240, w: 26, h: 40 };
 
   const SPAWN_INTERVAL_MIN = 70;
   const SPAWN_INTERVAL_MAX = 140;
@@ -1244,9 +1245,11 @@
     nearVillagerId = closest ? closest.id : null;
   }
 
+  const MAX_FOLLOWING_CREW = 5;
   function assignCrewToFollow(crewId){
     const c = player.crew.find(x => x.id === crewId && x.status === "idle");
     if (!c) return false;
+    if (player.crew.filter(x => x.status === "following").length >= MAX_FOLLOWING_CREW) return false;
     c.status = "following";
     c.attackCooldown = 0;
     c.spellCooldown = 0;
@@ -2414,6 +2417,7 @@
   function updatePlayerBurn(){
     if (player.burningFrames <= 0) return;
     player.burningFrames--;
+    if (player.blackBurn) player.mana = Math.max(0, player.mana - PLAYER_BLACK_FIRE_MANA_DRAIN_PER_FRAME);
     if (player.burningFrames <= 0) player.blackBurn = false;
     damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true });
   }
@@ -2716,13 +2720,20 @@
   // recruit cost, no training wait, unlike the normal village pipeline.
   // That's a deliberate reward for clearing a Prison floor, per the
   // roadmap's own framing ("recruits them directly... for free").
+  const CAGE_RECRUIT_CHANCE = 0.2; // reduced from a guaranteed recruit
   function freeCagedVillager(cage){
-    const c = { id: "c" + player.nextCrewId, strength: cage.cagedStrength, status: "idle", spellsKnown: [] };
-    player.crew.push(c);
-    player.nextCrewId++;
-    respawnMessageText = "Freed a caged villager — joined your crew for free!";
-    respawnMessageTimer = 180;
-    if (DEBUG) console.log("[WvW] freed a caged villager: " + c.id + " (strength " + c.strength + ")");
+    if (Math.random() < CAGE_RECRUIT_CHANCE){
+      const c = { id: "c" + player.nextCrewId, strength: cage.cagedStrength, status: "idle", spellsKnown: [] };
+      player.crew.push(c);
+      player.nextCrewId++;
+      respawnMessageText = "Freed a caged villager — joined your crew for free!";
+      respawnMessageTimer = 180;
+      if (DEBUG) console.log("[WvW] freed a caged villager: " + c.id + " (strength " + c.strength + ")");
+    }else{
+      respawnMessageText = "The cage was empty...";
+      respawnMessageTimer = 180;
+      if (DEBUG) console.log("[WvW] opened an empty cage");
+    }
     saveProgress();
   }
 
@@ -3226,7 +3237,9 @@
           vx: 6 * (Math.sign(dist) || 1), damage: en.scaledDamage, sourceType: en.type
         });
       }else{
-        applyCharmToPlayer(120, 0.5); // "frozen" — same slow mechanic Sirens use
+        applyCharmToPlayer(300, 0); // full 5-second immobilize, not just a slow
+        player.burningFrames = 0; // cleanses Black Fire — consistent with the cyclops mechanic (ice puts out fire)
+        player.blackBurn = false;
         effects.push({ type: "freeze-burst", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2, radius: 40, life: 20 });
       }
       en.attackCooldown = stats.attackCooldown;
@@ -6145,13 +6158,16 @@
     const c = player.crew.find(x => x.id === villagerId);
     if (!c){ closeVillagerMenu(); return; }
     const following = c.status === "following";
+    const followingCount = player.crew.filter(x => x.status === "following").length;
+    const atCap = !following && followingCount >= MAX_FOLLOWING_CREW;
     const knownLabel = (c.spellsKnown && c.spellsKnown.length)
       ? c.spellsKnown.map(k => SPELLS[k] ? SPELLS[k].label : k).join(", ")
       : "None yet — assign them to the Library to learn some.";
     overlayInner.innerHTML = `
       <h3>Trained Crew — ${crewDisplayName(c)}</h3>
       <p>Strength: ${c.strength} (sword damage). Spells known: ${knownLabel}</p>
-      <button type="button" class="btn ${following ? "light" : ""}" id="wvw-crew-follow-toggle">${following ? "Unassign" : "Assign to follow you"}</button>
+      ${atCap ? `<p style="opacity:0.7;font-size:0.85rem;">Already have ${MAX_FOLLOWING_CREW} crew following you — unassign one first.</p>` : ""}
+      <button type="button" class="btn ${following ? "light" : ""}" id="wvw-crew-follow-toggle" ${atCap ? "disabled" : ""}>${following ? "Unassign" : "Assign to follow you"}</button>
       <button type="button" class="btn light" id="wvw-villager-close" style="margin-top:10px;">Close</button>
     `;
     document.getElementById("wvw-crew-follow-toggle").addEventListener("click", () => {
@@ -6834,15 +6850,12 @@
   }
 
   function renderCrewTab(){
-    if (player.crew.length === 0) return `<p style="opacity:0.7;">No crew recruited yet — start at the Training Grounds.</p>`;
+    const activeCrew = player.crew.filter(c => c.status === "following");
+    if (activeCrew.length === 0) return `<p style="opacity:0.7;">No crew currently following you — assign some from the village (T-interact), up to ${MAX_FOLLOWING_CREW} at a time. The full roster is still visible at the Training Grounds.</p>`;
 
-    const statusLabel = {
-      training: "Training", idle: "Idle", library: "At the Library",
-      blacksmith: "At the Blacksmith", following: "Following you", dead: "Fallen"
-    };
     const roleLabel = { soldier: "Soldier", medic: "Medic", archer: "Archer", mage: "Mage" };
 
-    const rows = player.crew.map(c => {
+    const rows = activeCrew.map(c => {
       const hpText = c.maxHp !== undefined ? `${Math.max(0, Math.round(c.hp))}/${c.maxHp} HP` : "—";
       const spellsText = (c.spellsKnown && c.spellsKnown.length) ? c.spellsKnown.map(k => SPELLS[k] ? SPELLS[k].label : k).join(", ") : "None";
       const role = c.role || "soldier";
@@ -6851,23 +6864,20 @@
         const disabled = r === "mage" && !canMage;
         return `<button type="button" class="btn ${role === r ? "" : "light"}" style="padding:4px 8px;font-size:0.72rem;" data-set-role="${c.id}:${r}" ${disabled ? "disabled" : ""}>${roleLabel[r]}</button>`;
       }).join(" ");
-      const unassignButton = c.status === "following"
-        ? `<button type="button" class="btn light" style="padding:4px 8px;font-size:0.72rem;" data-unassign-crew="${c.id}">Unassign</button>`
-        : "";
       return `
         <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <span style="font-weight:700;">${crewDisplayName(c)}</span>
-            <span style="opacity:0.75;font-size:0.78rem;">${statusLabel[c.status] || c.status}</span>
+            <span style="opacity:0.75;font-size:0.78rem;">Following you</span>
           </div>
           <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Strength ${c.strength} — ${hpText}</p>
           <p style="opacity:0.8;font-size:0.78rem;margin:2px 0;">Spells known: ${spellsText}</p>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${roleButtons} ${unassignButton}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${roleButtons} <button type="button" class="btn light" style="padding:4px 8px;font-size:0.72rem;" data-unassign-crew="${c.id}">Unassign</button></div>
         </div>
       `;
     }).join("");
 
-    return `<div style="text-align:left;">${rows}</div>`;
+    return `<p style="opacity:0.7;font-size:0.8rem;margin-bottom:8px;">${activeCrew.length}/${MAX_FOLLOWING_CREW} following. Full roster management is at the Training Grounds.</p><div style="text-align:left;">${rows}</div>`;
   }
 
   function renderAmuletsTab(){
