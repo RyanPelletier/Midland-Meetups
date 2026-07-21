@@ -1,0 +1,15 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="96" fill="#1B1F2E"/>
+  <circle cx="256" cy="256" r="180" fill="#232A40"/>
+  <!-- blade -->
+  <polygon points="256,90 276,300 256,340 236,300" fill="#F5F0E6"/>
+  <polygon points="256,90 268,300 256,320 244,300" fill="#8A8FA0"/>
+  <!-- crossguard -->
+  <rect x="196" y="300" width="120" height="18" rx="6" fill="#6B4222"/>
+  <!-- grip -->
+  <rect x="244" y="318" width="24" height="70" rx="8" fill="#6B4222"/>
+  <!-- pommel -->
+  <circle cx="256" cy="398" r="16" fill="#D4AF37"/>
+  <!-- lightning imbue spark -->
+  <polygon points="330,150 300,230 322,230 292,320 360,200 336,200" fill="#7EC8E3" opacity="0.9"/>
+</svg>
