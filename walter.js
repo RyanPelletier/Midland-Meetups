@@ -1039,6 +1039,7 @@
   let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
   let libraryUiOpen, blacksmithUiOpen, trainingUiOpen, graveyardUiOpen;
   let nearVillagerId = null; // edge-triggered proximity for the "T" interact prompt
+  let nearCage = null; // nearest unbroken Tower cage in range, for the "Q" Pick Lock interact
   let villagerMenuOpen = false;
   let altarActiveTab = "spells"; // "spells" | "inventory" | "shops" | "amulets"
   let amuletViewKey = null; // which amulet's sub-tab is currently shown in the Amulets tab
@@ -1197,6 +1198,31 @@
       }
       wanderStep(c);
     });
+  }
+
+  function updateCageProximity(){
+    if (currentMap !== "tower"){ nearCage = null; return; }
+    const range = 40;
+    const playerCx = player.x + PLAYER_W / 2;
+    let closest = null, closestDist = Infinity;
+    enemies.forEach(en => {
+      if (!en.isCage || en.hp <= 0) return;
+      const dist = Math.abs((en.x + en.w/2) - playerCx);
+      if (dist < range && dist < closestDist){ closest = en; closestDist = dist; }
+    });
+    nearCage = closest;
+  }
+
+  // Freeing a caged villager now only happens two ways: Pick Lock (this
+  // function) or the Freeze spell's own instant-shatter check — combat
+  // damage no longer touches cages at all, so both paths free the
+  // villager directly rather than routing through damageEnemy()'s normal
+  // HP-reduction flow.
+  function pickLockCage(cage){
+    if (!cage || cage.hp <= 0 || cage.counted) return;
+    cage.hp = 0;
+    cage.counted = true;
+    freeCagedVillager(cage);
   }
 
   function updateVillagerProximity(){
@@ -2008,6 +2034,7 @@
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
     if (e.code === "KeyQ" && nearMenuAction) openMenuForAction(nearMenuAction);
+    if (e.code === "KeyQ" && nearCage) pickLockCage(nearCage);
 
     if (e.code === "ArrowUp"){
       const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
@@ -2046,6 +2073,7 @@
     updatePassiveIncome();
     updateVillagers();
     updateTowerProgress();
+    updateCageProximity();
     updateVillagerProximity();
     updateCrewTimers();
     updateBlacksmithJob();
@@ -2480,7 +2508,7 @@
     for (let i = 0; i < maxTargets; i++){
       let nearest = null, nearestDist = Infinity;
       enemies.forEach(en => {
-        if (en.hp <= 0 || hitSoFar.includes(en)) return;
+        if (en.hp <= 0 || en.isCage || hitSoFar.includes(en)) return;
         const d = Math.hypot((en.x + en.w/2) - fromX, (en.y + en.h/2) - fromY);
         if (d < 260 && d < nearestDist){ nearest = en; nearestDist = d; }
       });
@@ -2528,7 +2556,7 @@
     const sword = getEquippedSword();
     const imbues = sword ? Object.keys(sword.activeImbues) : [];
     enemies.forEach(en => {
-      if (en.hp > 0 && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
+      if (en.hp > 0 && !en.isCage && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
         damageEnemy(en, MELEE_DAMAGE);
         // Imbue effects still apply even if this hit was lethal — the arc
         // in particular reaches OTHER nearby enemies regardless of
@@ -2600,7 +2628,7 @@
         }
         let nearest = null, nearestDist = Infinity;
         enemies.forEach(en => {
-          if (en.hp <= 0 || hitSoFar.includes(en)) return;
+          if (en.hp <= 0 || en.isCage || hitSoFar.includes(en)) return;
           const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
           const dx = enCx - fromX, dy = enCy - fromY;
           const dist = Math.sqrt(dx*dx + dy*dy);
@@ -2634,9 +2662,9 @@
         if (Math.sqrt(dx*dx + dy*dy) < cfg.radius){
           if (en.isCage){
             // A stationary cage doesn't benefit from "frozen" crowd
-            // control — the roadmap frames Freeze as an alternate way to
-            // break it outright, same end result as melee/spell damage.
-            if (en.hp > 0) damageEnemy(en, en.hp);
+            // control — Freeze is one of the two ways to free a caged
+            // villager outright, the other being Pick Lock (Q).
+            pickLockCage(en);
             return;
           }
           en.frozenFrames = cfg.duration;
@@ -3222,7 +3250,7 @@
       ? Math.round(cfg.burnDuration * AMULETS[player.equippedAmulet].burnDurationMultiplier)
       : cfg.burnDuration;
     enemies.forEach(en => {
-      if (en.hp <= 0) return;
+      if (en.hp <= 0 || en.isCage) return;
       const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
       const dx = enCx - x, dy = enCy - y;
       if (Math.sqrt(dx*dx + dy*dy) < cfg.splashRadius) en.burningFrames = burnDuration;
@@ -3245,7 +3273,7 @@
     playerProjectiles.forEach(p => {
       if (p.hit) return;
       enemies.forEach(en => {
-        if (en.hp > 0 && rectsOverlap(p.x-8, p.y-8, 16, 16, en.x, en.y, en.w, en.h)){
+        if (en.hp > 0 && !en.isCage && rectsOverlap(p.x-8, p.y-8, 16, 16, en.x, en.y, en.w, en.h)){
           // Elemental combo: Frozen + Fireball doubles the hit — a
           // "shatter" interaction, matching the roadmap's combo table.
           const dmg = (p.type === "fireball" && en.frozenFrames > 0) ? p.damage * 2 : p.damage;
@@ -3392,7 +3420,7 @@
         return;
       }
 
-      const alive = enemies.filter(en => en.hp > 0 && Math.abs(en.x - c.x) < 280);
+      const alive = enemies.filter(en => en.hp > 0 && !en.isCage && Math.abs(en.x - c.x) < 280);
       const target = alive.sort((p, q) => Math.abs(p.x - c.x) - Math.abs(q.x - c.x))[0];
 
       if (target){
@@ -3492,7 +3520,7 @@
     allies.forEach(a => {
       a.life--;
       if (a.cooldown > 0) a.cooldown--;
-      const alive = enemies.filter(en => en.hp > 0);
+      const alive = enemies.filter(en => en.hp > 0 && !en.isCage);
       const target = alive.sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x))[0];
       if (a.kind === "demon" || a.kind === "angel"){
         a.flyPhase = (a.flyPhase || 0) + 0.08;
@@ -3537,7 +3565,7 @@
     ghosts.forEach(g => {
       g.life--;
       if (g.cooldown > 0) g.cooldown--;
-      const alive = enemies.filter(en => en.hp > 0);
+      const alive = enemies.filter(en => en.hp > 0 && !en.isCage);
       const target = alive.sort((p, q) => Math.abs(p.x - g.x) - Math.abs(q.x - g.x))[0];
       if (target){
         const dist = (target.x + target.w/2) - (g.x + PLAYER_W/2);
@@ -3558,7 +3586,7 @@
       fx.life--;
       if (fx.type === "black-hole"){
         enemies.forEach(en => {
-          if (en.hp <= 0) return;
+          if (en.hp <= 0 || en.isCage) return;
           const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
           const dx = fx.x - enCx, dy = fx.y - enCy;
           const dist = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -3576,7 +3604,7 @@
             if (Math.sqrt(dx*dx + dy*dy) < fx.radius) damagePlayer(fx.damagePerTick, { source: "lightning" });
           }else{
             enemies.forEach(en => {
-              if (en.hp <= 0) return;
+              if (en.hp <= 0 || en.isCage) return;
               const dx = (en.x + en.w/2) - fx.x, dy = (en.y + en.h/2) - fx.y;
               if (Math.sqrt(dx*dx + dy*dy) < fx.radius) damageEnemy(en, fx.damagePerTick);
             });
@@ -5091,23 +5119,19 @@
 
     if (en.type === "cage"){
       const w = en.w, h = en.h, y = en.y;
-      // caged villager silhouette, behind the bars
-      ctx.fillStyle = COLORS.playerLeather;
-      ctx.beginPath(); ctx.arc(x + w/2, y + 8, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillRect(x + w/2 - 5, y + 14, 10, h - 20);
+      // caged villager, same figure/colors as a wandering villager, behind the bars
+      drawWalterFigure(x + (w - PLAYER_W) / 2, y - 2, COLORS.playerLeather, { moving: false, airborne: false, climbing: false }, "villagerHat");
       // bars — same style already used for the Prison biome's decoration
       ctx.strokeStyle = "#8A8A8A";
       ctx.lineWidth = 3;
       for (let bx = 2; bx < w; bx += 8){
         ctx.beginPath(); ctx.moveTo(x + bx, y); ctx.lineTo(x + bx, y + h); ctx.stroke();
       }
-      // cracks appear as the cage takes damage, telegraphing it's close to breaking
-      if (en.hp < en.maxHp * 0.5){
-        ctx.strokeStyle = "#4A4A4A";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 4, y + 6); ctx.lineTo(x + w - 6, y + h - 8);
-        ctx.stroke();
+      if (en === nearCage){
+        ctx.fillStyle = COLORS.hud;
+        ctx.font = "700 10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("[Q] Pick Lock", x + w/2, y - 10);
       }
       return;
     }
@@ -6591,12 +6615,10 @@
         <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
+          <button type="button" class="btn" id="wvw-sail-tower-btn" style="margin-left:8px;">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-homebase-btn">Home Village</button>
-        </div>
-        <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
         </div>
       `;
     }
