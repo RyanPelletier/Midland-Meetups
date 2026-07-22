@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3405,6 +3405,27 @@
         }
       }else if (en.bossBiomeId === "underwater"){
         updateLeviathan(en);
+      }else if (en.bossBiomeId === "castlewalls"){
+        // Same "closes in, hits on cooldown" shape as the generic boss
+        // AI, but with a brief fencing-stance wind-up before the hit
+        // actually lands — gives the redesign's optional ready-stance
+        // visual (attackWindup) real gameplay meaning instead of
+        // leaving it permanently at 0.
+        if (en.attackWindupTimer > 0){
+          en.attackWindupTimer--;
+          en.attackWindup = 1 - en.attackWindupTimer / CHAMPION_WINDUP_FRAMES;
+          if (en.attackWindupTimer <= 0){
+            en.attackWindup = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.attackWindupTimer = CHAMPION_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3596,6 +3617,7 @@
   }
 
   const CYCLOPS_WINDUP_FRAMES = 30; // half-second telegraph before the beam fires
+  const CHAMPION_WINDUP_FRAMES = 25; // brief fencing-stance wind-up before the hit lands
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -5547,6 +5569,118 @@
   // the extreme points: plume top at y+2, boots at y+90, sword tip at
   // x+58) — so no reconciliation fixes were needed here, just the
   // rallyFlash wiring in updateCommanderRally().
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (verified the extreme points — head crest
+  // at y+2, boots at y+90, rapier pommel at x+56 — all within the
+  // declared 60x92 box), same as Commander's redesign. The optional
+  // attackWindup field needed a real mechanic behind it though —
+  // Royal Champion had no telegraph of any kind before this, just the
+  // shared generic "close in, hit on cooldown" AI — so a genuine
+  // wind-up window was added in updateEnemies() rather than leaving
+  // the field permanently at 0.
+  function drawRoyalChampion(en, x){
+    const y = en.y;
+    const sway = Math.sin(frame * 0.045) * 2;
+    const windup = en.attackWindup || 0;
+
+    ctx.fillStyle = "#244F88";
+    ctx.beginPath();
+    ctx.moveTo(x + 26, y + 18 + sway);
+    ctx.lineTo(x + 42, y + 22 + sway);
+    ctx.lineTo(x + 40, y + 84 + sway);
+    ctx.lineTo(x + 22, y + 74 + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#636C75";
+    ctx.fillRect(x + 23, y + 56 + sway, 8, 30);
+    ctx.fillRect(x + 33, y + 56 + sway, 8, 30);
+    ctx.fillStyle = "#2C3035";
+    ctx.fillRect(x + 21, y + 84 + sway, 11, 6);
+    ctx.fillRect(x + 32, y + 84 + sway, 11, 6);
+
+    ctx.fillStyle = "#9098A1";
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 18 + sway);
+    ctx.lineTo(x + 42, y + 18 + sway);
+    ctx.lineTo(x + 40, y + 58 + sway);
+    ctx.lineTo(x + 20, y + 58 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#B8C0C8";
+    ctx.fillRect(x + 28, y + 22 + sway, 3, 30);
+    ctx.fillStyle = "#315D96";
+    ctx.fillRect(x + 20, y + 20 + sway, 20, 2);
+
+    ctx.fillStyle = "#737D87";
+    ctx.beginPath();
+    ctx.arc(x + 18, y + 24 + sway, 5, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 42, y + 24 + sway, 5, -Math.PI * 0.5, Math.PI * 0.5);
+    ctx.fill();
+
+    ctx.fillStyle = "#7B858F";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 13 + sway, 10, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(x + 20, y + 13 + sway, 20, 11);
+    ctx.fillStyle = "#1E2228";
+    ctx.fillRect(x + 24, y + 17 + sway, 12, 4);
+    ctx.fillStyle = "#315D96";
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 2 + sway);
+    ctx.lineTo(x + 35, y + 12 + sway);
+    ctx.lineTo(x + 26, y + 10 + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#737D87";
+    ctx.fillRect(x + 9, y + 26 + sway, 7, 28);
+
+    ctx.fillStyle = "#44576B";
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y + 18 + sway);
+    ctx.lineTo(x + 14, y + 14 + sway);
+    ctx.lineTo(x + 18, y + 32 + sway);
+    ctx.lineTo(x + 10, y + 58 + sway);
+    ctx.lineTo(x + 2, y + 46 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#D7DEE6";
+    ctx.fillRect(x + 9, y + 18 + sway, 2, 34);
+    ctx.fillStyle = "#C7A44C";
+    ctx.beginPath();
+    ctx.arc(x + 10, y + 28 + sway, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    const raise = windup * 6;
+    ctx.fillStyle = "#737D87";
+    ctx.fillRect(x + 43, y + 26 - raise + sway, 7, 26);
+
+    ctx.fillStyle = "#E5ECF2";
+    ctx.fillRect(x + 53, y + 8 - raise + sway, 2, 40);
+    ctx.fillStyle = "#C7A44C";
+    ctx.fillRect(x + 50, y + 46 - raise + sway, 8, 2);
+    ctx.fillStyle = "#5A3820";
+    ctx.fillRect(x + 53, y + 48 - raise + sway, 2, 8);
+    ctx.fillStyle = "#C7A44C";
+    ctx.beginPath();
+    ctx.arc(x + 54, y + 57 - raise + sway, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#4C3724";
+    ctx.fillRect(x + 20, y + 46 + sway, 20, 4);
+
+    if (windup > 0){
+      ctx.strokeStyle = "rgba(220,235,255," + (windup * 0.6).toFixed(2) + ")";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + 30, y + 34 + sway, 18 + windup * 4, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+    }
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -5742,34 +5876,7 @@
       drawCommander(en, x);
 
     }else if (en.bossBiomeId === "castlewalls"){
-      // Royal Champion — slim duelist with an oversized kite shield,
-      // now with an idle stance shift and a glinting shield rim
-      const shift = Math.sin(frame * 0.06) * 2;
-      ctx.fillStyle = COLORS.championArmor;
-      ctx.fillRect(x + w * 0.32 + shift, y, w * 0.36, h * 0.85);
-      ctx.fillRect(x + w * 0.36 + shift, y - 8, w * 0.28, 10); // helm
-      ctx.fillStyle = COLORS.championShield;
-      ctx.beginPath();
-      ctx.moveTo(x, y + 10);
-      ctx.lineTo(x + w * 0.42, y + 4);
-      ctx.lineTo(x + w * 0.42, y + h * 0.7);
-      ctx.lineTo(x + w * 0.2, y + h);
-      ctx.lineTo(x, y + h * 0.65);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = COLORS.championShieldRim;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // a brief glint that sweeps across the shield rim periodically
-      const glintPhase = (frame * 2) % 240;
-      if (glintPhase < 20){
-        ctx.globalAlpha = 1 - glintPhase / 20;
-        ctx.fillStyle = "#FFFFFF";
-        ctx.beginPath();
-        ctx.arc(x + w * 0.15, y + 10 + glintPhase * 2, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      drawRoyalChampion(en, x);
 
     }else if (en.bossBiomeId === "forest"){
       // Fey Queen — floating green robe, antler crown; now with a
