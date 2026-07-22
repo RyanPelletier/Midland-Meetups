@@ -3369,13 +3369,23 @@
         }
       }else if (en.type === "fey"){
         // Ranged kiting, same as archer/wizard, but instead of backing
-        // away when the player closes to melee range, it teleports.
-        if (Math.abs(dist) <= stats.contactRangeForTeleport && en.teleportCooldown <= 0){
-          const dir = Math.sign(dist) || 1;
-          const jump = stats.teleportRange * 0.5 + Math.random() * (stats.teleportRange * 0.5);
-          const bounds = combatZoneBounds();
-          en.x = clamp(en.x - dir * jump, bounds.start, bounds.end - en.w);
-          en.teleportCooldown = stats.teleportCooldown;
+        // away when the player closes to melee range, it teleports —
+        // now with a brief real windup first (en.teleportWindupTimer,
+        // driving the redesign's optional "phase" ghost-trail visual)
+        // rather than blinking away instantly with no tell at all.
+        if (en.teleportWindupTimer > 0){
+          en.teleportWindupTimer--;
+          en.phase = 1 - en.teleportWindupTimer / FEY_TELEPORT_WINDUP_FRAMES;
+          if (en.teleportWindupTimer <= 0){
+            en.phase = 0;
+            const dir = Math.sign(dist) || 1;
+            const jump = stats.teleportRange * 0.5 + Math.random() * (stats.teleportRange * 0.5);
+            const bounds = combatZoneBounds();
+            en.x = clamp(en.x - dir * jump, bounds.start, bounds.end - en.w);
+            en.teleportCooldown = stats.teleportCooldown;
+          }
+        }else if (Math.abs(dist) <= stats.contactRangeForTeleport && en.teleportCooldown <= 0){
+          en.teleportWindupTimer = FEY_TELEPORT_WINDUP_FRAMES;
         }else if (Math.abs(dist) > stats.preferredRange + 20){
           en.x += Math.sign(dist) * stats.speed;
         }else if (en.attackCooldown <= 0){
@@ -3618,6 +3628,7 @@
 
   const CYCLOPS_WINDUP_FRAMES = 30; // half-second telegraph before the beam fires
   const CHAMPION_WINDUP_FRAMES = 25; // brief fencing-stance wind-up before the hit lands
+  const FEY_TELEPORT_WINDUP_FRAMES = 15; // shorter than a boss's telegraph — fey should read as quick and erratic
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -5578,6 +5589,319 @@
   // shared generic "close in, hit on cooldown" AI — so a genuine
   // wind-up window was added in updateEnemies() rather than leaving
   // the field permanently at 0.
+  // Redesigned externally, reviewed before integrating. All three
+  // stated their coordinate assumption up front and it checked out —
+  // traced each shape's extremes against the actual declared
+  // dimensions (Fey 24x38, Fairy 16x20, Siren 24x38, all confirmed
+  // against ENEMY_STATS) and everything fits, aside from Fey's antler
+  // poking ~1px above its nominal box, which is a cosmetic flourish
+  // like several other enemies already have, not a real mismatch.
+  // Fey's optional "phase" field needed a real mechanic behind it,
+  // the same way Cyclops's and Royal Champion's optional fields did —
+  // its teleport used to fire instantly with zero warning, now it has
+  // a genuine short windup first (see updateEnemies()). Fairy and
+  // Siren are visual-only changes; neither has a special mechanic to
+  // wire anything into.
+  // Redesigned externally, reviewed before integrating. Dimensions
+  // verified directly against ENEMY_STATS (Mermaid 24x38, Cultist
+  // 32x48, Drake 64x48, Ogre 34x46, Snake 22x18) — all five matched
+  // exactly. One real fix applied: Drake's code referenced
+  // `en.breathPrep` as a value counting UP to 40, but the actual field
+  // this game uses is `en.breathPrepTimer`, which counts DOWN from 40
+  // to 0 — opposite direction. Left as originally written, the fire
+  // charge glow would have shrunk as the attack approached instead of
+  // building up. Corrected to derive the same 0→1 progress the design
+  // expects from the real, decreasing timer.
+  function drawMermaid(en, x){
+    const y = en.y;
+    const sway = Math.sin(frame * 0.07) * 2;
+    ctx.fillStyle = "#2D88A7";
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 16 + sway);
+    ctx.lineTo(x + 18, y + 34 + sway);
+    ctx.lineTo(x + 12, y + 30 + sway);
+    ctx.lineTo(x + 6, y + 34 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#6FC5D8";
+    ctx.fillRect(x + 8, y + 10 + sway, 8, 12);
+    ctx.fillStyle = "#F2DFC9";
+    ctx.beginPath();
+    ctx.arc(x + 12, y + 6 + sway, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2E507E";
+    ctx.beginPath();
+    ctx.moveTo(x + 6, y + 4 + sway);
+    ctx.lineTo(x + 18, y + 6 + sway);
+    ctx.lineTo(x + 19, y + 18 + sway);
+    ctx.lineTo(x + 5, y + 17 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#8DEEFF";
+    ctx.beginPath();
+    ctx.moveTo(x + 6, y + 18 + sway);
+    ctx.lineTo(x + 1, y + 24 + sway);
+    ctx.lineTo(x + 7, y + 23 + sway);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 18 + sway);
+    ctx.lineTo(x + 23, y + 24 + sway);
+    ctx.lineTo(x + 17, y + 23 + sway);
+    ctx.fill();
+  }
+
+  function drawCultist(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.05) * 2;
+    ctx.fillStyle = "#44204C";
+    ctx.beginPath();
+    ctx.moveTo(x + 16, y + 4 + bob);
+    ctx.lineTo(x + 28, y + 42 + bob);
+    ctx.lineTo(x + 4, y + 42 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#2A1330";
+    ctx.beginPath();
+    ctx.arc(x + 16, y + 12 + bob, 10, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = "#111";
+    ctx.fillRect(x + 11, y + 12 + bob, 10, 10);
+    ctx.fillStyle = "#B548FF";
+    ctx.fillRect(x + 13, y + 15 + bob, 2, 2);
+    ctx.fillRect(x + 17, y + 15 + bob, 2, 2);
+    ctx.fillStyle = "#5B4128";
+    ctx.fillRect(x + 28, y + 4 + bob, 3, 38);
+    ctx.fillStyle = "#C25BFF";
+    ctx.beginPath();
+    ctx.arc(x + 29.5, y + 2 + bob, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(194,91,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(x + 16, y + 26 + bob, 7, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawDrake(en, x){
+    const y = en.y;
+    const flap = Math.sin(frame * 0.12) * 3;
+    const stats = ENEMY_STATS.drake;
+    const prep = en.breathPrepTimer > 0 ? 1 - (en.breathPrepTimer / stats.breathPrepFrames) : 0;
+
+    ctx.fillStyle = "#315E46";
+    ctx.beginPath();
+    ctx.moveTo(x + 6, y + 28);
+    ctx.lineTo(x - 6, y + 22);
+    ctx.lineTo(x + 2, y + 32);
+    ctx.fill();
+    ctx.fillStyle = "#4E8A60";
+    ctx.beginPath();
+    ctx.moveTo(x + 10, y + 26);
+    ctx.lineTo(x + 44, y + 18);
+    ctx.lineTo(x + 58, y + 26);
+    ctx.lineTo(x + 42, y + 40);
+    ctx.lineTo(x + 14, y + 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#3A7050";
+    ctx.beginPath();
+    ctx.moveTo(x + 28, y + 20);
+    ctx.lineTo(x + 10, y + 6 - flap);
+    ctx.lineTo(x + 36, y + 18);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 34, y + 20);
+    ctx.lineTo(x + 54, y + 6 + flap);
+    ctx.lineTo(x + 38, y + 22);
+    ctx.fill();
+    ctx.fillStyle = "#4E8A60";
+    ctx.beginPath();
+    ctx.arc(x + 52, y + 16, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#D8C38A";
+    ctx.fillRect(x + 54, y + 6, 2, 6);
+    ctx.fillStyle = "#FFF44C";
+    ctx.beginPath();
+    ctx.arc(x + 55, y + 15, 2, 0, Math.PI * 2);
+    ctx.fill();
+    if (prep > 0){
+      ctx.fillStyle = "rgba(255,140,40," + (0.2 + prep * 0.7).toFixed(2) + ")";
+      ctx.beginPath();
+      ctx.arc(x + 60, y + 18, 5 + prep * 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawOgre(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.04) * 1.5;
+    ctx.fillStyle = "#62553D";
+    ctx.fillRect(x + 7, y + 26 + bob, 8, 20);
+    ctx.fillRect(x + 19, y + 26 + bob, 8, 20);
+    ctx.fillStyle = "#7B8862";
+    ctx.fillRect(x + 3, y + 6 + bob, 28, 24);
+    ctx.fillStyle = "#67734F";
+    ctx.fillRect(x, y + 8 + bob, 34, 10);
+    ctx.fillStyle = "#7B8862";
+    ctx.fillRect(x, y + 16 + bob, 6, 20);
+    ctx.fillRect(x + 28, y + 16 + bob, 6, 20);
+    ctx.fillStyle = "#5A6545";
+    ctx.beginPath();
+    ctx.arc(x + 3, y + 36 + bob, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 31, y + 36 + bob, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#7B8862";
+    ctx.beginPath();
+    ctx.arc(x + 17, y + 5 + bob, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#F4E7BE";
+    ctx.fillRect(x + 11, y + 8 + bob, 2, 5);
+    ctx.fillRect(x + 21, y + 8 + bob, 2, 5);
+    ctx.fillStyle = "#585858";
+    ctx.fillRect(x + 2, y + 8 + bob, 7, 5);
+  }
+
+  function drawSnake(en, x){
+    const y = en.y;
+    const wiggle = Math.sin(frame * 0.25) * 2;
+    ctx.fillStyle = "#3F8A42";
+    for (let i = 0; i < 4; i++){
+      ctx.beginPath();
+      ctx.arc(x + 5 + i * 4, y + 9 + Math.sin(frame * 0.18 + i) * wiggle, 4 - i * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(x + 18, y + 9, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#A6D979";
+    ctx.fillRect(x + 15, y + 8, 6, 2);
+    ctx.fillStyle = "#FFD94A";
+    ctx.fillRect(x + 19, y + 7, 2, 2);
+    ctx.strokeStyle = "#E43B3B";
+    ctx.beginPath();
+    ctx.moveTo(x + 23, y + 9);
+    ctx.lineTo(x + 26, y + 8);
+    ctx.moveTo(x + 26, y + 8);
+    ctx.lineTo(x + 27, y + 7);
+    ctx.moveTo(x + 26, y + 8);
+    ctx.lineTo(x + 27, y + 9);
+    ctx.stroke();
+  }
+
+  function drawFey(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.08 + en.x * 0.03) * 2;
+    const phase = en.phase || 0;
+    for (let i = 2; i >= 1; i--){
+      ctx.fillStyle = "rgba(90,255,170," + (0.10 * i + phase * 0.15).toFixed(2) + ")";
+      ctx.beginPath();
+      ctx.moveTo(x + 12 - i * 3, y + 4 + bob);
+      ctx.lineTo(x + 18 - i * 3, y + 18 + bob);
+      ctx.lineTo(x + 12 - i * 3, y + 34 + bob);
+      ctx.lineTo(x + 6 - i * 3, y + 18 + bob);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "#2E8C5A";
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 2 + bob);
+    ctx.lineTo(x + 20, y + 16 + bob);
+    ctx.lineTo(x + 16, y + 36 + bob);
+    ctx.lineTo(x + 8, y + 36 + bob);
+    ctx.lineTo(x + 4, y + 16 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#F2E7D2";
+    ctx.beginPath();
+    ctx.arc(x + 12, y + 7 + bob, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#98FFB8";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 1 + bob);
+    ctx.lineTo(x + 8, y - 3 + bob);
+    ctx.moveTo(x + 12, y + 1 + bob);
+    ctx.lineTo(x + 16, y - 3 + bob);
+    ctx.stroke();
+    ctx.fillStyle = "#7CFFE7";
+    ctx.beginPath();
+    ctx.arc(x + 18 + Math.sin(frame * 0.12) * 2, y + 12 + bob, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawFairy(en, x){
+    const y = en.y;
+    const flap = Math.sin(frame * 0.28) * 4;
+    ctx.fillStyle = "rgba(120,255,255,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(x + 4, y + 10, 4, 7, -0.6 + flap * 0.02, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + 12, y + 10, 4, 7, 0.6 - flap * 0.02, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#A9FFF9";
+    ctx.beginPath();
+    ctx.arc(x + 8, y + 10, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.arc(x + 8, y + 10, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#A9FFF9";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 7, y + 14);
+    ctx.lineTo(x + 6, y + 18);
+    ctx.moveTo(x + 9, y + 14);
+    ctx.lineTo(x + 10, y + 18);
+    ctx.stroke();
+    ctx.fillStyle = "#DFFFFF";
+    for (let i = 0; i < 3; i++){
+      ctx.beginPath();
+      ctx.arc(x + 8 + Math.sin(frame * 0.08 + i * 2) * 6, y + 10 + Math.cos(frame * 0.08 + i) * 4, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawSiren(en, x){
+    const y = en.y;
+    const sway = Math.sin(frame * 0.05) * 2;
+    ctx.fillStyle = "#3A7BA6";
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 18 + sway);
+    ctx.lineTo(x + 18, y + 36 + sway);
+    ctx.lineTo(x + 12, y + 34 + sway);
+    ctx.lineTo(x + 6, y + 36 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#6AB3D6";
+    ctx.fillRect(x + 8, y + 10 + sway, 8, 14);
+    ctx.fillStyle = "#F3E6D4";
+    ctx.beginPath();
+    ctx.arc(x + 12, y + 6 + sway, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#274B78";
+    ctx.beginPath();
+    ctx.moveTo(x + 7, y + 4 + sway);
+    ctx.lineTo(x + 18, y + 6 + sway);
+    ctx.lineTo(x + 20, y + 20 + sway);
+    ctx.lineTo(x + 5, y + 18 + sway);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#F5D68A";
+    ctx.beginPath();
+    ctx.arc(x + 12, y + 13 + sway, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(150,220,255,0.35)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 2; i++){
+      ctx.beginPath();
+      ctx.arc(x + 12, y + 16 + sway, 8 + i * 5 + Math.sin(frame * 0.05) * 2, Math.PI * 0.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+  }
+
   function drawRoyalChampion(en, x){
     const y = en.y;
     const sway = Math.sin(frame * 0.045) * 2;
@@ -6059,70 +6383,12 @@
     }
 
     if (en.type === "cultist"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      const bob = en.moving ? 0 : Math.sin(frame / 30) * 1; // IDLE: subtle vertical bob
-      const sway = en.moving ? Math.sin(frame * 0.3) * 3 : 0; // WALK: 4-frame robe sway
-      ctx.fillStyle = "#4A0E17";
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.3 + sway, y + h + bob);
-      ctx.lineTo(cx - w * 0.22, y + h * 0.25 + bob);
-      ctx.lineTo(cx + w * 0.22, y + h * 0.25 + bob);
-      ctx.lineTo(cx + w * 0.3 + sway, y + h + bob);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#1F0509"; // hood shadow, obscuring the face
-      ctx.beginPath();
-      ctx.ellipse(cx, y + h * 0.18 + bob, w * 0.22, h * 0.16, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#FFD700"; // only the eyes visible inside the hood
-      ctx.beginPath(); ctx.arc(cx - 4, y + h * 0.18 + bob, 1.5, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx + 4, y + h * 0.18 + bob, 1.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "#708090"; // dagger, held at the hip
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(cx + w * 0.3, y + h * 0.5 + bob); ctx.lineTo(cx + w * 0.42, y + h * 0.62 + bob); ctx.stroke();
-      if (!en.moving && en.attackCooldown < 15){ // CAST: arms extended, glyph particle at hands
-        ctx.strokeStyle = "#4A0E17";
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(cx, y + h * 0.4 + bob); ctx.lineTo(cx + w * 0.5, y + h * 0.35 + bob); ctx.stroke();
-        ctx.fillStyle = "#E5484D";
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath(); ctx.arc(cx + w * 0.55, y + h * 0.35 + bob, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      drawCultist(en, x);
       return;
     }
 
     if (en.type === "drake"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w / 2, cy = y + h / 2;
-      const scaleColor = en.scaleColor || "#1E4D2B";
-      const wingFlap = Math.sin((en.flyPhase || 0) * 3) * 12; // HOVER: wing flap cycle
-      ctx.fillStyle = "#122E1A"; // wing membranes
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.15, cy);
-      ctx.lineTo(cx - w * 0.55, cy - 14 - wingFlap);
-      ctx.lineTo(cx - w * 0.25, cy + 6);
-      ctx.closePath(); ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(cx + w * 0.15, cy);
-      ctx.lineTo(cx + w * 0.55, cy - 14 - wingFlap);
-      ctx.lineTo(cx + w * 0.25, cy + 6);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = scaleColor; // quadrupedal body
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, w * 0.32, h * 0.28, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(cx - w * 0.22, cy + h * 0.15, 5, 14);
-      ctx.fillRect(cx + w * 0.16, cy + h * 0.15, 5, 14);
-      ctx.beginPath(); // head
-      ctx.ellipse(cx + w * 0.35, cy - 4, w * 0.14, h * 0.16, 0, 0, Math.PI * 2);
-      ctx.fill();
-      const isPrepping = en.breathPrepTimer > 0; // BREATH_PREP: throat scales pulse
-      if (isPrepping){ ctx.shadowBlur = 10; ctx.shadowColor = "#FF4500"; }
-      ctx.fillStyle = "#FF4500";
-      ctx.globalAlpha = isPrepping ? (0.6 + 0.4 * Math.sin(frame * 0.4)) : 0.8;
-      ctx.beginPath(); ctx.arc(cx + w * 0.42, cy - 4, 4, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = 0;
+      drawDrake(en, x);
       return;
     }
 
@@ -6280,166 +6546,22 @@
         ctx.fill();
       }
     }else if (en.type === "fey"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // narrow robe, a trapezoid tapering to a point instead of legs
-      ctx.fillStyle = COLORS.feyBody;
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.32, y + h * 0.3);
-      ctx.lineTo(cx + w * 0.32, y + h * 0.3);
-      ctx.lineTo(cx, y + h);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillRect(cx - w * 0.2, y, w * 0.4, h * 0.32); // head/torso block
-      // small leaf-like arms
-      ctx.fillStyle = COLORS.feyArm;
-      ctx.beginPath();
-      ctx.ellipse(cx - w * 0.38, y + h * 0.35, 5, 2.5, 0.6, 0, Math.PI * 2);
-      ctx.ellipse(cx + w * 0.38, y + h * 0.35, 5, 2.5, -0.6, 0, Math.PI * 2);
-      ctx.fill();
-      // floating orb — the signature cue
-      ctx.fillStyle = COLORS.feyGlow;
-      ctx.beginPath();
-      ctx.arc(cx + w * 0.42, y + h * 0.25 + Math.sin(frame * 0.1) * 2, 4, 0, Math.PI * 2);
-      ctx.fill();
+      drawFey(en, x);
 
     }else if (en.type === "fairy"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // oversized teardrop wings, extending well past the tiny body
-      ctx.fillStyle = COLORS.fairyWing;
-      [-1, 1].forEach(dir => {
-        ctx.beginPath();
-        ctx.moveTo(cx, y + h * 0.35);
-        ctx.quadraticCurveTo(cx + dir * w * 1.1, y - h * 0.1, cx + dir * w * 0.9, y + h * 0.45);
-        ctx.quadraticCurveTo(cx + dir * w * 0.5, y + h * 0.55, cx, y + h * 0.5);
-        ctx.closePath();
-        ctx.fill();
-      });
-      // tiny round body + head
-      ctx.fillStyle = COLORS.fairyBody;
-      ctx.beginPath();
-      ctx.arc(cx, y + h * 0.4, w * 0.28, 0, Math.PI * 2);
-      ctx.fill();
-      // short dangling legs
-      ctx.strokeStyle = COLORS.fairyLeg;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cx - 2, y + h * 0.55); ctx.lineTo(cx - 3, y + h * 0.8);
-      ctx.moveTo(cx + 2, y + h * 0.55); ctx.lineTo(cx + 3, y + h * 0.8);
-      ctx.stroke();
+      drawFairy(en, x);
 
     }else if (en.type === "siren"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // lower body, mostly hidden beneath the hair cloak
-      ctx.fillStyle = COLORS.sirenBody;
-      ctx.fillRect(cx - w * 0.2, y + h * 0.55, w * 0.4, h * 0.45);
-      // dramatic triangular hair cloak reaching to the waist
-      ctx.fillStyle = COLORS.sirenHair;
-      ctx.beginPath();
-      ctx.moveTo(cx, y);
-      ctx.lineTo(cx - w * 0.4, y + h * 0.6);
-      ctx.lineTo(cx + w * 0.4, y + h * 0.6);
-      ctx.closePath();
-      ctx.fill();
-      // extended arm holding a fan-shaped shell
-      ctx.strokeStyle = COLORS.sirenBody;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cx + w * 0.2, y + h * 0.4);
-      ctx.lineTo(x + w + 4, y + h * 0.3);
-      ctx.stroke();
-      ctx.fillStyle = COLORS.sirenShell;
-      ctx.beginPath();
-      ctx.arc(x + w + 6, y + h * 0.3, 6, Math.PI, 0);
-      ctx.closePath();
-      ctx.fill();
+      drawSiren(en, x);
 
     }else if (en.type === "mermaid"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // upper torso
-      ctx.fillStyle = COLORS.mermaidBody;
-      ctx.fillRect(cx - w * 0.22, y, w * 0.44, h * 0.4);
-      // long sweeping tail curving to one side rather than straight down
-      ctx.fillStyle = COLORS.mermaidTail;
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.2, y + h * 0.35);
-      ctx.quadraticCurveTo(cx + w * 0.5, y + h * 0.6, cx + w * 0.15, y + h * 0.85);
-      ctx.quadraticCurveTo(cx + w * 0.05, y + h * 0.95, cx - w * 0.15, y + h * 0.8);
-      ctx.quadraticCurveTo(cx + w * 0.15, y + h * 0.55, cx - w * 0.05, y + h * 0.35);
-      ctx.closePath();
-      ctx.fill();
-      // small hip fins
-      ctx.fillStyle = COLORS.mermaidFin;
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.22, y + h * 0.4); ctx.lineTo(cx - w * 0.4, y + h * 0.45); ctx.lineTo(cx - w * 0.18, y + h * 0.5);
-      ctx.closePath();
-      ctx.fill();
-      // broad V-shaped fin at the tail's end
-      ctx.beginPath();
-      ctx.moveTo(cx + w * 0.05, y + h * 0.8);
-      ctx.lineTo(cx + w * 0.32, y + h * 0.72);
-      ctx.lineTo(cx + w * 0.1, y + h);
-      ctx.lineTo(cx - w * 0.05, y + h * 0.9);
-      ctx.closePath();
-      ctx.fill();
+      drawMermaid(en, x);
 
     }else if (en.type === "ogre"){
-      const w = en.w, h = en.h, y = en.y;
-      // small head
-      ctx.fillStyle = COLORS.ogreBody;
-      ctx.beginPath();
-      ctx.arc(x + w/2, y + 7, 6, 0, Math.PI * 2);
-      ctx.fill();
-      // tusks
-      ctx.fillStyle = COLORS.ogreTusk;
-      ctx.beginPath();
-      ctx.moveTo(x + w/2 - 5, y + 9); ctx.lineTo(x + w/2 - 8, y + 14); ctx.lineTo(x + w/2 - 3, y + 11);
-      ctx.moveTo(x + w/2 + 5, y + 9); ctx.lineTo(x + w/2 + 8, y + 14); ctx.lineTo(x + w/2 + 3, y + 11);
-      ctx.fill();
-      // huge torso
-      ctx.fillStyle = COLORS.ogreBody;
-      ctx.fillRect(x, y + 14, w, h * 0.6);
-      ctx.fillStyle = COLORS.ogreBodyDark;
-      ctx.fillRect(x, y + 22, w, 8);
-      // oversized fists hanging below the knees — the defining feature
-      ctx.fillStyle = COLORS.ogreFist;
-      ctx.beginPath();
-      ctx.arc(x - 2, y + h - 6, 8, 0, Math.PI * 2);
-      ctx.arc(x + w + 2, y + h - 6, 8, 0, Math.PI * 2);
-      ctx.fill();
+      drawOgre(en, x);
 
     }else if (en.type === "snake"){
-      const w = en.w, h = en.h, y = en.y, cx = x + w/2;
-      // winding S-shaped body from overlapping circles instead of one oval
-      ctx.fillStyle = COLORS.snakeBody;
-      const bodyPts = [
-        [cx - w * 0.35, y + h * 0.75], [cx - w * 0.1, y + h * 0.55], [cx + w * 0.2, y + h * 0.5],
-        [cx + w * 0.35, y + h * 0.3], [cx + w * 0.15, y + h * 0.15]
-      ];
-      bodyPts.forEach(([px, py], i) => {
-        ctx.beginPath();
-        ctx.arc(px, py, w * 0.22 * (1 - i * 0.08), 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.fillStyle = COLORS.snakeBelly;
-      bodyPts.slice(0, 3).forEach(([px, py]) => {
-        ctx.beginPath();
-        ctx.arc(px, py + 2, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      // broad triangular raised head with a forked tongue
-      const [hx, hy] = bodyPts[bodyPts.length - 1];
-      ctx.fillStyle = COLORS.snakeBody;
-      ctx.beginPath();
-      ctx.moveTo(hx - 6, hy + 2); ctx.lineTo(hx + 7, hy - 2); ctx.lineTo(hx - 2, hy - 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = COLORS.snakeTongue;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(hx + 6, hy - 1); ctx.lineTo(hx + 11, hy - 3);
-      ctx.moveTo(hx + 9, hy - 2); ctx.lineTo(hx + 11, hy);
-      ctx.stroke();
-
+      drawSnake(en, x);
     }else if (en.type === "giantEel"){
       const gw = en.w, gh = en.h, gy = en.y, gcx = x + gw/2;
       // wide horizontal S-curve from overlapping circles — bulkier than
