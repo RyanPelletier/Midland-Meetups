@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false]
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -2450,11 +2450,13 @@
   }
 
   function updateCommanderRally(boss){
+    if (boss.rallyFlash > 0) boss.rallyFlash = Math.max(0, boss.rallyFlash - 0.02); // decays over ~50 frames
     const thresholds = [0.75, 0.5, 0.25];
     const hpFrac = boss.hp / boss.maxHp;
     thresholds.forEach((t, i) => {
       if (!boss.rallyTriggered[i] && hpFrac <= t){
         boss.rallyTriggered[i] = true;
+        boss.rallyFlash = 1;
         summonRallyGuards(boss);
       }
     });
@@ -5538,6 +5540,112 @@
   // there — so y is ground-anchored to land the feet near the bottom
   // of the actual hitbox instead of ~95px above it. Both are single-line
   // fixes; everything below is the delegated code unchanged.
+  // Redesigned externally, reviewed before integrating. Unlike the
+  // previous two redesigns (Leviathan, Cyclops), this one's stated
+  // coordinate convention checked out against the actual geometry —
+  // everything genuinely stays within the declared 60x92 box (traced
+  // the extreme points: plume top at y+2, boots at y+90, sword tip at
+  // x+58) — so no reconciliation fixes were needed here, just the
+  // rallyFlash wiring in updateCommanderRally().
+  function drawCommander(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.05) * 2;
+    const rf = en.rallyFlash || 0;
+
+    const capeWave = Math.sin(frame * 0.12) * 2;
+    ctx.fillStyle = "#9E1F2C";
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 18 + bob);
+    ctx.lineTo(x + 46, y + 26 + bob);
+    ctx.lineTo(x + 42 + capeWave, y + 88 + bob);
+    ctx.lineTo(x + 16 + capeWave * 0.5, y + 72 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#D4B25A";
+    ctx.fillRect(x + 41 + capeWave, y + 28 + bob, 2, 54);
+
+    ctx.fillStyle = "#5A616A";
+    ctx.fillRect(x + 16, y + 58 + bob, 10, 28);
+    ctx.fillRect(x + 34, y + 58 + bob, 10, 28);
+    ctx.fillStyle = "#2B2E33";
+    ctx.fillRect(x + 14, y + 84 + bob, 14, 6);
+    ctx.fillRect(x + 32, y + 84 + bob, 14, 6);
+
+    ctx.fillStyle = "#7A838D";
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 18 + bob);
+    ctx.lineTo(x + 48, y + 18 + bob);
+    ctx.lineTo(x + 44, y + 60 + bob);
+    ctx.lineTo(x + 16, y + 60 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#A2AAB3";
+    ctx.fillRect(x + 28, y + 22 + bob, 4, 32);
+    ctx.fillStyle = "#C8A64C";
+    ctx.fillRect(x + 14, y + 20 + bob, 32, 3);
+    ctx.fillStyle = "#4A3823";
+    ctx.fillRect(x + 14, y + 48 + bob, 32, 5);
+    ctx.fillStyle = "#C8A64C";
+    ctx.fillRect(x + 27, y + 47 + bob, 6, 7);
+
+    ctx.fillStyle = "#676F79";
+    ctx.beginPath();
+    ctx.arc(x + 12, y + 24 + bob, 7, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 48, y + 24 + bob, 7, -Math.PI * 0.5, Math.PI * 0.5);
+    ctx.fill();
+
+    const raise = rf * 5;
+    ctx.fillStyle = "#727A84";
+    ctx.fillRect(x + 5, y + 26 - raise + bob, 8, 28);
+    ctx.fillRect(x + 47, y + 24 - raise + bob, 8, 30);
+
+    ctx.fillStyle = "#404850";
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y + 26 + bob);
+    ctx.lineTo(x + 10, y + 22 + bob);
+    ctx.lineTo(x + 16, y + 30 + bob);
+    ctx.lineTo(x + 10, y + 46 + bob);
+    ctx.lineTo(x + 2, y + 40 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#C8A64C";
+    ctx.fillRect(x + 8, y + 28 + bob, 2, 12);
+
+    ctx.fillStyle = "#D8DEE5";
+    ctx.fillRect(x + 55, y + 8 - raise + bob, 3, 42);
+    ctx.fillStyle = "#C8A64C";
+    ctx.fillRect(x + 53, y + 46 - raise + bob, 7, 2);
+    ctx.fillStyle = "#5A3820";
+    ctx.fillRect(x + 55, y + 48 - raise + bob, 2, 8);
+
+    ctx.fillStyle = "#737C86";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 14 + bob, 12, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(x + 18, y + 14 + bob, 24, 12);
+    ctx.fillStyle = "#20242A";
+    ctx.fillRect(x + 23, y + 18 + bob, 14, 6);
+    ctx.fillStyle = "#8F99A3";
+    ctx.fillRect(x + 29, y + 14 + bob, 2, 10);
+    ctx.fillStyle = "#A71D2A";
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 2 + bob);
+    ctx.lineTo(x + 35, y + 12 + bob);
+    ctx.lineTo(x + 26, y + 10 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    if (rf > 0){
+      ctx.strokeStyle = "rgba(255,220,120," + rf.toFixed(2) + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x + 30, y + 34 + bob, 22 + rf * 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   function drawCyclops(en, x){
     x = x + en.w / 2;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -5631,29 +5739,7 @@
     const w = en.w, h = en.h, y = en.y;
     const cx = x + w / 2;
     if (en.bossBiomeId === "village"){
-      // Commander — broad armored knight with a crimson cape, now with
-      // a subtle idle bob and a cape that actually ripples as it hangs
-      const bob = Math.sin(frame * 0.05) * 2;
-      const ripple = Math.sin(frame * 0.08) * 4;
-      ctx.fillStyle = COLORS.commanderCape;
-      ctx.beginPath();
-      ctx.moveTo(x + 6, y + 14 + bob);
-      ctx.quadraticCurveTo(x - 8 + ripple, y + h * 0.6 + bob, x - 6, y + h + bob);
-      ctx.lineTo(x + w * 0.4, y + h + bob);
-      ctx.quadraticCurveTo(x + w * 0.32 - ripple * 0.5, y + h * 0.6 + bob, x + w * 0.3, y + 14 + bob);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.commanderArmor;
-      ctx.fillRect(x + w * 0.15, y + bob, w * 0.7, h * 0.85);
-      ctx.fillRect(x + w * 0.25, y - 10 + bob, w * 0.5, 14); // helm
-      // helm crest, a small plume of the same cape color
-      ctx.fillStyle = COLORS.commanderCape;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.5 - 2, y - 10 + bob);
-      ctx.lineTo(x + w * 0.5, y - 18 + bob);
-      ctx.lineTo(x + w * 0.5 + 2, y - 10 + bob);
-      ctx.fill();
-      ctx.fillRect(x + w * 0.15, y + h * 0.3 + bob, w * 0.7, 6); // trim band
+      drawCommander(en, x);
 
     }else if (en.bossBiomeId === "castlewalls"){
       // Royal Champion — slim duelist with an oversized kite shield,
