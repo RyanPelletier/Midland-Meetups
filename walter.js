@@ -5184,6 +5184,50 @@
   // airborne, and alternate in a simple climbing motion on a ladder.
   // Fits inside the exact same PLAYER_W x PLAYER_H box, so hitboxes and
   // collision are completely untouched by this — purely visual.
+  // Real flame animation replacing the old flat-tint burn overlay.
+  // Shared by both the player and any enemy, and supports all three
+  // variants — red is the default (fireball, cyclops beam), white is
+  // holy fire (Angel, the SOTGK Lightning+Fire combo), black is the
+  // Tower Sorcerer's Black Fire. Each burning entity gets a small row
+  // of flickering flame shapes rising off it rather than a solid tint.
+  const FLAME_COLORS = {
+    red:   { outer: "rgba(225,75,60,0.75)",  inner: "rgba(255,200,80,0.85)" },
+    white: { outer: "rgba(245,240,230,0.7)", inner: "rgba(255,255,255,0.9)" },
+    black: { outer: "rgba(20,20,25,0.8)",    inner: "rgba(110,80,130,0.7)" }
+  };
+
+  function burnVariantFor(entity){
+    if (entity.blackBurn) return "black";
+    if (entity.whiteBurn) return "white";
+    return "red";
+  }
+
+  function drawFlameShape(cx, baseY, height, color, seed){
+    const flicker = Math.sin(frame * 0.3 + seed) * 2;
+    const width = height * 0.5;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx, baseY - height + flicker);
+    ctx.quadraticCurveTo(cx + width, baseY - height * 0.4, cx + width * 0.35, baseY);
+    ctx.quadraticCurveTo(cx, baseY - height * 0.2, cx - width * 0.35, baseY);
+    ctx.quadraticCurveTo(cx - width, baseY - height * 0.4, cx, baseY - height + flicker);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawBurningFlames(x, y, w, h, variant){
+    const colors = FLAME_COLORS[variant] || FLAME_COLORS.red;
+    const baseY = y + h * 0.2; // flames lick upward from near the top of the sprite
+    const count = 4;
+    for (let i = 0; i < count; i++){
+      const fx = x + (w / (count + 1)) * (i + 1);
+      const seed = i * 1.7;
+      const flameHeight = 14 + Math.sin(frame * 0.25 + seed) * 4;
+      drawFlameShape(fx, baseY, flameHeight, colors.outer, seed);
+      drawFlameShape(fx, baseY - 2, flameHeight * 0.55, colors.inner, seed + 0.5);
+    }
+  }
+
   function drawWalterFigure(x, y, bodyColor, movement, accessory){
     const cx = x + PLAYER_W / 2;
     const moving = !!(movement && movement.moving);
@@ -5330,8 +5374,7 @@
       ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
     }
     if (player.burningFrames > 0){
-      ctx.fillStyle = player.blackBurn ? "rgba(20,20,25,0.55)" : "rgba(225,75,60,0.45)"; // on fire, same treatment as a burning enemy
-      ctx.fillRect(x, player.y, PLAYER_W, PLAYER_H);
+      drawBurningFlames(x, player.y, PLAYER_W, PLAYER_H, burnVariantFor(player));
     }
 
     if (!activeSpell){
@@ -6327,8 +6370,7 @@
       ctx.fillRect(x, en.y, en.w, en.h);
     }
     if (en.burningFrames > 0){
-      ctx.fillStyle = en.whiteBurn ? "rgba(245,240,230,0.5)" : "rgba(225,75,60,0.45)";
-      ctx.fillRect(x, en.y, en.w, en.h);
+      drawBurningFlames(x, en.y, en.w, en.h, burnVariantFor(en));
     }
 
     ctx.fillStyle = COLORS.hpBad;
