@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0, attackLift: 0, attackLiftTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3476,6 +3476,26 @@
         }else if (en.attackCooldown <= 0){
           en.hoodFlareTimer = SERPENTKING_HOOD_FLARE_WINDUP_FRAMES;
         }
+      }else if (en.bossBiomeId === "swamp"){
+        // Same shape again — a brief wind-up before the hit lands, so
+        // the redesign's optional attackLift field (raising the right
+        // arm before a melee swing) has a real window to animate
+        // through instead of sitting permanently at 0.
+        if (en.attackLiftTimer > 0){
+          en.attackLiftTimer--;
+          en.attackLift = 1 - en.attackLiftTimer / BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES;
+          if (en.attackLiftTimer <= 0){
+            en.attackLift = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.attackLiftTimer = BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3671,6 +3691,7 @@
   const FEY_TELEPORT_WINDUP_FRAMES = 15; // shorter than a boss's telegraph — fey should read as quick and erratic
   const FEYQUEEN_CAST_WINDUP_FRAMES = 30; // sigils/petals/crown brighten during this window before the hit lands
   const SERPENTKING_HOOD_FLARE_WINDUP_FRAMES = 25; // hood expands and eyes brighten during this window before the hit lands
+  const BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES = 35; // longer than the others — a heavy, lumbering titan raising its arm should feel weighty
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -6305,6 +6326,130 @@
     ctx.fill();
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (x=left edge, en.y=top, confirmed via head
+  // and feet positioning relative to the box) — the arms extend to
+  // about x-12/x+72, slightly beyond the comment's own claimed ~8px
+  // overflow, but this boss is documented and expected to render wider
+  // than its hitbox regardless, so the extra couple pixels isn't a
+  // real mismatch worth adjusting. The optional attackLift field needed
+  // a real mechanic behind it — no telegraph existed before this — so
+  // a genuine wind-up window was added in updateEnemies(), same pattern
+  // as the last four redesigns in this batch, though given a longer
+  // duration than the others to match this boss's heavy, lumbering feel.
+  function drawBogTitan(en, x){
+    const y = en.y;
+    const sway = Math.sin(frame * 0.035) * 2;
+    const lift = en.attackLift || 0;
+
+    ctx.fillStyle = "#43543A";
+    ctx.fillRect(x + 6, y + 58 + sway, 18, 34);
+    ctx.fillRect(x + 36, y + 58 + sway, 18, 34);
+
+    ctx.fillStyle = "#2A3527";
+    ctx.fillRect(x + 2, y + 88 + sway, 24, 4);
+    ctx.fillRect(x + 34, y + 88 + sway, 24, 4);
+
+    ctx.fillStyle = "#5D6F50";
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 18 + sway);
+    ctx.lineTo(x + 66, y + 18 + sway);
+    ctx.lineTo(x + 60, y + 70 + sway);
+    ctx.lineTo(x + 0, y + 70 + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#3B2F24";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 48 + sway, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#526247";
+    ctx.beginPath();
+    ctx.moveTo(x - 8, y + 24 + sway);
+    ctx.lineTo(x + 4, y + 24 + sway);
+    ctx.lineTo(x + 0, y + 64 + sway);
+    ctx.lineTo(x - 12, y + 64 + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    const armRaise = lift * 18;
+    ctx.beginPath();
+    ctx.moveTo(x + 56, y + 24 - armRaise + sway);
+    ctx.lineTo(x + 68, y + 24 - armRaise + sway);
+    ctx.lineTo(x + 72, y + 64 - armRaise + sway);
+    ctx.lineTo(x + 60, y + 64 - armRaise + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#737C78";
+    ctx.beginPath();
+    ctx.arc(x + 8, y + 20 + sway, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#596B4D";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 12 + sway, 11, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#46563D";
+    ctx.fillRect(x + 20, y + 8 + sway, 20, 5);
+
+    ctx.fillStyle = lift > 0.2 ? "#D7FF7C" : "#B9F56A";
+    ctx.beginPath();
+    ctx.arc(x + 26, y + 15 + sway, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 34, y + 15 + sway, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#4C3823";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 28, y + 22 + sway);
+    ctx.lineTo(x + 25, y + 32 + sway);
+    ctx.moveTo(x + 32, y + 22 + sway);
+    ctx.lineTo(x + 35, y + 33 + sway);
+    ctx.moveTo(x + 30, y + 22 + sway);
+    ctx.lineTo(x + 30, y + 36 + sway);
+    ctx.stroke();
+
+    ctx.fillStyle = "#6FA34D";
+    const moss = [[2, 22, 8], [46, 30, 6], [18, 46, 7], [40, 54, 8]];
+    for (const m of moss){
+      ctx.beginPath();
+      ctx.arc(x + m[0], y + m[1] + sway, m[2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#7AAE55";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y + 26 + sway);
+    ctx.quadraticCurveTo(x + 4, y + 42 + sway, x + 10, y + 58 + sway);
+    ctx.moveTo(x + 44, y + 34 + sway);
+    ctx.quadraticCurveTo(x + 48, y + 50 + sway, x + 42, y + 66 + sway);
+    ctx.stroke();
+
+    ctx.fillStyle = "#8B918D";
+    const stones = [[16, 36, 3], [48, 42, 4], [26, 60, 3], [10, 52, 2]];
+    for (const s of stones){
+      ctx.beginPath();
+      ctx.arc(x + s[0], y + s[1] + sway, s[2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#34281C";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++){
+      const d = Math.sin(frame * 0.06 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 12 + i * 12, y + 70 + sway);
+      ctx.lineTo(x + 12 + i * 12, y + 76 + sway + d);
+      ctx.stroke();
+    }
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -6509,25 +6654,7 @@
       drawSerpentKing(en, x);
 
     }else if (en.bossBiomeId === "swamp"){
-      // Bog Titan — huge moss brute with a stone shoulder; now with a
-      // heavy lumbering sway and moss drips
-      const sway = Math.sin(frame * 0.03) * 3;
-      ctx.fillStyle = COLORS.bogTitanMoss;
-      ctx.fillRect(x - 4 + sway, y, w + 8, h); // extra-wide, bulky
-      ctx.fillStyle = COLORS.bogTitanMossDark;
-      ctx.fillRect(x - 4 + sway, y + h * 0.55, w + 8, 10);
-      ctx.fillStyle = COLORS.bogTitanStone;
-      ctx.beginPath();
-      ctx.arc(x + w * 0.78 + sway, y + h * 0.18, 16, 0, Math.PI * 2);
-      ctx.fill();
-      // moss drips trickling off the shoulder
-      ctx.fillStyle = COLORS.bogTitanMossDark;
-      for (let i = 0; i < 3; i++){
-        const dripPhase = (frame + i * 40) % 120;
-        ctx.globalAlpha = 1 - dripPhase / 120;
-        ctx.fillRect(x + w * 0.7 + sway + i * 5, y + h * 0.3 + dripPhase * 0.5, 2, 5);
-      }
-      ctx.globalAlpha = 1;
+      drawBogTitan(en, x);
 
     }else if (en.bossBiomeId === "desert"){
       // Sand Colossus — blocky sandstone giant with orbiting shards;
