@@ -465,6 +465,75 @@
   // absolute x-boundaries: dock -> biome -> [river] -> biome -> [river]
   // -> biome -> boss arena. This is the one generic layout builder every
   // generated land uses — no per-land hardcoding like Land 1/2 have.
+  // Appends exactly one new biome zone to the Dark Forest's endless
+  // sequence, extending the generated frontier. Never touches existing
+  // zones — this is additive-only, since regenerating anything the
+  // player has already passed would be jarring (and pointless, since
+  // they can't see it anymore anyway).
+  function appendNextDarkForestZone(){
+    const biomeType = DARK_FOREST_BIOME_TYPES[Math.floor(Math.random() * DARK_FOREST_BIOME_TYPES.length)];
+    const width = 500 + Math.random() * 400;
+    const start = darkForestFurthestGeneratedX;
+    const end = start + width;
+    darkForestZones.push({ type: "biome", biomeType, start, end, id: "df" + darkForestZones.length });
+    darkForestFurthestGeneratedX = end;
+  }
+
+  // Keeps the generated frontier ahead of the player, and trims zones
+  // well behind them. Called every frame while in the Dark Forest.
+  function ensureDarkForestGenerated(){
+    while (darkForestFurthestGeneratedX < player.x + DARK_FOREST_GENERATION_BUFFER){
+      appendNextDarkForestZone();
+    }
+    if (darkForestZones.length > 0 && darkForestZones[0].end < player.x - DARK_FOREST_TRIM_BEHIND){
+      darkForestZones = darkForestZones.filter(z => z.end >= player.x - DARK_FOREST_TRIM_BEHIND);
+    }
+  }
+
+  function currentDarkForestZone(x){
+    return darkForestZones.find(z => x >= z.start && x < z.end) || null;
+  }
+
+  // The biome index only advances the first time each zone is actually
+  // entered (tracked by id), not by raw distance traveled — so lingering
+  // inside one wide zone, or backtracking into one already passed,
+  // doesn't affect darkness/moon/difficulty pacing either way.
+  function updateDarkForestBiomeIndex(){
+    const zone = currentDarkForestZone(player.x);
+    if (zone && !darkForestEnteredBiomeIds.has(zone.id)){
+      darkForestEnteredBiomeIds.add(zone.id);
+      darkForestBiomeIndex++;
+    }
+  }
+
+  function darkForestDarknessProgress(){
+    return Math.min(1, darkForestBiomeIndex / DARK_FOREST_DARKNESS_BIOMES);
+  }
+  function darkForestSunVisibility(){
+    return Math.max(0, 1 - darkForestBiomeIndex / DARK_FOREST_SUNSET_BIOMES);
+  }
+  function darkForestMoonRise(){
+    return Math.min(1, darkForestBiomeIndex / DARK_FOREST_MOONRISE_BIOMES);
+  }
+  // Deliberately steeper than the standard game's difficultyMultiplier()
+  // — "scales aggressively the deeper the player ventures" per spec, not
+  // just the normal pace of escalation.
+  // Light blue at the start, interpolating linearly to full black by
+  // DARK_FOREST_DARKNESS_BIOMES, then staying there — darkForestDarknessProgress
+  // is already clamped to 1, so this needs no separate capping logic.
+  function darkForestSkyColor(){
+    const progress = darkForestDarknessProgress();
+    const start = [176, 224, 240], end = [0, 0, 0];
+    const r = Math.round(start[0] + (end[0] - start[0]) * progress);
+    const g = Math.round(start[1] + (end[1] - start[1]) * progress);
+    const b = Math.round(start[2] + (end[2] - start[2]) * progress);
+    return "rgb(" + r + "," + g + "," + b + ")";
+  }
+
+  function darkForestDifficultyMultiplier(){
+    return 1 + darkForestBiomeIndex * 0.18;
+  }
+
   function buildGeneratedLandLayout(land){
     const zones = [];
     let cursor = 0;
@@ -687,6 +756,24 @@
     }
   }
 
+  // Resets fresh each visit, same "re-rolled every time" philosophy the
+  // generated Land 3+ system already uses for its own endless
+  // replayability — deep Dark Forest progress isn't meant to be a
+  // permanent, saved state, just this run's expedition.
+  function sailToDarkForest(){
+    currentMap = "darkforest";
+    darkForestZones = [];
+    darkForestFurthestGeneratedX = 0;
+    darkForestBiomeIndex = 0;
+    darkForestEnteredBiomeIds = new Set();
+    player.x = 20;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    ensureDarkForestGenerated();
+    if (DEBUG) console.log("[WvW] entered the Dark Forest");
+  }
+
   function sailToDungeon(){
     currentMap = "dungeon";
     currentDungeonRoom = generateDungeonRoom(1, null);
@@ -743,6 +830,16 @@
     if (DEBUG) console.log("[WvW] advanced to Dungeon room " + nextRoomNumber + " (" + currentDungeonRoom.biomeId + ", " + currentDungeonRoom.exitType + ")");
   }
 
+  function leaveDarkForest(){
+    currentMap = "home";
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    clearEntities();
+    if (DEBUG) console.log("[WvW] left the Dark Forest");
+  }
+
   function leaveDungeon(){
     currentMap = "home";
     currentDungeonRoom = null;
@@ -794,6 +891,7 @@
     if (currentMap === "generated") return currentGeneratedLandLayout ? currentGeneratedLandLayout.worldWidth : 0;
     if (currentMap === "tower") return currentTowerFloor ? currentTowerFloor.worldWidth : 0;
     if (currentMap === "dungeon") return currentDungeonRoom ? currentDungeonRoom.worldWidth : 0;
+    if (currentMap === "darkforest") return darkForestFurthestGeneratedX;
     return WORLD_WIDTH;
   }
   function getChests(){
@@ -829,6 +927,9 @@
       }
       return altars;
     }
+    if (currentMap === "darkforest"){
+      return [{ x: 20, w: 40, h: 40, action: "leaveDarkForest" }];
+    }
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
@@ -842,6 +943,11 @@
       // visual state.
       if (!currentTowerFloor || !currentTowerFloor.cleared) return [];
       return [{ x: towerLadderX(), halfWidth: 16, topY: GROUND_Y - 150, zone: "any", action: "towerLadder" }];
+    }
+    if (currentMap === "darkforest"){
+      return getDarkForestTrunks().map(wx => ({
+        x: wx, halfWidth: 12, topY: GROUND_Y - 150, zone: "any", action: "none"
+      }));
     }
     if (currentMap === "generated"){
       // The zone check is deliberately bypassed here ("any") — each
@@ -858,6 +964,7 @@
     return CLIMB_POINTS_HOME;
   }
   function getTrees(){
+    if (currentMap === "darkforest") return []; // handled separately by drawDarkForestZones, not this generic system
     return currentMap === "land1" ? LAND1_TREES : TREES_HOME; // land2/homebase/generated have no trees yet
   }
 
@@ -1230,6 +1337,22 @@
   const TOWER_BIOMES = ["library", "study", "lounge", "potionLab", "prison"];
   const TOWER_TOTAL_FLOORS = 20;
   let currentDungeonRoom = null; // { roomNumber, biomeId, exitType, worldWidth, cleared, enemyCount, chestClaimed }
+  // The Dark Forest — endless, so unlike every other map this is never
+  // rebuilt wholesale on entry. Zones get appended progressively as the
+  // player approaches the generated edge, and old zones well behind the
+  // player get trimmed periodically so the array doesn't grow forever
+  // over a very long session (same "responsible technical safeguard"
+  // reasoning as Ooze's population cap).
+  let darkForestZones = [];
+  let darkForestFurthestGeneratedX = 0;
+  let darkForestBiomeIndex = 0; // how many biomes the player has actually entered — drives darkness/sun/moon/difficulty, not raw distance
+  let darkForestEnteredBiomeIds = new Set(); // tracks which zone objects have already incremented the index, so re-entering one already passed doesn't double-count
+  const DARK_FOREST_BIOME_TYPES = ["denseForest", "sparseForest", "tallTreesLowBush", "tallGrassClearing"];
+  const DARK_FOREST_GENERATION_BUFFER = 1400; // always keep zones generated at least this far ahead of the player
+  const DARK_FOREST_TRIM_BEHIND = 3000; // drop zones this far behind the player
+  const DARK_FOREST_DARKNESS_BIOMES = 20; // biomes until background hits full black, then stays there
+  const DARK_FOREST_SUNSET_BIOMES = 5; // biomes until the sun is fully set
+  const DARK_FOREST_MOONRISE_BIOMES = 10; // biomes until the moon is fully risen
   const DUNGEON_BIOMES = ["stalagmites", "stalactites", "crystalMine", "silverMine"];
   const DUNGEON_TOTAL_ROOMS = 20;
   const DUNGEON_ROOM_COLOR = "#0C0D10"; // Layer 0 base fill, per spec — same for every biome, only props differ
@@ -1249,6 +1372,7 @@
   function currentZone(x){
     if (currentMap === "tower") return "towerFloor";
     if (currentMap === "dungeon") return "dungeonRoom";
+    if (currentMap === "darkforest") return "darkforest";
     if (currentMap === "land1"){
       if (x < LAND1_DOCK_END) return "dock";
       if (x < LAND1_GRASS_END) return "grass";
@@ -2271,6 +2395,7 @@
     updateTowerProgress();
     updateCageProximity();
     updateDungeonProgress();
+    if (currentMap === "darkforest"){ ensureDarkForestGenerated(); updateDarkForestBiomeIndex(); }
     updateVillagerProximity();
     updateCrewTimers();
     updateBlacksmithJob();
@@ -3199,6 +3324,7 @@
     if (currentMap === "generated"){ updateGeneratedWaveSpawning(); return; }
     if (currentMap === "tower") return; // fixed per-floor enemy count, spawned once on entry — not a continuous wave
     if (currentMap === "dungeon") return; // same fixed-per-room pattern as the Tower
+    if (currentMap === "darkforest"){ updateDarkForestWaveSpawning(); return; }
     const zone = currentZone(player.x);
     if (PEACEFUL_ZONES.includes(zone)) return;
 
@@ -3206,6 +3332,34 @@
       spawnWaveEnemy(zone);
       nextSpawnFrame = frame + SPAWN_INTERVAL_MIN + Math.random() * (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN);
     }
+  }
+
+  // Placeholder pool for this phase — Ghost, Dark Elf, and Skin Walker
+  // (the actual Dark Forest enemies) are later phases' scope, same
+  // incremental approach the Dungeon and every other new area used
+  // before its real enemies existed.
+  const DARK_FOREST_PLACEHOLDER_POOL = ["knight", "wizard", "ogre"];
+  function updateDarkForestWaveSpawning(){
+    const zone = currentDarkForestZone(player.x);
+    if (!zone) return;
+    if (frame >= nextSpawnFrame){
+      spawnDarkForestWaveEnemy();
+      nextSpawnFrame = frame + SPAWN_INTERVAL_MIN + Math.random() * (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN);
+    }
+  }
+  function spawnDarkForestWaveEnemy(){
+    const type = DARK_FOREST_PLACEHOLDER_POOL[Math.floor(Math.random() * DARK_FOREST_PLACEHOLDER_POOL.length)];
+    const stats = ENEMY_STATS[type];
+    const mult = darkForestDifficultyMultiplier();
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const x = player.x + dir * (300 + Math.random() * 200);
+    enemies.push({
+      type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+      scaledDamage: Math.round(stats.damage * mult),
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+    });
+    if (DEBUG) console.log("[WvW] spawned " + type + " in the Dark Forest (biome " + darkForestBiomeIndex + ", x" + mult.toFixed(2) + ")");
   }
 
   function updateGeneratedWaveSpawning(){
@@ -3266,6 +3420,7 @@
       const zones = currentGeneratedLandLayout.zones;
       return { start: zones[0].end, end: zones[zones.length - 1].end };
     }
+    if (currentMap === "darkforest") return { start: 0, end: darkForestFurthestGeneratedX };
     return { start: TOWER_END, end: FAIR_END };
   }
 
@@ -4249,6 +4404,7 @@
     else if (action === "towerLadder") advanceTowerFloor();
     else if (action === "summitChest") openSummitChest();
     else if (action === "leaveDungeon") leaveDungeon();
+    else if (action === "leaveDarkForest") leaveDarkForest();
     else if (action === "dungeonExit") advanceDungeonRoom();
   }
 
@@ -4274,6 +4430,8 @@
       drawHomebaseTraining();
       drawHomebaseGraveyard();
       drawVillagers();
+    }else if (currentMap === "darkforest"){
+      drawDarkForestZones();
     }else if (currentMap === "generated"){
       drawGeneratedDock();
       drawGeneratedBiomeDecorations();
@@ -4305,12 +4463,40 @@
 
   function worldToScreen(x){ return x - cameraX; }
 
+  // Sun sets (fades + sinks) by DARK_FOREST_SUNSET_BIOMES; moon rises
+  // (fades in + climbs) by DARK_FOREST_MOONRISE_BIOMES. Independent
+  // curves, so there's a real overlap window where both are visible —
+  // matching an actual dusk transition rather than an instant swap.
+  function drawDarkForestCelestialBodies(){
+    const sunVis = darkForestSunVisibility();
+    const moonRise = darkForestMoonRise();
+    if (sunVis > 0){
+      ctx.fillStyle = "rgba(255,220,120," + sunVis.toFixed(2) + ")";
+      ctx.beginPath();
+      ctx.arc(CANVAS_W * 0.75, 70 - (1 - sunVis) * 30, 30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (moonRise > 0){
+      const moonY = 250 - moonRise * 180;
+      ctx.fillStyle = "rgba(220,220,235," + moonRise.toFixed(2) + ")";
+      ctx.beginPath();
+      ctx.arc(CANVAS_W * 0.25, moonY, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(180,180,200," + (moonRise * 0.5).toFixed(2) + ")";
+      ctx.beginPath();
+      ctx.arc(CANVAS_W * 0.25 - 6, moonY - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function drawBackground(){
     ctx.fillStyle = COLORS.skyWall;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     let bands;
-    if (currentMap === "land1"){
+    if (currentMap === "darkforest"){
+      bands = [{ from: 0, to: darkForestFurthestGeneratedX, color: darkForestSkyColor() }];
+    }else if (currentMap === "land1"){
       bands = [
         { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
         { from: LAND1_DOCK_END, to: LAND1_GRASS_END, color: COLORS.skyGrass },
@@ -4357,6 +4543,7 @@
       ctx.fillStyle = b.color;
       ctx.fillRect(Math.max(0, x1), 0, Math.min(CANVAS_W, x2) - Math.max(0, x1), CANVAS_H);
     });
+    if (currentMap === "darkforest") drawDarkForestCelestialBodies();
 
     ctx.strokeStyle = COLORS.ground;
     ctx.lineWidth = 2;
@@ -4896,6 +5083,23 @@
   // generated land — the visual, the climb points, and the platform
   // collision all derive from this so they can never drift out of sync
   // with each other.
+  // Tree density varies by biome type — dense forest is tightly packed,
+  // sparse forest and tall-trees-low-bush are wider spacing (the latter
+  // slightly wider still, since its trees are meant to read as more
+  // spread out and prominent against low bushes), and tall grass
+  // clearings deliberately have none at all, matching what "clearing"
+  // actually means.
+  const DARK_FOREST_TREE_SPACING = { denseForest: 70, sparseForest: 160, tallTreesLowBush: 200, tallGrassClearing: null };
+  function getDarkForestTrunks(){
+    const trunks = [];
+    darkForestZones.forEach(z => {
+      const spacing = DARK_FOREST_TREE_SPACING[z.biomeType];
+      if (!spacing) return;
+      for (let wx = z.start + 10; wx < z.end; wx += spacing) trunks.push(wx);
+    });
+    return trunks;
+  }
+
   function getGeneratedTreehouseTrunks(){
     if (!currentGeneratedLandLayout) return [];
     const trunks = [];
@@ -5375,6 +5579,62 @@
       ctx.fillRect(x, GROUND_Y - chest.h, chest.w, chest.h);
       ctx.fillStyle = COLORS.chestLid;
       ctx.fillRect(x, GROUND_Y - chest.h, chest.w, 8);
+    });
+  }
+
+  // One shared tree shape reused across every Dark Forest density —
+  // "code-based, systematized" per the earlier direction, rather than a
+  // separate drawing routine per biome type. Density and height are the
+  // only things that vary between biome types; the tree itself doesn't.
+  function drawDarkForestTree(wx, height){
+    const x = worldToScreen(wx);
+    if (x < -60 || x > CANVAS_W + 60) return;
+    const trunkW = 14;
+    ctx.fillStyle = COLORS.treeTrunk;
+    ctx.fillRect(x - trunkW / 2, GROUND_Y - height, trunkW, height);
+    ctx.fillStyle = COLORS.treeCanopy;
+    ctx.beginPath();
+    ctx.moveTo(x, GROUND_Y - height - 60);
+    ctx.lineTo(x - 40, GROUND_Y - height + 20);
+    ctx.lineTo(x + 40, GROUND_Y - height + 20);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawDarkForestZones(){
+    darkForestZones.forEach(z => {
+      const x1 = worldToScreen(z.start), x2 = worldToScreen(z.end);
+      if (x2 < -50 || x1 > CANVAS_W + 50) return; // whole zone off-screen
+
+      if (z.biomeType === "tallGrassClearing"){
+        // no trees at all here — the ground accent is the only decoration
+        ctx.strokeStyle = COLORS.ground;
+        ctx.lineWidth = 1;
+        for (let wx = z.start; wx < z.end; wx += 12){
+          const sx = worldToScreen(wx);
+          if (sx < -10 || sx > CANVAS_W + 10) continue;
+          ctx.beginPath();
+          ctx.moveTo(sx, GROUND_Y);
+          ctx.lineTo(sx - 2, GROUND_Y - 10);
+          ctx.stroke();
+        }
+      }else if (z.biomeType === "tallTreesLowBush"){
+        // low bushes filling the gaps between the taller, wider-spaced trees
+        ctx.fillStyle = "#2E4A2E";
+        for (let wx = z.start + 30; wx < z.end; wx += 60){
+          const sx = worldToScreen(wx);
+          if (sx < -20 || sx > CANVAS_W + 20) continue;
+          ctx.beginPath();
+          ctx.arc(sx, GROUND_Y - 6, 10, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    });
+
+    getDarkForestTrunks().forEach(wx => {
+      const zone = currentDarkForestZone(wx);
+      const height = zone && zone.biomeType === "tallTreesLowBush" ? 170 : 130;
+      drawDarkForestTree(wx, height);
     });
   }
 
@@ -8727,6 +8987,7 @@
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
           <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons${player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : ""}</button>
+          <button type="button" class="btn" id="wvw-darkforest-btn" style="margin-left:8px;">The Dark Forest</button>
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
@@ -8819,6 +9080,12 @@
     const dungeonsBtn = document.getElementById("wvw-dungeons-btn");
     if (dungeonsBtn) dungeonsBtn.addEventListener("click", () => {
       sailToDungeon();
+      closeMap();
+    });
+
+    const darkForestBtn = document.getElementById("wvw-darkforest-btn");
+    if (darkForestBtn) darkForestBtn.addEventListener("click", () => {
+      sailToDarkForest();
       closeMap();
     });
 
