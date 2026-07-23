@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0, attackLift: 0, attackLiftTimer: 0, runeCharge: 0, runeChargeTimer: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0, attackLift: 0, attackLiftTimer: 0, runeCharge: 0, runeChargeTimer: 0, spiritGlow: 0, spiritGlowTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3516,6 +3516,26 @@
         }else if (en.attackCooldown <= 0){
           en.runeChargeTimer = SANDCOLOSSUS_RUNE_CHARGE_WINDUP_FRAMES;
         }
+      }else if (en.bossBiomeId === "treehouses"){
+        // Same shape again — a brief wind-up before the hit lands, so
+        // the redesign's optional spiritGlow field (eyes brightening,
+        // halo spinning faster, leaves glowing) has a real window to
+        // animate through instead of sitting permanently at 0.
+        if (en.spiritGlowTimer > 0){
+          en.spiritGlowTimer--;
+          en.spiritGlow = 1 - en.spiritGlowTimer / ELDERDRYAD_SPIRIT_GLOW_WINDUP_FRAMES;
+          if (en.spiritGlowTimer <= 0){
+            en.spiritGlow = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.spiritGlowTimer = ELDERDRYAD_SPIRIT_GLOW_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3713,6 +3733,7 @@
   const SERPENTKING_HOOD_FLARE_WINDUP_FRAMES = 25; // hood expands and eyes brighten during this window before the hit lands
   const BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES = 35; // longer than the others — a heavy, lumbering titan raising its arm should feel weighty
   const SANDCOLOSSUS_RUNE_CHARGE_WINDUP_FRAMES = 30; // runes brighten and orbiting shards spin faster during this window
+  const ELDERDRYAD_SPIRIT_GLOW_WINDUP_FRAMES = 30; // eyes brighten, halo spins faster, leaves glow during this window
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -6605,6 +6626,150 @@
     }
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (x=left edge, en.y=top, confirmed via the
+  // trunk/root positioning). Canopy leaves and the halo extend a bit
+  // further than the design's own comment claims (~13-14px past each
+  // side vs. the stated ~10px), but this boss is documented and
+  // expected to render wider than its hitbox regardless — same
+  // category of cosmetic overflow already accepted for the last two
+  // bosses, not a real mismatch. The optional spiritGlow field needed
+  // a real mechanic behind it — no telegraph existed before this — so
+  // a genuine wind-up window was added in updateEnemies(), same
+  // pattern as every other redesign in this batch.
+  function drawElderDryad(en, x){
+    const y = en.y;
+    const sway = Math.sin(frame * 0.035) * 2;
+    const leafPulse = 1 + Math.sin(frame * 0.06) * 0.08;
+    const glow = en.spiritGlow || 0;
+
+    ctx.strokeStyle = "#5B4126";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 92);
+    ctx.lineTo(x + 16, y + 86);
+    ctx.lineTo(x + 8, y + 92);
+    ctx.moveTo(x + 30, y + 92);
+    ctx.lineTo(x + 44, y + 86);
+    ctx.lineTo(x + 56, y + 92);
+    ctx.moveTo(x + 30, y + 92);
+    ctx.lineTo(x + 24, y + 82);
+    ctx.moveTo(x + 30, y + 92);
+    ctx.lineTo(x + 36, y + 82);
+    ctx.stroke();
+
+    ctx.fillStyle = "#765331";
+    ctx.beginPath();
+    ctx.moveTo(x + 22, y + 22 + sway);
+    ctx.lineTo(x + 38, y + 18 + sway);
+    ctx.lineTo(x + 42, y + 72 + sway);
+    ctx.lineTo(x + 34, y + 88);
+    ctx.lineTo(x + 24, y + 88);
+    ctx.lineTo(x + 18, y + 70 + sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#5A3B20";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++){
+      ctx.beginPath();
+      ctx.moveTo(x + 24 + i * 3, y + 24 + i * 12 + sway);
+      ctx.quadraticCurveTo(x + 28 + i * 2, y + 30 + i * 12 + sway, x + 22 + i, y + 38 + i * 12 + sway);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#6A4928";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 26 + sway);
+    ctx.lineTo(x + 10, y + 18 + sway);
+    ctx.moveTo(x + 18, y + 21 + sway);
+    ctx.lineTo(x + 4, y + 10 + sway);
+    ctx.moveTo(x + 30, y + 24 + sway);
+    ctx.lineTo(x + 50, y + 16 + sway);
+    ctx.moveTo(x + 44, y + 19 + sway);
+    ctx.lineTo(x + 58, y + 8 + sway);
+    ctx.stroke();
+
+    ctx.fillStyle = "#4C8E3F";
+    const leaves = [[-10, 8, 13], [8, -2, 15], [28, 4, 14], [0, 18, 12], [22, 20, 11]];
+    for (const l of leaves){
+      ctx.beginPath();
+      ctx.arc(x + 30 + l[0], y + 18 + l[1] + sway, l[2] * leafPulse, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#78C45E";
+    const highlights = [[-4, 4, 6], [14, 10, 5], [8, -4, 5], [20, -2, 4]];
+    for (const h of highlights){
+      ctx.beginPath();
+      ctx.arc(x + 30 + h[0], y + 18 + h[1] + sway, h[2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#5A3D22";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 42 + sway, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = glow > 0.2 ? "#C8FF7A" : "#A9E65A";
+    ctx.beginPath();
+    ctx.arc(x + 26, y + 40 + sway, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 34, y + 40 + sway, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#3B2412";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 47 + sway, 4, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#4A2E18";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 58 + sway, 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const speed = 0.025 + glow * 0.05;
+    for (let i = 0; i < 10; i++){
+      const a = frame * speed + i * (Math.PI * 2 / 10);
+      const ox = Math.cos(a) * 28;
+      const oy = Math.sin(a) * 18;
+      ctx.save();
+      ctx.translate(x + 30 + ox, y + 20 + oy + sway);
+      ctx.rotate(a);
+      ctx.fillStyle = glow > 0.2 ? "#D9FF9B" : "#A5D862";
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(4, 0);
+      ctx.lineTo(0, 5);
+      ctx.lineTo(-4, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.strokeStyle = "#79AF50";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 4; i++){
+      const dx = i * 8 - 12;
+      ctx.beginPath();
+      ctx.moveTo(x + 30 + dx, y + 18 + sway);
+      ctx.quadraticCurveTo(x + 28 + dx, y + 34 + sway, x + 30 + dx, y + 48 + sway);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = glow > 0.2 ? "#E8FFD2" : "#C5F2A8";
+    for (let i = 0; i < 6; i++){
+      const a = frame * 0.02 + i * Math.PI / 3;
+      ctx.beginPath();
+      ctx.arc(x + 30 + Math.cos(a) * 18, y + 46 + sway + Math.sin(a) * 10, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -6815,38 +6980,7 @@
       drawSandColossus(en, x);
 
     }else if (en.bossBiomeId === "treehouses"){
-      // Elder Dryad — floating tree spirit with a leaf halo; the leaves
-      // now breathe (pulse in size/brightness) instead of sitting fixed
-      const hover = Math.sin(frame * 0.05) * 4;
-      ctx.fillStyle = COLORS.elderDryadTrunk;
-      ctx.fillRect(x + w * 0.3, y + 12 + hover, w * 0.4, h * 0.8);
-      // simple bark texture lines
-      ctx.strokeStyle = "rgba(0,0,0,0.15)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 3; i++){
-        ctx.beginPath();
-        ctx.moveTo(x + w * 0.35 + i * 5, y + 14 + hover);
-        ctx.lineTo(x + w * 0.35 + i * 5, y + h * 0.85 + hover);
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.15, y + h + hover);
-      ctx.lineTo(x + w * 0.3, y + h * 0.75 + hover);
-      ctx.lineTo(x + w * 0.4, y + h + hover);
-      ctx.moveTo(x + w * 0.85, y + h + hover);
-      ctx.lineTo(x + w * 0.7, y + h * 0.75 + hover);
-      ctx.lineTo(x + w * 0.6, y + h + hover);
-      ctx.fill();
-      for (let i = 0; i < 8; i++){
-        const angle = (i / 8) * Math.PI * 2 + frame * 0.01; // slow halo rotation
-        const breathe = 4.5 + Math.sin(frame * 0.08 + i) * 1;
-        const lx = cx + Math.cos(angle) * 20;
-        const ly = y + hover + Math.sin(angle) * 14;
-        ctx.fillStyle = COLORS.elderDryadLeaf;
-        ctx.beginPath();
-        ctx.arc(lx, ly, breathe, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      drawElderDryad(en, x);
 
     }else if (en.bossBiomeId === "underwater"){
       drawLeviathan(en, x);
