@@ -6770,6 +6770,136 @@
     }
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (x=left edge, en.y=top, confirmed via head
+  // and tail positioning within the 56x26 box, tail poking ~2px past
+  // the width — same minor cosmetic overflow already accepted
+  // throughout this batch). Unlike every other redesign in this batch,
+  // no new mechanic was needed here — Giant Eel already had a real
+  // charge/release cycle, and this design correctly reads the actual
+  // `en.charging`/`en.chargeFrames` fields directly, with the right
+  // normalization direction (chargeFrames counts down from 60,
+  // matching chargeDuration, and 1 - chargeFrames/60 correctly
+  // produces an increasing 0→1 progress — no inversion bug this time).
+  function drawGiantEel(en, x){
+    const y = en.y;
+    let charge = 0;
+    if (en.charging){
+      charge = 1 - (en.chargeFrames / 60);
+      charge = Math.max(0, Math.min(1, charge));
+    }
+
+    const body = [[8, 13], [16, 10], [24, 13], [32, 16], [40, 13], [48, 10]];
+    for (let i = 0; i < body.length; i++){
+      const p = body[i];
+      const sy = Math.sin(frame * 0.15 + i) * 2;
+      ctx.fillStyle = charge > 0.2 ? "#3E7A8E" : "#2C6171";
+      ctx.beginPath();
+      ctx.arc(x + p[0], y + p[1] + sy, 6 - i * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#7DB9C6";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i < body.length; i++){
+      const p = body[i];
+      const sy = Math.sin(frame * 0.15 + i) * 2;
+      if (i === 0) ctx.moveTo(x + p[0], y + p[1] + 2 + sy);
+      else ctx.lineTo(x + p[0], y + p[1] + 2 + sy);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = charge > 0.2 ? "#AFFFFF" : "#42E7FF";
+    ctx.lineWidth = charge > 0.2 ? 4 : 2;
+    ctx.beginPath();
+    for (let i = 0; i < body.length; i++){
+      const p = body[i];
+      const sy = Math.sin(frame * 0.15 + i) * 2;
+      if (i === 0) ctx.moveTo(x + p[0], y + p[1] - 2 + sy);
+      else ctx.lineTo(x + p[0], y + p[1] - 2 + sy);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = "#183C47";
+    for (let i = 1; i < 5; i++){
+      const p = body[i];
+      const sy = Math.sin(frame * 0.15 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + p[0], y + sy + 4);
+      ctx.lineTo(x + p[0] - 3, y + sy - 2);
+      ctx.lineTo(x + p[0] + 2, y + sy + 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#1E4E5D";
+    ctx.beginPath();
+    ctx.moveTo(x + 50, y + 12 + Math.sin(frame * 0.15 + 5) * 2);
+    ctx.lineTo(x + 58, y + 7);
+    ctx.lineTo(x + 54, y + 18);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#356E80";
+    ctx.beginPath();
+    ctx.moveTo(x, y + 13);
+    ctx.lineTo(x + 9, y + 5);
+    ctx.lineTo(x + 16, y + 13);
+    ctx.lineTo(x + 9, y + 21);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#0F2B34";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y + 15);
+    ctx.lineTo(x + 12, y + 18);
+    ctx.stroke();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(x + 9, y + 15, 1, 3);
+    ctx.fillRect(x + 12, y + 15, 1, 3);
+
+    ctx.fillStyle = charge > 0.2 ? "#FFFFFF" : "#79F6FF";
+    ctx.beginPath();
+    ctx.arc(x + 8, y + 10, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#7FF8FF";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 5; i++){
+      const p = body[i];
+      const sy = Math.sin(frame * 0.15 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + p[0] - 2, y + p[1] - 3 + sy);
+      ctx.lineTo(x + p[0] + 2, y + p[1] - 1 + sy);
+      ctx.lineTo(x + p[0] - 1, y + p[1] + 2 + sy);
+      ctx.stroke();
+    }
+
+    if (en.charging){
+      ctx.strokeStyle = "#C8FFFF";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 5; i++){
+        const bx = x + 12 + i * 8;
+        const by = y + 12 + Math.sin(frame * 0.4 + i) * 5;
+        ctx.beginPath();
+        ctx.moveTo(bx - 3, by - 3);
+        ctx.lineTo(bx, by + 2);
+        ctx.lineTo(bx + 3, by - 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#E8FFFF";
+      for (let i = 0; i < 8; i++){
+        const a = frame * 0.12 + i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.arc(x + 28 + Math.cos(a) * 18, y + 13 + Math.sin(a) * 9, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -7200,61 +7330,7 @@
     }else if (en.type === "snake"){
       drawSnake(en, x);
     }else if (en.type === "giantEel"){
-      const gw = en.w, gh = en.h, gy = en.y, gcx = x + gw/2;
-      // wide horizontal S-curve from overlapping circles — bulkier than
-      // the standard Snake, but a much longer/flatter profile
-      const gBodyPts = [
-        [gcx - gw * 0.42, gy + gh * 0.6], [gcx - gw * 0.18, gy + gh * 0.35], [gcx + gw * 0.05, gy + gh * 0.55],
-        [gcx + gw * 0.28, gy + gh * 0.3], [gcx + gw * 0.45, gy + gh * 0.45]
-      ];
-      ctx.fillStyle = COLORS.giantEelBody;
-      gBodyPts.forEach(([px, py], i) => {
-        ctx.beginPath();
-        ctx.arc(px, py, gh * 0.32 * (1 - i * 0.05), 0, Math.PI * 2);
-        ctx.fill();
-      });
-      // continuous glowing cyan stripe along the spine
-      ctx.strokeStyle = COLORS.giantEelSpine;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      gBodyPts.forEach(([px, py], i) => { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
-      ctx.stroke();
-      // broad wedge head with bright cyan eyes
-      const [ghx, ghy] = gBodyPts[gBodyPts.length - 1];
-      ctx.fillStyle = COLORS.giantEelBody;
-      ctx.beginPath();
-      ctx.moveTo(ghx - 4, ghy + 8); ctx.lineTo(ghx + 14, ghy - 2); ctx.lineTo(ghx - 4, ghy - 8);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.giantEelEye;
-      ctx.beginPath(); ctx.arc(ghx + 5, ghy - 2, 2, 0, Math.PI * 2); ctx.fill();
-      // ring of jagged lightning spikes along the back — brighten and
-      // arc between neighbors while charging, clearly telegraphing the
-      // hazard release
-      const spikeColor = en.charging ? COLORS.giantEelSpikeCharged : COLORS.giantEelSpike;
-      ctx.fillStyle = spikeColor;
-      gBodyPts.forEach(([px, py]) => {
-        ctx.beginPath();
-        ctx.moveTo(px - 3, py - gh * 0.25);
-        ctx.lineTo(px, py - gh * 0.45);
-        ctx.lineTo(px + 3, py - gh * 0.25);
-        ctx.closePath();
-        ctx.fill();
-      });
-      if (en.charging){
-        ctx.strokeStyle = COLORS.giantEelSpikeCharged;
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(frame * 0.5);
-        for (let i = 0; i < gBodyPts.length - 1; i++){
-          const [ax, ay] = gBodyPts[i], [bx, by] = gBodyPts[i + 1];
-          ctx.beginPath();
-          ctx.moveTo(ax, ay - gh * 0.4);
-          ctx.lineTo((ax + bx) / 2, ay - gh * 0.55);
-          ctx.lineTo(bx, by - gh * 0.4);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-      }
+      drawGiantEel(en, x);
 
     }else if (en.isBoss){
       drawBossFigure(en, x);
