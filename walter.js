@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3436,6 +3436,26 @@
         }else if (en.attackCooldown <= 0){
           en.attackWindupTimer = CHAMPION_WINDUP_FRAMES;
         }
+      }else if (en.bossBiomeId === "forest"){
+        // Same shape again — a brief cast wind-up before the hit lands,
+        // so the redesign's optional castGlow field (brightening the
+        // sigils/petals/crown) has a real window to animate through
+        // instead of sitting permanently at 0.
+        if (en.castGlowTimer > 0){
+          en.castGlowTimer--;
+          en.castGlow = 1 - en.castGlowTimer / FEYQUEEN_CAST_WINDUP_FRAMES;
+          if (en.castGlowTimer <= 0){
+            en.castGlow = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.castGlowTimer = FEYQUEEN_CAST_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3629,6 +3649,7 @@
   const CYCLOPS_WINDUP_FRAMES = 30; // half-second telegraph before the beam fires
   const CHAMPION_WINDUP_FRAMES = 25; // brief fencing-stance wind-up before the hit lands
   const FEY_TELEPORT_WINDUP_FRAMES = 15; // shorter than a boss's telegraph — fey should read as quick and erratic
+  const FEYQUEEN_CAST_WINDUP_FRAMES = 30; // sigils/petals/crown brighten during this window before the hit lands
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -6005,6 +6026,130 @@
     }
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (traced the extremes — the right antler
+  // pokes about 4px above the top of the declared 92px box, the same
+  // kind of minor cosmetic flourish already accepted in earlier
+  // redesigns, not a real mismatch). The optional castGlow field needed
+  // a real mechanic behind it — Fey Queen had no telegraph at all
+  // before this, just the shared generic "close in, hit on cooldown"
+  // AI — so a genuine wind-up window was added in updateEnemies(),
+  // same pattern as Cyclops and Royal Champion.
+  function drawFeyQueen(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.05) * 3;
+    const glow = en.castGlow || 0;
+
+    ctx.fillStyle = "rgba(180,255,180," + (0.18 + glow * 0.25).toFixed(2) + ")";
+    for (let i = 0; i < 5; i++){
+      const a = frame * 0.03 + i * 1.25;
+      ctx.beginPath();
+      ctx.arc(x + 30 + Math.cos(a) * 18, y + 38 + bob + Math.sin(a) * 12, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#2E8654";
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 34 + bob);
+    ctx.lineTo(x + 42, y + 34 + bob);
+    ctx.lineTo(x + 50, y + 78 + bob);
+    ctx.lineTo(x + 10, y + 78 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#5DBA74";
+    ctx.beginPath();
+    ctx.moveTo(x + 24, y + 34 + bob);
+    ctx.lineTo(x + 36, y + 34 + bob);
+    ctx.lineTo(x + 33, y + 70 + bob);
+    ctx.lineTo(x + 27, y + 70 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#226945";
+    ctx.beginPath();
+    ctx.moveTo(x + 12, y + 32 + bob);
+    ctx.lineTo(x + 30, y + 18 + bob);
+    ctx.lineTo(x + 48, y + 32 + bob);
+    ctx.lineTo(x + 40, y + 40 + bob);
+    ctx.lineTo(x + 20, y + 40 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#F0E8D6";
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 18 + bob, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#8FC96A";
+    ctx.beginPath();
+    ctx.moveTo(x + 20, y + 14 + bob);
+    ctx.lineTo(x + 40, y + 14 + bob);
+    ctx.lineTo(x + 43, y + 30 + bob);
+    ctx.lineTo(x + 17, y + 30 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#24352A";
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 18 + bob, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 33, y + 18 + bob, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#24352A";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 28, y + 22 + bob);
+    ctx.lineTo(x + 32, y + 22 + bob);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(205,255,185," + (0.7 + glow * 0.3).toFixed(2) + ")";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 10 + bob);
+    ctx.lineTo(x + 30, y + 2 + bob);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 28, y + 8 + bob);
+    ctx.lineTo(x + 21, y + 0 + bob);
+    ctx.moveTo(x + 24, y + 3 + bob);
+    ctx.lineTo(x + 20, y - 4 + bob);
+    ctx.moveTo(x + 25, y + 4 + bob);
+    ctx.lineTo(x + 16, y + 2 + bob);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 32, y + 8 + bob);
+    ctx.lineTo(x + 39, y + 0 + bob);
+    ctx.moveTo(x + 36, y + 3 + bob);
+    ctx.lineTo(x + 40, y - 4 + bob);
+    ctx.moveTo(x + 35, y + 4 + bob);
+    ctx.lineTo(x + 44, y + 2 + bob);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#6BE288";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 36 + bob);
+    ctx.quadraticCurveTo(x + 10, y + 46 + bob, x + 16, y + 56 + bob);
+    ctx.moveTo(x + 42, y + 36 + bob);
+    ctx.quadraticCurveTo(x + 50, y + 46 + bob, x + 44, y + 56 + bob);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(120,255,180," + (0.25 + glow * 0.45).toFixed(2) + ")";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x + 30, y + 56 + bob, 15 + Math.sin(frame * 0.08), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 46 + bob);
+    ctx.lineTo(x + 38, y + 56 + bob);
+    ctx.lineTo(x + 30, y + 66 + bob);
+    ctx.lineTo(x + 22, y + 56 + bob);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -6203,31 +6348,7 @@
       drawRoyalChampion(en, x);
 
     }else if (en.bossBiomeId === "forest"){
-      // Fey Queen — floating green robe, antler crown; now with a
-      // pulsing antler glow and a rippling robe hem
-      const hover = Math.sin(frame * 0.05) * 4;
-      const hemRipple = Math.sin(frame * 0.1) * 3;
-      ctx.fillStyle = COLORS.feyQueenRobe;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.2, y + h * 0.3 + hover);
-      ctx.lineTo(x + w * 0.8, y + h * 0.3 + hover);
-      ctx.lineTo(x + w + hemRipple, y + h * 0.9 + hover);
-      ctx.lineTo(x - hemRipple, y + h * 0.9 + hover);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillRect(x + w * 0.3, y + hover, w * 0.4, h * 0.35); // torso/head block
-      ctx.strokeStyle = COLORS.feyQueenAntler;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(frame * 0.15); // gentle magical pulse
-      [-1, 1].forEach(dir => {
-        ctx.beginPath();
-        ctx.moveTo(cx + dir * 6, y + hover);
-        ctx.lineTo(cx + dir * 16, y - 14 + hover);
-        ctx.moveTo(cx + dir * 10, y - 4 + hover);
-        ctx.lineTo(cx + dir * 20, y - 8 + hover);
-        ctx.stroke();
-      });
-      ctx.globalAlpha = 1;
+      drawFeyQueen(en, x);
 
     }else if (en.bossBiomeId === "jungle"){
       // Serpent King — coiled cobra with hood and crown; the coil now
