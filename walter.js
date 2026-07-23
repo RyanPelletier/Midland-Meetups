@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0, attackLift: 0, attackLiftTimer: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0, attackLift: 0, attackLiftTimer: 0, runeCharge: 0, runeChargeTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3496,6 +3496,26 @@
         }else if (en.attackCooldown <= 0){
           en.attackLiftTimer = BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES;
         }
+      }else if (en.bossBiomeId === "desert"){
+        // Same shape again — a brief wind-up before the hit lands, so
+        // the redesign's optional runeCharge field (runes brightening,
+        // orbiting shards spinning faster) has a real window to
+        // animate through instead of sitting permanently at 0.
+        if (en.runeChargeTimer > 0){
+          en.runeChargeTimer--;
+          en.runeCharge = 1 - en.runeChargeTimer / SANDCOLOSSUS_RUNE_CHARGE_WINDUP_FRAMES;
+          if (en.runeChargeTimer <= 0){
+            en.runeCharge = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.runeChargeTimer = SANDCOLOSSUS_RUNE_CHARGE_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3692,6 +3712,7 @@
   const FEYQUEEN_CAST_WINDUP_FRAMES = 30; // sigils/petals/crown brighten during this window before the hit lands
   const SERPENTKING_HOOD_FLARE_WINDUP_FRAMES = 25; // hood expands and eyes brighten during this window before the hit lands
   const BOGTITAN_ATTACK_LIFT_WINDUP_FRAMES = 35; // longer than the others — a heavy, lumbering titan raising its arm should feel weighty
+  const SANDCOLOSSUS_RUNE_CHARGE_WINDUP_FRAMES = 30; // runes brighten and orbiting shards spin faster during this window
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -6450,6 +6471,140 @@
     }
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (x=left edge, en.y=top, confirmed via the
+  // body/head positioning). The arms and hands extend a bit beyond the
+  // box (about 8px on each side) — more than the comment discloses
+  // (which only mentions the orbiting shards), but this is the same
+  // kind of cosmetic overflow already accepted for Bog Titan, not a
+  // real coordinate mismatch. The optional runeCharge field needed a
+  // real mechanic behind it — no telegraph existed before this — so a
+  // genuine wind-up window was added in updateEnemies(), same pattern
+  // as the last five redesigns in this batch.
+  function drawSandColossus(en, x){
+    const y = en.y;
+    const grind = Math.sin(frame * 0.035) * 1.5;
+    const charge = en.runeCharge || 0;
+
+    ctx.fillStyle = "#A58A56";
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y + 62);
+    ctx.lineTo(x + 52, y + 60);
+    ctx.lineTo(x + 56, y + 90);
+    ctx.lineTo(x + 4, y + 92);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#C3A66A";
+    ctx.beginPath();
+    ctx.moveTo(x + 4 + grind, y + 34);
+    ctx.lineTo(x + 56 - grind, y + 30);
+    ctx.lineTo(x + 50, y + 66);
+    ctx.lineTo(x + 10, y + 68);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#D6BC80";
+    ctx.beginPath();
+    ctx.moveTo(x + 10 - grind, y + 18);
+    ctx.lineTo(x + 50 + grind, y + 16);
+    ctx.lineTo(x + 46, y + 42);
+    ctx.lineTo(x + 14, y + 44);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#E3C98C";
+    ctx.beginPath();
+    ctx.moveTo(x + 22, y + 2);
+    ctx.lineTo(x + 38, y + 4);
+    ctx.lineTo(x + 42, y + 18);
+    ctx.lineTo(x + 18, y + 18);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = charge > 0.2 ? "#FFF27A" : "#D8C64E";
+    ctx.beginPath();
+    ctx.arc(x + 26, y + 10, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 34, y + 10, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#B2935B";
+    ctx.beginPath();
+    ctx.moveTo(x - 2, y + 32);
+    ctx.lineTo(x + 10, y + 34);
+    ctx.lineTo(x + 6, y + 72);
+    ctx.lineTo(x - 6, y + 70);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 50, y + 34);
+    ctx.lineTo(x + 62, y + 32);
+    ctx.lineTo(x + 66, y + 70);
+    ctx.lineTo(x + 54, y + 72);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#8F7445";
+    ctx.fillRect(x - 8, y + 66, 8, 10);
+    ctx.fillRect(x + 60, y + 66, 8, 10);
+
+    ctx.strokeStyle = "#8D7144";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++){
+      const yy = y + 22 + i * 10;
+      ctx.beginPath();
+      ctx.moveTo(x + 10, yy);
+      ctx.lineTo(x + 50, yy - 1);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#6D5635";
+    ctx.beginPath();
+    ctx.moveTo(x + 18, y + 18);
+    ctx.lineTo(x + 24, y + 30);
+    ctx.lineTo(x + 21, y + 44);
+    ctx.moveTo(x + 42, y + 22);
+    ctx.lineTo(x + 36, y + 34);
+    ctx.lineTo(x + 40, y + 48);
+    ctx.stroke();
+
+    ctx.strokeStyle = charge > 0.2 ? "#FFF4A8" : "#E7D67B";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 26, y + 50);
+    ctx.lineTo(x + 34, y + 50);
+    ctx.moveTo(x + 30, y + 46);
+    ctx.lineTo(x + 30, y + 54);
+    ctx.moveTo(x + 22, y + 58);
+    ctx.lineTo(x + 38, y + 58);
+    ctx.stroke();
+
+    const speed = 0.03 + charge * 0.08;
+    for (let i = 0; i < 4; i++){
+      const a = frame * speed + i * Math.PI / 2;
+      const ox = Math.cos(a) * 22;
+      const oy = Math.sin(a) * 16;
+      ctx.save();
+      ctx.translate(x + 30 + ox, y + 34 + oy);
+      ctx.rotate(a);
+      ctx.fillStyle = "#C9A96B";
+      ctx.fillRect(-3, -3, 6, 6);
+      ctx.restore();
+    }
+
+    ctx.strokeStyle = "#E6D39A";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++){
+      const d = (frame * 0.7 + i * 9) % 18;
+      ctx.beginPath();
+      ctx.moveTo(x + 18 + i * 6, y + 72 + d);
+      ctx.lineTo(x + 18 + i * 6, y + 75 + d);
+      ctx.stroke();
+    }
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -6657,29 +6812,7 @@
       drawBogTitan(en, x);
 
     }else if (en.bossBiomeId === "desert"){
-      // Sand Colossus — blocky sandstone giant with orbiting shards;
-      // the blocks now shift slightly against each other, like grinding stone
-      const grind1 = Math.sin(frame * 0.04) * 2, grind2 = Math.sin(frame * 0.04 + 1.5) * 2;
-      ctx.fillStyle = COLORS.sandColossusBody;
-      ctx.fillRect(x, y, w, h * 0.4);
-      ctx.fillRect(x + 4 + grind1, y + h * 0.4, w - 8, h * 0.3);
-      ctx.fillRect(x + 8 + grind2, y + h * 0.7, w - 16, h * 0.3);
-      ctx.fillStyle = COLORS.sandColossusDark;
-      ctx.fillRect(x, y + h * 0.38, w, 4);
-      ctx.fillRect(x + 4 + grind1, y + h * 0.68, w - 8, 4);
-      for (let i = 0; i < 3; i++){
-        const angle = frame * 0.03 + i * (Math.PI * 2 / 3);
-        const ox = cx + Math.cos(angle) * (w * 0.75);
-        const oy = y + h * 0.4 + Math.sin(angle) * 14;
-        ctx.fillStyle = COLORS.sandColossusShard;
-        ctx.fillRect(ox - 3, oy - 3, 6, 6);
-      }
-      // a trickle of sand off the lower block edge
-      ctx.fillStyle = COLORS.sandColossusDark;
-      const trickle = frame % 60;
-      ctx.globalAlpha = 1 - trickle / 60;
-      ctx.fillRect(x + 8 + grind2, y + h * 0.7 + trickle * 0.3, 2, 2);
-      ctx.globalAlpha = 1;
+      drawSandColossus(en, x);
 
     }else if (en.bossBiomeId === "treehouses"){
       // Elder Dryad — floating tree spirit with a leaf halo; the leaves
