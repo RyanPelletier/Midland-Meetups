@@ -2369,7 +2369,7 @@
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
-      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0
+      isBoss: true, bossBiomeId: bossInfo.biomeId, rallyTriggered: [false, false, false], rallyFlash: 0, attackWindup: 0, attackWindupTimer: 0, castGlow: 0, castGlowTimer: 0, hoodFlare: 0, hoodFlareTimer: 0
     });
     if (DEBUG) console.log("[WvW] boss spawned: " + bossInfo.name + " (" + bossInfo.biomeId + ")");
   }
@@ -3456,6 +3456,26 @@
         }else if (en.attackCooldown <= 0){
           en.castGlowTimer = FEYQUEEN_CAST_WINDUP_FRAMES;
         }
+      }else if (en.bossBiomeId === "jungle"){
+        // Same shape again — a brief wind-up before the hit lands, so
+        // the redesign's optional hoodFlare field (hood expanding,
+        // eyes brightening) has a real window to animate through
+        // instead of sitting permanently at 0.
+        if (en.hoodFlareTimer > 0){
+          en.hoodFlareTimer--;
+          en.hoodFlare = 1 - en.hoodFlareTimer / SERPENTKING_HOOD_FLARE_WINDUP_FRAMES;
+          if (en.hoodFlareTimer <= 0){
+            en.hoodFlare = 0;
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+          return;
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.hoodFlareTimer = SERPENTKING_HOOD_FLARE_WINDUP_FRAMES;
+        }
       }else if (en.isBoss){
         // Generic boss posture: always closes in, never retreats — same
         // as the cyclops. Commander additionally rallies reinforcements
@@ -3650,6 +3670,7 @@
   const CHAMPION_WINDUP_FRAMES = 25; // brief fencing-stance wind-up before the hit lands
   const FEY_TELEPORT_WINDUP_FRAMES = 15; // shorter than a boss's telegraph — fey should read as quick and erratic
   const FEYQUEEN_CAST_WINDUP_FRAMES = 30; // sigils/petals/crown brighten during this window before the hit lands
+  const SERPENTKING_HOOD_FLARE_WINDUP_FRAMES = 25; // hood expands and eyes brighten during this window before the hit lands
 
   function fireCyclopsBeam(en){
     const eyeX = en.x + en.w / 2; // center, matching the redesigned humanoid's eye position
@@ -6150,6 +6171,140 @@
     ctx.stroke();
   }
 
+  // Redesigned externally, reviewed before integrating. Coordinate
+  // convention checked out (traced the extremes — crown tip at y-1,
+  // front coil bottom at y+84, all X within x+6 to x+53 — comfortably
+  // within the 60x92 box, aside from the crown's 1px overflow, the
+  // same minor cosmetic flourish already accepted in earlier
+  // redesigns). The optional hoodFlare field needed a real mechanic
+  // behind it — no telegraph existed before this, just the shared
+  // generic "close in, hit on cooldown" AI — so a genuine wind-up
+  // window was added in updateEnemies(), same pattern as the last
+  // three redesigns in this batch.
+  function drawSerpentKing(en, x){
+    const y = en.y;
+    const slither = Math.sin(frame * 0.08) * 2;
+    const flare = en.hoodFlare || 0;
+
+    ctx.fillStyle = "#27663C";
+    for (let i = 0; i < 3; i++){
+      ctx.beginPath();
+      ctx.arc(x + 22 + i * 9, y + 66 - i * 8 + slither, 12 - i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#2E8A48";
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 70 + slither, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#C8D37A";
+    for (let i = 0; i < 5; i++){
+      ctx.fillRect(x + 14 + i * 3, y + 69 + slither, 2, 8);
+    }
+
+    ctx.fillStyle = "#2E8A48";
+    ctx.beginPath();
+    ctx.moveTo(x + 25, y + 62 + slither);
+    ctx.quadraticCurveTo(x + 34, y + 42 + slither, x + 33, y + 24 + slither);
+    ctx.lineTo(x + 41, y + 24 + slither);
+    ctx.quadraticCurveTo(x + 40, y + 46 + slither, x + 31, y + 66 + slither);
+    ctx.closePath();
+    ctx.fill();
+
+    const hoodWidth = 12 + flare * 5;
+    ctx.fillStyle = "#347F46";
+    ctx.beginPath();
+    ctx.moveTo(x + 36, y + 14 + slither);
+    ctx.lineTo(x + 36 - hoodWidth, y + 26 + slither);
+    ctx.lineTo(x + 36 - 8, y + 44 + slither);
+    ctx.lineTo(x + 36 + 8, y + 44 + slither);
+    ctx.lineTo(x + 36 + hoodWidth, y + 26 + slither);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#D8D48A";
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 28 + slither, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 45, y + 28 + slither, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2A3523";
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 28 + slither, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 45, y + 28 + slither, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#3C9B56";
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 8 + slither);
+    ctx.lineTo(x + 42, y + 8 + slither);
+    ctx.lineTo(x + 46, y + 18 + slither);
+    ctx.lineTo(x + 36, y + 24 + slither);
+    ctx.lineTo(x + 26, y + 18 + slither);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = flare > 0.2 ? "#FFEE55" : "#F5D84A";
+    ctx.beginPath();
+    ctx.arc(x + 32, y + 15 + slither, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 40, y + 15 + slither, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.moveTo(x + 34, y + 21 + slither);
+    ctx.lineTo(x + 35, y + 26 + slither);
+    ctx.lineTo(x + 36, y + 21 + slither);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 38, y + 21 + slither);
+    ctx.lineTo(x + 39, y + 26 + slither);
+    ctx.lineTo(x + 40, y + 21 + slither);
+    ctx.fill();
+
+    if (frame % 90 < 10){
+      ctx.strokeStyle = "#D94158";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 37, y + 22 + slither);
+      ctx.lineTo(x + 44, y + 22 + slither);
+      ctx.moveTo(x + 44, y + 22 + slither);
+      ctx.lineTo(x + 47, y + 20 + slither);
+      ctx.moveTo(x + 44, y + 22 + slither);
+      ctx.lineTo(x + 47, y + 24 + slither);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "rgba(80,170,95,0.55)";
+    for (let r = 0; r < 3; r++){
+      for (let c = 0; c < 4; c++){
+        ctx.beginPath();
+        ctx.arc(x + 18 + c * 6 + r, y + 58 + r * 7 + slither, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = "#C89A2E";
+    ctx.beginPath();
+    ctx.moveTo(x + 31, y + 5 + slither);
+    ctx.lineTo(x + 33, y - 1 + slither);
+    ctx.lineTo(x + 36, y + 4 + slither);
+    ctx.lineTo(x + 39, y - 1 + slither);
+    ctx.lineTo(x + 41, y + 5 + slither);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#32F070";
+    ctx.beginPath();
+    ctx.arc(x + 36, y + 2 + slither, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawCommander(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.05) * 2;
@@ -6351,40 +6506,7 @@
       drawFeyQueen(en, x);
 
     }else if (en.bossBiomeId === "jungle"){
-      // Serpent King — coiled cobra with hood and crown; the coil now
-      // genuinely undulates like a real slither instead of sitting static
-      const s = frame * 0.06;
-      const u1 = Math.sin(s) * 4, u2 = Math.sin(s + 1.2) * 4, u3 = Math.sin(s + 2.4) * 4;
-      ctx.fillStyle = COLORS.serpentKingScale;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.5, y + h);
-      ctx.quadraticCurveTo(x + u1, y + h * 0.7, x + w * 0.3, y + h * 0.4);
-      ctx.quadraticCurveTo(x + w * 0.5 + u2, y + h * 0.15, x + w * 0.5, y + 10);
-      ctx.quadraticCurveTo(x + w * 0.7 + u3, y + h * 0.4, x + w * 0.5, y + h * 0.55);
-      ctx.quadraticCurveTo(x + w * 0.75 + u1, y + h * 0.75, x + w * 0.5, y + h);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.serpentKingHood;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.2, y + 6);
-      ctx.lineTo(x + w * 0.5, y - 8);
-      ctx.lineTo(x + w * 0.8, y + 6);
-      ctx.lineTo(x + w * 0.5, y + 18);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.serpentKingCrown;
-      ctx.fillRect(x + w * 0.42, y - 16, w * 0.16, 8);
-      // an occasional tongue flick
-      if (Math.floor(frame / 90) % 3 === 0 && frame % 90 < 15){
-        ctx.strokeStyle = COLORS.serpentKingHood;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + w * 0.5, y - 6);
-        ctx.lineTo(x + w * 0.5 - 5, y - 12);
-        ctx.moveTo(x + w * 0.5, y - 6);
-        ctx.lineTo(x + w * 0.5 + 5, y - 12);
-        ctx.stroke();
-      }
+      drawSerpentKing(en, x);
 
     }else if (en.bossBiomeId === "swamp"){
       // Bog Titan — huge moss brute with a stone shoulder; now with a
