@@ -73,6 +73,7 @@
     mermaidBody: "#3AA6A6", mermaidTail: "#1B7A7A", mermaidFin: "#134F5C",
     ogreBody: "#4B5D3A", ogreBodyDark: "#33421F", ogreFist: "#3A4A2C", ogreTusk: "#E8E0C8",
     snakeBody: "#5B8C3A", snakeBelly: "#C9D9A0", snakeTongue: "#B8283A",
+    oozeBody: "#7FC94A", oozeCore: "#B8F27C", oozeEye: "#2A3A1A",
     knightPauldron: "#3F4652", knightVisor: "#1A1E24", knightSword: "#9CA3AF",
     archerTunic: "#2D7A3A", archerHood: "#1F5A2A",
     bossBody: "#8B2F3A", bossTrim: "#D4AF37",
@@ -133,6 +134,7 @@
     blackHole: "#2B1B4A",
     nebulaRing: "#9B6FE8", nebulaParticle: "#6B5FC9",
     eelSkinBody: "#3A4A5C", eelSkinTrim: "#5FD4E8", eelSkinEmblem: "#7FD4E8",
+    dragonScaleBody: "#5C3A2E", dragonScaleTrim: "#FF8A3D", dragonScaleEmblem: "#FFB454",
     giantEelBody: "#1B4A52", giantEelBodyDark: "#123338", giantEelSpine: "#5FD4E8",
     giantEelEye: "#7FE8F5", giantEelSpike: "#2A6B75", giantEelSpikeCharged: "#8FF0FF",
     ally: "#F6A93B",
@@ -383,7 +385,7 @@
     forest:      { id: "forest",      displayName: "Forest",       enemyPool: ["fey","fairy"],                isCombatBiome: true,  dangerWeight: 2, baseWidth: 850, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
     treehouses:  { id: "treehouses",  displayName: "Treehouses",   enemyPool: ["fey","fairy"],                isCombatBiome: true,  dangerWeight: 2, baseWidth: 850, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
     castlewalls: { id: "castlewalls", displayName: "Castle Walls", enemyPool: ["knight","archer","wizard"],  isCombatBiome: true,  dangerWeight: 3, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
-    swamp:       { id: "swamp",       displayName: "Swamp",        enemyPool: ["ogre"],                       isCombatBiome: true,  dangerWeight: 3, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
+    swamp:       { id: "swamp",       displayName: "Swamp",        enemyPool: ["ogre", "ooze"],                       isCombatBiome: true,  dangerWeight: 3, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
     jungle:      { id: "jungle",      displayName: "Jungle",       enemyPool: ["snake"],                      isCombatBiome: true,  dangerWeight: 4, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
     desert:      { id: "desert",      displayName: "Desert",       enemyPool: ["sandworm"],                   isCombatBiome: true,  dangerWeight: 4, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: null,        bossEligible: true },
     underwater:  { id: "underwater",  displayName: "Under Water",  enemyPool: ["siren","mermaid"],            isCombatBiome: true,  dangerWeight: 5, baseWidth: 900, widthVariance: 0.15, requiredArmorTrait: "waterproof", bossEligible: true } // hard-locked without the trait
@@ -905,10 +907,18 @@
   // duration, refreshed on recast. A standard sword holds one imbue at a
   // time (a new element replaces the old one); the SOTGK stacks all
   // three independently.
-  const IMBUE_DURATION_FRAMES = 20 * 60; // 20s per element, refreshed on recast
+  // IMBUE_DURATION_FRAMES removed — imbues are now permanent per-weapon
+  // unlocks rather than a timed buff, see applyImbueToSword().
   const SOTGK_COST_SILVER = 100000;
   const IMBUE_BONUS_DAMAGE = 8; // standard single-imbue melee bonus
   const SOTGK_ARC_TARGETS = 10; // max enemies hit by the fully-stacked Ultimate arc
+  // A technical safeguard, not a nerf to the described threat — "duplicates
+  // every 0.7s if left alone" is genuinely unbounded exponential growth,
+  // which would eventually overwhelm the browser regardless of any in-game
+  // danger. 40 oozes at once is already the "overwhelming crowd" the spec
+  // describes; the cap just stops it from becoming a literal performance
+  // crash on top of that.
+  const OOZE_MAX_COUNT = 40;
   const SOTGK_COMBO_ARC_TARGETS = 3; // smaller arc for the 2-element combos
 
   const ENEMY_STATS = {
@@ -940,6 +950,12 @@
     drake:   { hp: 46, speed: 1.0, damage: 16, attackCooldown: 130, preferredRange: 260, projectileSpeed: 6.5, w: 64, h: 48, hoverHeight: 55, breathPrepFrames: 40 },
     ogre:     { hp: 60, speed: 0.6, damage: 18, attackCooldown: 100, contactRange: 34, w: 34, h: 46, dropsSilver: true },
     snake:    { hp: 20, speed: 1.3, damage: 6,  attackCooldown: 130, contactRange: 32, lungeRange: 140, poisonDuration: 300, poisonDps: 2, w: 22, h: 18 },
+    // Small, weak individually, easy to one-shot — the actual threat is
+    // letting a swarm build unchecked, since each one duplicates itself
+    // every 0.7s (42 frames) if left alive. Immune to lightning damage
+    // (see damageEnemy), instantly killed by any freeze application
+    // (see applyFreezeToEnemy) regardless of current HP.
+    ooze: { hp: 6, speed: 0.5, damage: 4, attackCooldown: 70, contactRange: 20, w: 14, h: 14, duplicateFrames: 42 },
     // A rare, unscripted field encounter (like the Cyclops) rather than a
     // guaranteed land boss — distinct from Leviathan, the Under Water
     // biome's actual scripted boss. Sized between Snake and Leviathan
@@ -1049,6 +1065,7 @@
     // Cost wasn't specified anywhere in the Phase 8c roadmap — priced to
     // match the other trait armors, same 500-silver tier.
     eelSkin: { label: "Eel Skin Armor",     cost: 500, multiplier: 1.5, trait: "lightningMitigation" },
+    dragonScale: { label: "Dragon Scale Armor", cost: 500, multiplier: 1.5, trait: "fireCharge" },
     // Tier-0 utility — no HP buffer at all (multiplier: 0). Its value is
     // the activated ability, not damage soak.
     cloak:   { label: "Invisibility Cloak", cost: 200, multiplier: 0,   trait: "cloak" }
@@ -1056,14 +1073,14 @@
   // Tiered repair: standard armor is cheap to fix, special/trait armor costs more.
   const ARMOR_REPAIR_COST_STANDARD = 20;
   const ARMOR_REPAIR_COST_SPECIAL = 50;
-  const ARMOR_SPECIAL_TYPES = new Set(["goblin", "siren", "cloak", "eelSkin"]);
+  const ARMOR_SPECIAL_TYPES = new Set(["goblin", "siren", "cloak", "eelSkin", "dragonScale"]);
   function armorRepairCost(key){
     return ARMOR_SPECIAL_TYPES.has(key) ? ARMOR_REPAIR_COST_SPECIAL : ARMOR_REPAIR_COST_STANDARD;
   }
-  const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "eelSkin", "cloak"];
-  // Letters for the save codex — S is already steel, so siren uses R.
-  const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C", eelSkin: "E" };
-  const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak", E: "eelSkin" };
+  const ARMOR_ORDER = ["leather", "steel", "goblin", "siren", "eelSkin", "dragonScale", "cloak"];
+  // Letters for the save codex — S is already steel, R is siren, E is eelSkin; dragonScale uses D.
+  const ARMOR_LETTERS = { none: "N", leather: "L", steel: "S", goblin: "G", siren: "R", cloak: "C", eelSkin: "E", dragonScale: "D" };
+  const ARMOR_LETTERS_REVERSE = { N: "none", L: "leather", S: "steel", G: "goblin", R: "siren", C: "cloak", E: "eelSkin", D: "dragonScale" };
 
   // Format: <equipped char><5 owned bits><5 broken bits>, bits in
   // ARMOR_ORDER sequence. Old saves only ever stored the single equipped
@@ -1752,10 +1769,11 @@
       },
       swordInventory: {
         swords: player.swordInventory.swords.map(s => ({
-          id: s.id, type: s.type, label: s.label
-          // activeImbues intentionally not persisted — same "transient
-          // combat state" treatment as burn/freeze/cloak timers elsewhere;
-          // an imbue you're mid-fight with shouldn't survive a reload.
+          id: s.id, type: s.type, label: s.label,
+          // Now a permanent, purchased unlock rather than transient
+          // combat state, so — unlike burn/freeze/cloak timers — this
+          // genuinely needs to survive a reload.
+          activeImbues: s.activeImbues || {}
         })),
         equippedSwordId: player.swordInventory.equippedSwordId
       },
@@ -2080,7 +2098,7 @@
       maxHp: c.maxHp === null || c.maxHp === undefined ? undefined : c.maxHp
     }));
     if (s.swordInventory && s.swordInventory.swords && s.swordInventory.swords.length){
-      player.swordInventory.swords = s.swordInventory.swords.map(sw => ({ ...sw, activeImbues: {} }));
+      player.swordInventory.swords = s.swordInventory.swords.map(sw => ({ ...sw, activeImbues: sw.activeImbues || {} }));
       player.swordInventory.equippedSwordId = s.swordInventory.equippedSwordId || player.swordInventory.swords[0].id;
     }
     const maxLoadedCrewId = player.crew.reduce((max, c) => Math.max(max, parseInt(c.id.replace("c", ""), 10) || 0), 0);
@@ -2158,6 +2176,7 @@
     player.castleRebuilt = false;
     player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
     player.eelChargeMeter = 0; // 0-100, builds from incoming lightning damage while Eel Skin Armor is equipped
+    player.dragonChargeMeter = 0; // 0-100, builds from incoming fire damage while Dragon Scale Armor is equipped
     // Village Expansion state. Villagers wander and can be recruited;
     // once recruited they move into the crew roster and villagers[] is
     // regenerated to keep the village populated.
@@ -2206,6 +2225,8 @@
     }
 
     if (e.code === "KeyC") activateCloak();
+    if (e.code === "KeyE" && player.armorType === "eelSkin" && player.eelChargeMeter >= 100) dischargeEelSkin();
+    if (e.code === "KeyE" && player.armorType === "dragonScale" && player.dragonChargeMeter >= 100) dischargeDragonScale();
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
     if (e.code === "KeyQ" && nearMenuAction) openMenuForAction(nearMenuAction);
@@ -2264,7 +2285,6 @@
     updateFollowingCrew();
     updateGhosts();
     updateEffects();
-    updateSwordImbues();
     checkChestAndAltar();
     if (respawnMessageTimer > 0) respawnMessageTimer--;
   }
@@ -2667,7 +2687,7 @@
     player.burningFrames--;
     if (player.blackBurn) player.mana = Math.max(0, player.mana - PLAYER_BLACK_FIRE_MANA_DRAIN_PER_FRAME);
     if (player.burningFrames <= 0) player.blackBurn = false;
-    damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true });
+    damagePlayer(PLAYER_BURN_DAMAGE_PER_FRAME, { ignoreInvuln: true, source: player.blackBurn ? undefined : "fire" });
   }
 
   // Siren's Charm: immediate damage + a slow, no damage-over-time. Doesn't
@@ -2722,23 +2742,23 @@
   // see the constant block above for why this is the trigger. A
   // standard sword only ever holds one imbue (a new element replaces the
   // old one); the SOTGK stacks up to all three independently.
+  // Imbues are now permanent per-weapon unlocks, purchased at the
+  // Blacksmith — not a temporary timed buff. This is the actual fix for
+  // the reported "random switching" bug: the old system decayed each
+  // sword's imbue on its own separate timer that only ticked while that
+  // specific sword was equipped, so an imbue could seem to persist or
+  // vanish unpredictably depending on how much real time was spent with
+  // each sword equipped. A permanent, deterministic unlock has no such
+  // ambiguity. Non-SOTGK swords hold exactly one imbue (buying a new one
+  // replaces it); only the Sword of the Great King can stack multiple.
   function applyImbueToSword(element){
     const sword = getEquippedSword();
     if (!sword) return;
     if (sword.type === "sotgk"){
-      sword.activeImbues[element] = IMBUE_DURATION_FRAMES;
+      sword.activeImbues[element] = true;
     }else{
-      sword.activeImbues = { [element]: IMBUE_DURATION_FRAMES };
+      sword.activeImbues = { [element]: true };
     }
-  }
-
-  function updateSwordImbues(){
-    const sword = getEquippedSword();
-    if (!sword) return;
-    Object.keys(sword.activeImbues).forEach(el => {
-      sword.activeImbues[el]--;
-      if (sword.activeImbues[el] <= 0) delete sword.activeImbues[el];
-    });
   }
 
   // Fires a short lightning arc from the player to nearby enemies,
@@ -2746,6 +2766,23 @@
   // Lightning spell already uses, just capped at a different count.
   // Reaching 100% charge fires a big lightning arc and resets — reuses
   // the same "nearest, not yet hit" arc helper the SOTGK's combos use.
+  const DRAGON_SCALE_EXPLOSION_RADIUS = 140;
+  function dischargeDragonScale(){
+    const explosionDamage = SPELLS.fireball.damage * spellDamageMultiplier() * 3;
+    const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
+    enemies.forEach(en => {
+      if (en.hp <= 0 || en.isCage) return;
+      const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
+      if (Math.sqrt(dx*dx + dy*dy) < DRAGON_SCALE_EXPLOSION_RADIUS){
+        damageEnemy(en, explosionDamage);
+        en.burningFrames = Math.max(en.burningFrames || 0, 90);
+      }
+    });
+    player.dragonChargeMeter = 0;
+    effects.push({ type: "dragon-scale-explosion", x: originX, y: originY, radius: DRAGON_SCALE_EXPLOSION_RADIUS, life: 20 });
+    if (DEBUG) console.log("[WvW] Dragon Scale discharged — explosion for " + Math.round(explosionDamage) + " within radius " + DRAGON_SCALE_EXPLOSION_RADIUS);
+  }
+
   function dischargeEelSkin(){
     const lightningDamage = SPELLS.lightning.damage * spellDamageMultiplier();
     fireSwordArc(10, lightningDamage * 2);
@@ -2765,12 +2802,25 @@
         if (d < 260 && d < nearestDist){ nearest = en; nearestDist = d; }
       });
       if (!nearest) break;
-      damageEnemy(nearest, damage);
+      damageEnemy(nearest, damage, { source: "lightning" });
       hitSoFar.push(nearest);
       effects.push({ type: "lightning-link", x1: fromX, y1: fromY, x2: nearest.x + nearest.w/2, y2: nearest.y + nearest.h/2, life: 8 });
       fromX = nearest.x + nearest.w/2; fromY = nearest.y + nearest.h/2;
     }
     return hitSoFar;
+  }
+
+  // Centralizes every place an enemy gets frozen, so Ooze's "freeze
+  // instantly kills it" trait only needs to live in one place rather
+  // than being repeated at each of the game's several freeze-application
+  // sites (the Freeze spell, the SOTGK combo table, the standard sword's
+  // freeze imbue).
+  function applyFreezeToEnemy(en, duration){
+    if (en.type === "ooze"){
+      damageEnemy(en, en.hp + 1); // instant kill, regardless of current HP
+      return;
+    }
+    en.frozenFrames = Math.max(en.frozenFrames || 0, duration);
   }
 
   // The SOTGK's deterministic combo table, per its spec. Only called on
@@ -2785,18 +2835,18 @@
       fireSwordArc(SOTGK_ARC_TARGETS, MELEE_DAMAGE);
       target.burningFrames = 999999; // "permanent" for practical purposes — cleared on death/respawn like any burn
       target.whiteBurn = true;
-      target.frozenFrames = Math.max(target.frozenFrames || 0, 120);
+      applyFreezeToEnemy(target, 120);
       damageEnemy(target, MELEE_DAMAGE * 0.3); // passive freeze damage, on top of the arc
     }else if (has("lightning") && has("freeze")){
       fireSwordArc(SOTGK_COMBO_ARC_TARGETS, MELEE_DAMAGE * 0.6);
-      target.frozenFrames = Math.max(target.frozenFrames || 0, 90);
+      applyFreezeToEnemy(target, 90);
     }else if (has("lightning") && has("fire")){
       fireSwordArc(SOTGK_COMBO_ARC_TARGETS, MELEE_DAMAGE * 0.6);
       target.burningFrames = Math.max(target.burningFrames || 0, 180);
       target.whiteBurn = true;
     }else if (has("fire") && has("freeze")){
       // "Damaging Freeze" — control plus direct passive damage, no arc
-      target.frozenFrames = Math.max(target.frozenFrames || 0, 90);
+      applyFreezeToEnemy(target, 90);
       damageEnemy(target, MELEE_DAMAGE * 0.5);
     }
   }
@@ -2828,7 +2878,7 @@
           const el = imbues[0];
           damageEnemy(en, IMBUE_BONUS_DAMAGE);
           if (el === "fire") en.burningFrames = Math.max(en.burningFrames || 0, 90);
-          else if (el === "freeze") en.frozenFrames = Math.max(en.frozenFrames || 0, 45);
+          else if (el === "freeze") applyFreezeToEnemy(en, 45);
           else if (el === "lightning") fireSwordArc(SOTGK_COMBO_ARC_TARGETS, IMBUE_BONUS_DAMAGE);
         }
       }
@@ -2849,13 +2899,11 @@
     player.mana -= manaCost;
 
     if (key === "fireball"){
-      applyImbueToSword("fire");
       playerProjectiles.push({
         type: "fireball", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2,
         vx: cfg.speed * player.facing, damage: cfg.damage * spellDamageMultiplier()
       });
     }else if (key === "lightning"){
-      applyImbueToSword("lightning");
       // Chain lightning: bridges from Walter to the nearest enemy, then from
       // that enemy to the next nearest (not yet hit), up to chainMax links.
       // An equipped amulet (Banner of Valor / Emerald Fang) can extend that
@@ -2891,7 +2939,7 @@
         });
         if (!nearest) break;
         hitSoFar.push(nearest);
-        damageEnemy(nearest, cfg.damage * spellDamageMultiplier());
+        damageEnemy(nearest, cfg.damage * spellDamageMultiplier(), { source: "lightning" });
         const enCx = nearest.x + nearest.w/2, enCy = nearest.y + nearest.h/2;
         chainPoints.push({ x: enCx, y: enCy });
         fromX = enCx; fromY = enCy;
@@ -2907,7 +2955,6 @@
         });
       }
     }else if (key === "freeze"){
-      applyImbueToSword("freeze");
       const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
       enemies.forEach(en => {
         const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
@@ -2919,7 +2966,7 @@
             pickLockCage(en);
             return;
           }
-          en.frozenFrames = cfg.duration;
+          applyFreezeToEnemy(en, cfg.duration);
           // Elemental combo: Freeze extinguishes an active burn, per the roadmap's combo table.
           if (en.burningFrames > 0){ en.burningFrames = 0; en.whiteBurn = false; }
         }
@@ -2978,15 +3025,17 @@
       respawnMessageTimer = 180;
       if (DEBUG) console.log("[WvW] freed a caged villager: " + c.id + " (strength " + c.strength + ")");
     }else{
-      respawnMessageText = "The cage was empty...";
+      respawnMessageText = "Captive Ran Away";
       respawnMessageTimer = 180;
       if (DEBUG) console.log("[WvW] opened an empty cage");
     }
     saveProgress();
   }
 
-  function damageEnemy(en, amount){
+  function damageEnemy(en, amount, opts){
+    opts = opts || {};
     if (en.burrowed) return; // sand worms take no damage while burrowed
+    if (en.type === "ooze" && opts.source === "lightning") return; // completely impermeable to lightning
     en.hp -= amount;
     if (en.hp <= 0 && !en.counted){
       en.counted = true;
@@ -3058,11 +3107,16 @@
     // Eel Skin Armor: halves incoming lightning damage and charges toward
     // a big discharge. Charges off the RAW incoming amount (how hard the
     // attack hit), not what actually got through, same as it charging off
-    // "damage received" rather than "damage suffered".
+    // "damage received" rather than "damage suffered". Discharge is now
+    // manual (E key) rather than automatic at 100% charge.
     if (opts.source === "lightning" && player.armorType === "eelSkin"){
       player.eelChargeMeter = Math.min(100, player.eelChargeMeter + amount);
       amount *= 0.5;
-      if (player.eelChargeMeter >= 100) dischargeEelSkin();
+    }
+    // Dragon Scale Armor: charges from fire damage taken. No damage
+    // mitigation added — the spec only asked for the charge mechanic.
+    if (opts.source === "fire" && player.armorType === "dragonScale"){
+      player.dragonChargeMeter = Math.min(100, player.dragonChargeMeter + amount);
     }
 
     let remaining = amount;
@@ -3179,6 +3233,7 @@
     if (type === "sandworm"){ en.burrowed = true; en.emergeFramesLeft = 0; }
     if (type === "fey"){ en.teleportCooldown = 0; }
     if (type === "snake"){ en.lunging = false; }
+    if (type === "ooze"){ en.duplicateTimer = stats.duplicateFrames; }
     enemies.push(en);
     if (DEBUG) console.log("[WvW] spawned " + type + " in generated biome " + zone.id);
   }
@@ -3302,6 +3357,32 @@
           if (en.hazardCooldown <= 0){
             en.charging = true;
             en.chargeFrames = stats.chargeDuration;
+          }
+        }
+      }else if (en.type === "ooze"){
+        // Duplication ticks down regardless of combat state — even an
+        // ooze that's just standing there splits every 0.7s if left alone,
+        // per spec. Capped at OOZE_MAX_COUNT to keep an ignored swarm from
+        // growing without bound.
+        en.duplicateTimer--;
+        if (en.duplicateTimer <= 0){
+          en.duplicateTimer = stats.duplicateFrames;
+          if (enemies.filter(e => e.type === "ooze" && e.hp > 0).length < OOZE_MAX_COUNT){
+            enemies.push({
+              type: "ooze", x: en.x + (Math.random() < 0.5 ? -18 : 18), y: en.y, w: stats.w, h: stats.h,
+              hp: en.maxHp, maxHp: en.maxHp, scaledDamage: en.scaledDamage,
+              attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false, duplicateTimer: stats.duplicateFrames
+            });
+          }
+        }
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+          en.moving = true;
+        }else{
+          en.moving = false;
+          if (en.attackCooldown <= 0){
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
           }
         }
       }else if (en.type === "knight" || en.type === "ogre"){
@@ -3806,7 +3887,8 @@
           const s = ENEMY_STATS.siren;
           applyCharmToPlayer(s.charmDuration, s.charmSlowMultiplier); // before damagePlayer, which sets invuln
         }
-        damagePlayer(p.damage, { source: p.type === "lightning" ? "lightning" : undefined });
+        const isFireProjectile = p.type === "fireball" || p.type === "dragonFireball" || p.type === "dragonBlueFireball" || p.type === "dragonBreath";
+        damagePlayer(p.damage, { source: p.type === "lightning" ? "lightning" : isFireProjectile ? "fire" : undefined });
         p.hit = true;
       }
     });
@@ -5487,6 +5569,49 @@
     }
   }
 
+  // Dragon Scale Armor's charge display, mirroring Eel Skin's segmented
+  // overlay above — same waist-upward fill pattern, warm fire palette
+  // and a flame emblem instead of a lightning bolt.
+  function drawDragonScaleOverlay(x, y){
+    const cx = x + PLAYER_W / 2;
+    const torsoTop = y + 14, torsoH = 14, torsoW = 12;
+    const segments = 4;
+    const litSegments = Math.round((player.dragonChargeMeter / 100) * segments);
+
+    for (let i = 0; i < segments; i++){
+      const segY = torsoTop + (segments - 1 - i) * (torsoH / segments);
+      const isLit = i < litSegments;
+      ctx.strokeStyle = isLit ? COLORS.dragonScaleTrim : "rgba(255,138,61,0.25)";
+      ctx.lineWidth = isLit ? 1.5 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - torsoW/2, segY);
+      ctx.lineTo(cx + torsoW/2, segY);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = COLORS.dragonScaleEmblem;
+    ctx.beginPath();
+    ctx.moveTo(cx, torsoTop + 2);
+    ctx.quadraticCurveTo(cx + 3, torsoTop + 6, cx, torsoTop + 11);
+    ctx.quadraticCurveTo(cx - 3, torsoTop + 6, cx, torsoTop + 2);
+    ctx.fill();
+
+    if (player.dragonChargeMeter >= 100){
+      ctx.strokeStyle = COLORS.dragonScaleTrim;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(frame * 0.3);
+      [[cx - torsoW/2 - 3, torsoTop + 2], [cx + torsoW/2 + 3, torsoTop + 2]].forEach(([sx, sy]) => {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + 8);
+        ctx.lineTo(sx + 2, sy + 4);
+        ctx.lineTo(sx - 1, sy + 2);
+        ctx.lineTo(sx + 3, sy);
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function drawPlayer(){
     const x = worldToScreen(player.x);
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
@@ -5495,6 +5620,7 @@
       : player.armorType === "goblin" ? COLORS.playerGoblin
       : player.armorType === "siren" ? COLORS.playerSiren
       : player.armorType === "eelSkin" ? COLORS.eelSkinBody
+      : player.armorType === "dragonScale" ? COLORS.dragonScaleBody
       : player.armorType === "cloak" ? COLORS.playerCloak
       : COLORS.player;
 
@@ -5508,6 +5634,7 @@
     };
     drawWalterFigure(x, player.y, bodyColor, playerMovement, null);
     if (player.armorType === "eelSkin") drawEelSkinOverlay(x, player.y);
+    if (player.armorType === "dragonScale") drawDragonScaleOverlay(x, player.y);
 
     if (isOverOpenWater(player.x) && player.y > GROUND_Y - PLAYER_H){
       ctx.fillStyle = "rgba(44,110,142,0.5)"; // sinking below the surface
@@ -5865,6 +5992,32 @@
     ctx.fillRect(x + 21, y + 8 + bob, 2, 5);
     ctx.fillStyle = "#585858";
     ctx.fillRect(x + 2, y + 8 + bob, 7, 5);
+  }
+
+  function drawOoze(en, x){
+    const y = en.y, w = en.w, h = en.h, cx = x + w / 2;
+    const wobble = Math.sin(frame * 0.15 + en.x * 0.05) * 1.5;
+    ctx.fillStyle = "rgba(127,201,74,0.85)";
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.5, y + h * 0.7 + wobble * 0.3);
+    ctx.quadraticCurveTo(cx - w * 0.5, y, cx, y + wobble * -0.5);
+    ctx.quadraticCurveTo(cx + w * 0.5, y, cx + w * 0.5, y + h * 0.7 + wobble * 0.3);
+    ctx.quadraticCurveTo(cx, y + h + wobble, cx - w * 0.5, y + h * 0.7 + wobble * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = COLORS.oozeCore;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(cx, y + h * 0.55, w * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = COLORS.oozeEye;
+    ctx.beginPath();
+    ctx.arc(cx - 3, y + h * 0.45, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 3, y + h * 0.45, 1.3, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawSnake(en, x){
@@ -7329,6 +7482,8 @@
 
     }else if (en.type === "snake"){
       drawSnake(en, x);
+    }else if (en.type === "ooze"){
+      drawOoze(en, x);
     }else if (en.type === "giantEel"){
       drawGiantEel(en, x);
 
@@ -7584,6 +7739,19 @@
       ctx.beginPath();
       ctx.arc(x, fx.y, fx.radius * (1 - fx.life/20), 0, Math.PI*2);
       ctx.stroke();
+    }else if (fx.type === "dragon-scale-explosion"){
+      const progress = 1 - fx.life / 20;
+      ctx.globalAlpha = 1 - progress;
+      ctx.fillStyle = COLORS.dragonScaleEmblem;
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius * progress * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.dragonScaleTrim;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius * progress, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }else if (fx.type === "lightning-chain"){
       ctx.strokeStyle = COLORS.lightning;
       ctx.lineWidth = 4;
@@ -7720,7 +7888,24 @@
       ctx.fillStyle = COLORS.hud;
       ctx.font = "700 9px 'JetBrains Mono', monospace";
       ctx.textAlign = "left";
-      ctx.fillText("eel charge " + Math.floor(player.eelChargeMeter) + "%", 138, chargeY + 6);
+      const eelLabel = "eel charge " + Math.floor(player.eelChargeMeter) + "%" + (player.eelChargeMeter >= 100 ? " — [E] discharge!" : "");
+      ctx.fillText(eelLabel, 138, chargeY + 6);
+    }
+
+    if (player.armorType === "dragonScale"){
+      const chargeY = (player.armorType && player.armorMaxHp > 0) ? 38 : 27;
+      ctx.fillStyle = COLORS.armorBg;
+      ctx.fillRect(12, chargeY, 120, 6);
+      ctx.fillStyle = COLORS.dragonScaleTrim;
+      ctx.fillRect(12, chargeY, 120 * (player.dragonChargeMeter / 100), 6);
+      ctx.strokeStyle = COLORS.hud;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(12, chargeY, 120, 6);
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 9px 'JetBrains Mono', monospace";
+      ctx.textAlign = "left";
+      const dragonLabel = "dragon charge " + Math.floor(player.dragonChargeMeter) + "%" + (player.dragonChargeMeter >= 100 ? " — [E] discharge!" : "");
+      ctx.fillText(dragonLabel, 138, chargeY + 6);
     }
 
     ctx.fillStyle = COLORS.manaBg;
@@ -8257,7 +8442,7 @@
         const element = btn.dataset.buyImbue;
         if (player.silver >= BLACKSMITH_IMBUE_COST_SILVER){
           player.silver -= BLACKSMITH_IMBUE_COST_SILVER;
-          applyImbueToSword(element); // same imbue mechanic casting a spell already uses — same duration, same stacking rules
+          applyImbueToSword(element); // the only way to unlock an imbue now — permanent for the equipped sword, no longer a side effect of casting the matching spell
           renderBlacksmithUi();
           saveProgress();
         }
