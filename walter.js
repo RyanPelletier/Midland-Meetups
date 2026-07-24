@@ -47,6 +47,7 @@
     skyUnderwater: "#4BA3C3", underwaterGround: "#C2A878", kelpColor: "#2F6B4A", bubbleColor: "rgba(255,255,255,0.6)", lightRayColor: "rgba(255,255,255,0.1)",
     treehousesSky: "#AEE2FF", trunkColor: "#6B4222", platformColor: "#8B5A2B", cloudColor: "rgba(255,255,255,0.85)",
     treehousesGround: "#3F7A3A",
+    darkForestGround: "#2E5A2A",
     bossArenaSky: "#3A2C4A",
     houseDecrepit: "#8A8378",
     houseDecrepitDark: "#5C574C",
@@ -5722,6 +5723,9 @@
       const x1 = worldToScreen(z.start), x2 = worldToScreen(z.end);
       if (x2 < -50 || x1 > CANVAS_W + 50) return; // whole zone off-screen
 
+      ctx.fillStyle = COLORS.darkForestGround;
+      ctx.fillRect(Math.max(0, x1), GROUND_Y, Math.min(CANVAS_W, x2) - Math.max(0, x1), CANVAS_H - GROUND_Y);
+
       if (z.biomeType === "tallGrassClearing"){
         // no trees at all here — the ground accent is the only decoration
         ctx.strokeStyle = COLORS.ground;
@@ -5731,7 +5735,7 @@
           if (sx < -10 || sx > CANVAS_W + 10) continue;
           ctx.beginPath();
           ctx.moveTo(sx, GROUND_Y);
-          ctx.lineTo(sx - 2, GROUND_Y - 10);
+          ctx.lineTo(sx - 2, GROUND_Y - 22);
           ctx.stroke();
         }
       }else if (z.biomeType === "tallTreesLowBush"){
