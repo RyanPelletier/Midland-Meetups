@@ -166,6 +166,26 @@ button{ font-family: inherit; }
   }
 }
 
+/* Game page: no full site nav — brand + one back link only */
+.game-back{
+  font-family: var(--body);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 8px 14px;
+  border-radius: 999px;
+  transition: background 0.15s ease, color .15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.game-back:hover,
+.game-back:focus-visible{
+  color: var(--ink);
+  background: var(--surface-2);
+  outline: none;
+}
+
 /* -------------------- Ticker (updates banner) -------------------- */
 .ticker-wrap{
   background: var(--ink);
