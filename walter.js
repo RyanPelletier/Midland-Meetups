@@ -1017,6 +1017,7 @@
   // IMBUE_DURATION_FRAMES removed — imbues are now permanent per-weapon
   // unlocks rather than a timed buff, see applyImbueToSword().
   const SOTGK_COST_SILVER = 100000;
+  const WHITE_ASH_SWORD_COST_SILVER = 800; // Blacksmith-tier weapon, not a late-game unlock like the SOTGK — required to fight Skin Walkers at all, so it needs to be reasonably reachable
   const IMBUE_BONUS_DAMAGE = 8; // standard single-imbue melee bonus
   const SOTGK_ARC_TARGETS = 10; // max enemies hit by the fully-stacked Ultimate arc
   // A technical safeguard, not a nerf to the described threat — "duplicates
@@ -1063,6 +1064,31 @@
     // (see damageEnemy), instantly killed by any freeze application
     // (see applyFreezeToEnemy) regardless of current HP.
     ooze: { hp: 6, speed: 0.5, damage: 4, attackCooldown: 70, contactRange: 20, w: 14, h: 14, duplicateFrames: 42 },
+    // Dark Forest enemy. Immune to melee entirely (see damageEnemy) —
+    // only spells (and any elemental effect that isn't the base sword
+    // swing itself, like a lightning-arc chain or a lingering fire
+    // burn) can actually hurt it. HP set moderately high given that
+    // real constraint on how it can be damaged.
+    ghost: { hp: 45, speed: 0.9, damage: 14, attackCooldown: 80, contactRange: 30, w: 26, h: 42 },
+    // Dark Forest enemy. Immune to the player's Black Hole spell
+    // entirely (see the black-hole effect handler), and casts its own
+    // version back at the player after a wind-up. Elite-tier HP given
+    // its elevated role. Its own Black Hole is tuned close to but a
+    // touch gentler than the player's version (radius 80 vs 100,
+    // duration 120 vs 180) since this is an enemy attack, not a
+    // player ultimate.
+    darkElf: {
+      hp: 70, speed: 0.85, damage: 0, attackCooldown: 200, preferredRange: 220, w: 26, h: 44,
+      castWindupFrames: 35, blackHoleRadius: 80, blackHoleDuration: 120, blackHoleDamagePerFrame: 0.4, blackHolePullStrength: 3
+    },
+    // Dark Forest enemy, only spawns after the sun has fully set (see
+    // spawnDarkForestWaveEnemy). Spawns disguised as a harmless villager
+    // — passive, no contact damage — until the player attacks it, which
+    // permanently drops the disguise (see damageEnemy). True-form
+    // dimensions are deliberately taller/thinner than a standard enemy
+    // per its design; disguised dimensions match the player/villager
+    // rig it borrows for that state.
+    skinWalker: { hp: 65, speed: 0.8, damage: 16, attackCooldown: 90, contactRange: 32, w: 24, h: 64, disguisedW: 28, disguisedH: 42 },
     // A rare, unscripted field encounter (like the Cyclops) rather than a
     // guaranteed land boss — distinct from Leviathan, the Under Water
     // biome's actual scripted boss. Sized between Snake and Leviathan
@@ -2863,6 +2889,19 @@
     return true;
   }
 
+  // No castle-rebuilt gate, unlike the SOTGK — this is a Blacksmith-tier
+  // purchase, not a late-game unlock, and it's required to fight Skin
+  // Walkers at all, so it needs to be reasonably reachable.
+  function buyWhiteAshSword(){
+    if (player.swordInventory.swords.some(s => s.id === "whiteAsh")) return false; // one-time purchase
+    if (player.silver < WHITE_ASH_SWORD_COST_SILVER) return false;
+    player.silver -= WHITE_ASH_SWORD_COST_SILVER;
+    player.swordInventory.swords.push({ id: "whiteAsh", type: "whiteAsh", label: "White Ash Sword", activeImbues: {} });
+    equipSword("whiteAsh");
+    if (DEBUG) console.log("[WvW] purchased the White Ash Sword");
+    return true;
+  }
+
   // Casting Fireball/Lightning/Freeze also imbues the equipped sword —
   // see the constant block above for why this is the trigger. A
   // standard sword only ever holds one imbue (a new element replaces the
@@ -2961,7 +3000,7 @@
       target.burningFrames = 999999; // "permanent" for practical purposes — cleared on death/respawn like any burn
       target.whiteBurn = true;
       applyFreezeToEnemy(target, 120);
-      damageEnemy(target, MELEE_DAMAGE * 0.3); // passive freeze damage, on top of the arc
+      damageEnemy(target, MELEE_DAMAGE * 0.3, { source: "melee" }); // passive freeze damage, on top of the arc
     }else if (has("lightning") && has("freeze")){
       fireSwordArc(SOTGK_COMBO_ARC_TARGETS, MELEE_DAMAGE * 0.6);
       applyFreezeToEnemy(target, 90);
@@ -2972,7 +3011,7 @@
     }else if (has("fire") && has("freeze")){
       // "Damaging Freeze" — control plus direct passive damage, no arc
       applyFreezeToEnemy(target, 90);
-      damageEnemy(target, MELEE_DAMAGE * 0.5);
+      damageEnemy(target, MELEE_DAMAGE * 0.5, { source: "melee" });
     }
   }
 
@@ -2984,7 +3023,7 @@
     const imbues = sword ? Object.keys(sword.activeImbues) : [];
     enemies.forEach(en => {
       if (en.hp > 0 && !en.isCage && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
-        damageEnemy(en, MELEE_DAMAGE);
+        damageEnemy(en, MELEE_DAMAGE, { source: "melee" });
         // Imbue effects still apply even if this hit was lethal — the arc
         // in particular reaches OTHER nearby enemies regardless of
         // whether this specific target survived, and damageEnemy() is
@@ -3001,7 +3040,7 @@
           // standard sword, single imbue — a small bonus effect, not the
           // full SOTGK combo table (that's exclusive to the SOTGK)
           const el = imbues[0];
-          damageEnemy(en, IMBUE_BONUS_DAMAGE);
+          damageEnemy(en, IMBUE_BONUS_DAMAGE, { source: "melee" });
           if (el === "fire") en.burningFrames = Math.max(en.burningFrames || 0, 90);
           else if (el === "freeze") applyFreezeToEnemy(en, 45);
           else if (el === "lightning") fireSwordArc(SOTGK_COMBO_ARC_TARGETS, IMBUE_BONUS_DAMAGE);
@@ -3161,6 +3200,20 @@
     opts = opts || {};
     if (en.burrowed) return; // sand worms take no damage while burrowed
     if (en.type === "ooze" && opts.source === "lightning") return; // completely impermeable to lightning
+    if (en.type === "ghost" && opts.source === "melee") return; // ethereal — the physical sword passes straight through
+    if (en.type === "skinWalker"){
+      if (en.disguised){
+        en.disguised = false; // any attack drops the facade permanently, regardless of what weapon caused it
+        const trueStats = ENEMY_STATS.skinWalker;
+        const feetY = en.y + en.h; // anchor the feet, not the top, when growing into the true form's taller frame
+        en.w = trueStats.w;
+        en.h = trueStats.h;
+        en.y = feetY - en.h;
+        if (DEBUG) console.log("[WvW] a Skin Walker's disguise dropped — true form revealed");
+      }
+      const sword = getEquippedSword();
+      if (!sword || sword.type !== "whiteAsh") return; // only the White Ash Sword actually harms it, disguised or not
+    }
     en.hp -= amount;
     if (en.hp <= 0 && !en.counted){
       en.counted = true;
@@ -3338,7 +3391,11 @@
   // (the actual Dark Forest enemies) are later phases' scope, same
   // incremental approach the Dungeon and every other new area used
   // before its real enemies existed.
-  const DARK_FOREST_PLACEHOLDER_POOL = ["knight", "wizard", "ogre"];
+  // All three planned Dark Forest enemies (Ghost, Dark Elf, Skin
+  // Walker) are now built; knight/wizard/ogre remain as permanent
+  // general-purpose filler alongside them rather than being removed,
+  // since they still add reasonable variety to the spawn pool.
+  const DARK_FOREST_PLACEHOLDER_POOL = ["knight", "wizard", "ogre", "ghost", "darkElf"];
   function updateDarkForestWaveSpawning(){
     const zone = currentDarkForestZone(player.x);
     if (!zone) return;
@@ -3348,16 +3405,27 @@
     }
   }
   function spawnDarkForestWaveEnemy(){
-    const type = DARK_FOREST_PLACEHOLDER_POOL[Math.floor(Math.random() * DARK_FOREST_PLACEHOLDER_POOL.length)];
+    // Skin Walker only appears once the sun has fully set — per the
+    // added spec note — so it's conditionally included rather than
+    // being a permanent part of the pool like the other three.
+    const pool = darkForestSunVisibility() <= 0
+      ? DARK_FOREST_PLACEHOLDER_POOL.concat(["skinWalker"])
+      : DARK_FOREST_PLACEHOLDER_POOL;
+    const type = pool[Math.floor(Math.random() * pool.length)];
     const stats = ENEMY_STATS[type];
     const mult = darkForestDifficultyMultiplier();
     const dir = Math.random() < 0.5 ? -1 : 1;
     const x = player.x + dir * (300 + Math.random() * 200);
+    const isSkinWalker = type === "skinWalker";
+    const w = isSkinWalker ? stats.disguisedW : stats.w;
+    const h = isSkinWalker ? stats.disguisedH : stats.h;
     enemies.push({
-      type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      type, x, y: GROUND_Y - h, w, h,
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
-      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
+      castCharge: 0, castChargeTimer: 0,
+      disguised: isSkinWalker
     });
     if (DEBUG) console.log("[WvW] spawned " + type + " in the Dark Forest (biome " + darkForestBiomeIndex + ", x" + mult.toFixed(2) + ")");
   }
@@ -3540,7 +3608,19 @@
             en.attackCooldown = stats.attackCooldown;
           }
         }
-      }else if (en.type === "knight" || en.type === "ogre"){
+      }else if (en.type === "skinWalker"){
+        if (en.disguised) return; // stays put and does nothing at all while passing as an innocent villager
+        if (Math.abs(dist) > stats.contactRange){
+          en.x += Math.sign(dist) * stats.speed;
+          en.moving = true;
+        }else{
+          en.moving = false;
+          if (en.attackCooldown <= 0){
+            damagePlayer(en.scaledDamage);
+            en.attackCooldown = stats.attackCooldown;
+          }
+        }
+      }else if (en.type === "knight" || en.type === "ogre" || en.type === "ghost"){
         if (Math.abs(dist) > stats.contactRange){
           en.x += Math.sign(dist) * stats.speed;
           en.moving = true;
@@ -3553,6 +3633,32 @@
         }
       }else if (en.type === "towerSorcerer"){
         updateTowerSorcerer(en);
+      }else if (en.type === "darkElf"){
+        // Ranged kiting, same shape as archer/wizard, but instead of
+        // firing a projectile it casts its own Black Hole at the
+        // player after a real wind-up — giving the design's optional
+        // castCharge field genuine gameplay meaning rather than sitting
+        // permanently at 0.
+        if (en.castChargeTimer > 0){
+          en.castChargeTimer--;
+          en.castCharge = 1 - en.castChargeTimer / stats.castWindupFrames;
+          if (en.castChargeTimer <= 0){
+            en.castCharge = 0;
+            effects.push({
+              type: "black-hole", targetsPlayer: true,
+              x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2,
+              radius: stats.blackHoleRadius, life: stats.blackHoleDuration,
+              damagePerFrame: stats.blackHoleDamagePerFrame, pullStrength: stats.blackHolePullStrength
+            });
+            en.attackCooldown = stats.attackCooldown;
+          }
+        }else if (Math.abs(dist) > stats.preferredRange + 20){
+          en.x += Math.sign(dist) * stats.speed;
+        }else if (Math.abs(dist) < stats.preferredRange - 20){
+          en.x -= Math.sign(dist) * stats.speed;
+        }else if (en.attackCooldown <= 0){
+          en.castChargeTimer = stats.castWindupFrames;
+        }
       }else if (en.type === "drake"){
         updateDrake(en);
       }else if (en.type === "motherDragon"){
@@ -4325,16 +4431,26 @@
     effects.forEach(fx => {
       fx.life--;
       if (fx.type === "black-hole"){
-        enemies.forEach(en => {
-          if (en.hp <= 0 || en.isCage) return;
-          const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
-          const dx = fx.x - enCx, dy = fx.y - enCy;
+        if (fx.targetsPlayer){
+          const dx = fx.x - (player.x + PLAYER_W/2), dy = fx.y - (player.y + PLAYER_H/2);
           const dist = Math.sqrt(dx*dx + dy*dy) || 1;
           if (dist < fx.radius){
-            en.x += (dx/dist) * fx.pullStrength;
-            damageEnemy(en, fx.damagePerFrame);
+            player.x += (-dx/dist) * fx.pullStrength;
+            damagePlayer(fx.damagePerFrame, { source: "blackhole" });
           }
-        });
+        }else{
+          enemies.forEach(en => {
+            if (en.hp <= 0 || en.isCage) return;
+            if (en.type === "darkElf") return; // impervious to the player's own Black Hole entirely
+            const enCx = en.x + en.w/2, enCy = en.y + en.h/2;
+            const dx = fx.x - enCx, dy = fx.y - enCy;
+            const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+            if (dist < fx.radius){
+              en.x += (dx/dist) * fx.pullStrength;
+              damageEnemy(en, fx.damagePerFrame);
+            }
+          });
+        }
       }else if (fx.type === "lightning-hazard"){
         if (fx.tickCooldown > 0){ fx.tickCooldown--; }
         else{
@@ -6254,6 +6370,147 @@
     ctx.fillRect(x + 2, y + 8 + bob, 7, 5);
   }
 
+  // Designed externally, reviewed before integrating. No coordinate
+  // convention was explicitly stated this time, so it was verified
+  // directly from the geometry instead of taken on faith: cx = x + 13
+  // is exactly half the declared 26px width, confirming x is treated
+  // as the left edge, matching this codebase's convention. Vertically,
+  // the head sits near y+0 and the cloak tip near y+48 — comfortably
+  // within the declared 42px height, aside from a small ~6px overflow
+  // at the very bottom, the same minor cosmetic margin already accepted
+  // throughout this project's other designs.
+  // Designed externally, reviewed before integrating. No coordinate
+  // convention was explicitly stated, so it was verified directly from
+  // the geometry: cx = x + 12 is exactly half the declared 24px width,
+  // confirming x is treated as the left edge. Face near y+4 and legs
+  // ending at y+64 fit the declared 64px height correctly.
+  function drawSkinWalkerTrueForm(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.035 + (en.animOffset || 0)) * 1.2;
+    const twitch = Math.sin(frame * 0.37 + (en.animOffset || 0)) * 0.8;
+    const halo = en.haloStrength == null ? 1 : en.haloStrength;
+    const cx = x + 12;
+    ctx.save();
+    ctx.translate(0, bob);
+    ctx.shadowBlur = 18 + halo * 10;
+    ctx.shadowColor = "#E7F2FF";
+    ctx.strokeStyle = "rgba(225,240,255,0.28)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, y + 30, 20 + Math.sin(frame * 0.05) * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#030303";
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 10);
+    ctx.lineTo(cx - 6, y + 22);
+    ctx.lineTo(cx - 5, y + 48);
+    ctx.lineTo(cx - 2, y + 60);
+    ctx.lineTo(cx + 2, y + 60);
+    ctx.lineTo(cx + 5, y + 48);
+    ctx.lineTo(cx + 6, y + 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(cx - 1, y + 6, 2, 8);
+    ctx.fillStyle = "#F6F6F4";
+    ctx.beginPath();
+    ctx.arc(cx, y + 4 + twitch, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = "#FF3030";
+    ctx.fillStyle = "#FF3030";
+    ctx.beginPath();
+    ctx.arc(cx - 2, y + 3 + twitch, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 2, y + 3 + twitch, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#030303";
+    ctx.lineWidth = 2;
+    const armSwing = Math.sin(frame * 0.055) * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, y + 20);
+    ctx.lineTo(cx - 9 + armSwing, y + 40);
+    ctx.lineTo(cx - 7 - armSwing, y + 60);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + 4, y + 20);
+    ctx.lineTo(cx + 9 - armSwing, y + 39);
+    ctx.lineTo(cx + 7 + armSwing, y + 61);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 2, y + 60);
+    ctx.lineTo(cx - 4 + twitch, y + 64);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, y + 60);
+    ctx.lineTo(cx + 4 - twitch, y + 64);
+    ctx.stroke();
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#EAF6FF";
+    for (let i = 0; i < 3; i++){
+      const a = frame * 0.04 + i * 2.3;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * 9, y + 22 + Math.sin(a) * 5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawGhostEnemy(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.08 + (en.animOffset || 0)) * 2;
+    const cx = x + 13;
+    const cy = y + 18 + bob;
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#DDF8FF";
+    ctx.fillStyle = "#EAFBFF";
+    ctx.beginPath();
+    ctx.arc(cx, cy - 8, 10, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(cx - 10, cy - 8, 20, 18);
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy + 10);
+    ctx.quadraticCurveTo(cx - 8, cy + 20, cx - 13, cy + 30);
+    ctx.quadraticCurveTo(cx - 7, cy + 25, cx - 2, cy + 30);
+    ctx.quadraticCurveTo(cx + 2, cy + 22, cx + 6, cy + 30);
+    ctx.quadraticCurveTo(cx + 10, cy + 24, cx + 13, cy + 30);
+    ctx.quadraticCurveTo(cx + 9, cy + 20, cx + 10, cy + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.arc(cx, cy - 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#66EEFF";
+    ctx.beginPath();
+    ctx.arc(cx - 3, cy - 6, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 3, cy - 6, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#88F6FF";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy - 1, 2.5, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    ctx.globalAlpha = 0.45;
+    for (let i = 0; i < 3; i++){
+      const t = frame * 0.05 + i * 2.2;
+      ctx.beginPath();
+      ctx.arc(cx - 8 + i * 8 + Math.sin(t) * 2, cy + 22 + Math.cos(t * 1.3) * 3, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawOoze(en, x){
     const y = en.y, w = en.w, h = en.h, cx = x + w / 2;
     const wobble = Math.sin(frame * 0.15 + en.x * 0.05) * 1.5;
@@ -7744,6 +8001,14 @@
       drawSnake(en, x);
     }else if (en.type === "ooze"){
       drawOoze(en, x);
+    }else if (en.type === "ghost"){
+      drawGhostEnemy(en, x);
+    }else if (en.type === "skinWalker"){
+      if (en.disguised){
+        drawWalterFigure(x, en.y, COLORS.playerLeather, { moving: !!en.moving, airborne: false, climbing: false }, "villagerHat");
+      }else{
+        drawSkinWalkerTrueForm(en, x);
+      }
     }else if (en.type === "giantEel"){
       drawGiantEel(en, x);
 
@@ -8684,6 +8949,16 @@
       </div>
     ` : `<p style="opacity:0.7;font-size:0.85rem;margin-top:14px;">Imbuing your sword requires a blacksmith on duty.</p>`;
 
+    const hasWhiteAsh = player.swordInventory.swords.some(s => s.id === "whiteAsh");
+    const whiteAshSection = worker ? (hasWhiteAsh ? `
+      <p style="font-weight:700;margin:14px 0 4px;">White Ash Sword</p>
+      <p style="opacity:0.85;font-size:0.85rem;">Already forged and in your inventory.</p>
+    ` : `
+      <p style="font-weight:700;margin:14px 0 4px;">White Ash Sword</p>
+      <p style="opacity:0.85;font-size:0.85rem;">The only weapon that can actually harm a Skin Walker once its disguise drops.</p>
+      <button type="button" class="btn light" id="wvw-buy-whiteash-btn" ${player.silver >= WHITE_ASH_SWORD_COST_SILVER ? "" : "disabled"}>Forge White Ash Sword (${WHITE_ASH_SWORD_COST_SILVER} silver)</button>
+    `) : "";
+
     overlayInner.innerHTML = `
       <h3>Blacksmith</h3>
       <p>Auto-repairs your broken gear whenever you're in the village with a blacksmith on duty. Costs ${BLACKSMITH_UPKEEP_PER_MINUTE} silver/minute to keep staffed.</p>
@@ -8695,8 +8970,18 @@
         : `<p style="font-weight:700;margin:14px 0 4px;">Assign idle crew</p><div style="text-align:left;">${idleRows || `<p style="opacity:0.7;font-size:0.85rem;">No idle crew available.</p>`}</div>`
       }
       ${imbueShopSection}
+      ${whiteAshSection}
       <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:14px;">Close</button>
     `;
+    const whiteAshBtn = document.getElementById("wvw-buy-whiteash-btn");
+    if (whiteAshBtn){
+      whiteAshBtn.addEventListener("click", () => {
+        if (buyWhiteAshSword()){
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    }
     overlayInner.querySelectorAll("button[data-buy-imbue]").forEach(btn => {
       btn.addEventListener("click", () => {
         const element = btn.dataset.buyImbue;
