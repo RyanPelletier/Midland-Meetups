@@ -761,6 +761,83 @@
   // generated Land 3+ system already uses for its own endless
   // replayability — deep Dark Forest progress isn't meant to be a
   // permanent, saved state, just this run's expedition.
+  function sailToArena(){
+    currentMap = "arena";
+    arenaWaveNumber = 0;
+    arenaBowCooldown = 0;
+    player.x = ARENA_WORLD_WIDTH / 2;
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    clearEntities();
+    spawnArenaWave();
+    if (DEBUG) console.log("[WvW] entered the Arena");
+  }
+
+  function leaveArena(){
+    currentMap = "home";
+    const spawn = spawnPoint();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    clearEntities();
+    if (DEBUG) console.log("[WvW] left the Arena after " + arenaWaveNumber + " wave(s)");
+  }
+
+  // Difficulty scales with wave number — steadily, not as aggressively
+  // as the Dark Forest's depth scaling, since Arena waves are meant to
+  // be survivable indefinitely by a skilled player rather than an
+  // eventual hard wall.
+  function arenaDifficultyMultiplier(){
+    return 1 + arenaWaveNumber * 0.12;
+  }
+
+  function spawnArenaWave(){
+    arenaWaveNumber++;
+    arenaWaveKillsRemaining = ARENA_ENEMIES_PER_WAVE;
+    const mult = arenaDifficultyMultiplier();
+    for (let i = 0; i < ARENA_ENEMIES_PER_WAVE; i++){
+      const type = ARENA_PLACEHOLDER_POOL[Math.floor(Math.random() * ARENA_PLACEHOLDER_POOL.length)];
+      const stats = ENEMY_STATS[type];
+      // Half spawn from the left edge, half from the right, per the
+      // "colosseum, waves from both sides" spec.
+      const fromLeft = i % 2 === 0;
+      const x = fromLeft ? 10 + Math.random() * 40 : ARENA_WORLD_WIDTH - 50 + Math.random() * 40;
+      enemies.push({
+        type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+        hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
+        scaledDamage: Math.round(stats.damage * mult),
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+      });
+    }
+    if (DEBUG) console.log("[WvW] Arena wave " + arenaWaveNumber + " begins (x" + mult.toFixed(2) + ")");
+  }
+
+  function updateArenaProgress(){
+    if (currentMap !== "arena") return;
+    if (arenaWaveKillsRemaining <= 0) spawnArenaWave();
+  }
+
+  // Auto-fires at the nearest living enemy — the bow needs no player
+  // input at all, matching "auto-fires arrow projectiles at the
+  // nearest enemy" precisely.
+  function updateArenaBow(){
+    if (currentMap !== "arena") return;
+    if (arenaBowCooldown > 0){ arenaBowCooldown--; return; }
+    let nearest = null, nearestDist = Infinity;
+    enemies.forEach(en => {
+      if (en.hp <= 0 || en.isCage) return;
+      const dist = Math.abs((en.x + en.w/2) - (player.x + PLAYER_W/2));
+      if (dist < nearestDist){ nearestDist = dist; nearest = en; }
+    });
+    if (!nearest) return;
+    const dir = Math.sign((nearest.x + nearest.w/2) - (player.x + PLAYER_W/2)) || 1;
+    playerProjectiles.push({
+      type: "arrow", x: player.x + PLAYER_W/2, y: player.y + PLAYER_H/2,
+      vx: 7 * dir, damage: ARENA_BOW_DAMAGE
+    });
+    arenaBowCooldown = ARENA_BOW_COOLDOWN_FRAMES;
+  }
+
   function sailToDarkForest(){
     currentMap = "darkforest";
     darkForestZones = [];
@@ -893,6 +970,7 @@
     if (currentMap === "tower") return currentTowerFloor ? currentTowerFloor.worldWidth : 0;
     if (currentMap === "dungeon") return currentDungeonRoom ? currentDungeonRoom.worldWidth : 0;
     if (currentMap === "darkforest") return darkForestFurthestGeneratedX;
+    if (currentMap === "arena") return ARENA_WORLD_WIDTH;
     return WORLD_WIDTH;
   }
   function getChests(){
@@ -931,6 +1009,9 @@
     if (currentMap === "darkforest"){
       return [{ x: 20, w: 40, h: 40, action: "leaveDarkForest" }];
     }
+    if (currentMap === "arena"){
+      return [{ x: 20, w: 40, h: 40, action: "leaveArena" }];
+    }
     return WALKUP_ALTARS_HOME;
   }
   function getClimbPoints(){
@@ -949,6 +1030,17 @@
       return getDarkForestTrunks().map(wx => ({
         x: wx, halfWidth: 12, topY: GROUND_Y - 150, zone: "any", action: "none"
       }));
+    }
+    if (currentMap === "arena"){
+      // A handful of fixed platforms at varying heights across the
+      // colosseum for the "parkour" element — positions are relative
+      // to the fixed ARENA_WORLD_WIDTH, not procedurally placed.
+      return [
+        { x: 150, halfWidth: 20, topY: GROUND_Y - 90, zone: "any", action: "none" },
+        { x: 350, halfWidth: 20, topY: GROUND_Y - 140, zone: "any", action: "none" },
+        { x: 550, halfWidth: 20, topY: GROUND_Y - 90, zone: "any", action: "none" },
+        { x: 750, halfWidth: 20, topY: GROUND_Y - 140, zone: "any", action: "none" }
+      ];
     }
     if (currentMap === "generated"){
       // The zone check is deliberately bypassed here ("any") — each
@@ -1089,7 +1181,7 @@
     // dimensions are deliberately taller/thinner than a standard enemy
     // per its design; disguised dimensions match the player/villager
     // rig it borrows for that state.
-    skinWalker: { hp: 65, speed: 0.8, damage: 16, attackCooldown: 90, contactRange: 32, w: 24, h: 64, disguisedW: 28, disguisedH: 42 },
+    skinWalker: { hp: 120, speed: 0.8, damage: 28, attackCooldown: 70, contactRange: 32, w: 24, h: 64, disguisedW: 28, disguisedH: 42, screamDamage: 8, screamKnockback: 60 },
     // A rare, unscripted field encounter (like the Cyclops) rather than a
     // guaranteed land boss — distinct from Leviathan, the Under Water
     // biome's actual scripted boss. Sized between Snake and Leviathan
@@ -1370,6 +1462,20 @@
   // player get trimmed periodically so the array doesn't grow forever
   // over a very long session (same "responsible technical safeguard"
   // reasoning as Ooze's population cap).
+  // The Arena — a fixed-size colosseum, unlike the Dark Forest's
+  // endless world. Waves are tracked by a simple countdown (how many
+  // of this wave's 10 enemies are still alive) rather than anything
+  // more elaborate.
+  const ARENA_WORLD_WIDTH = 900;
+  const ARENA_ENEMIES_PER_WAVE = 10;
+  const ARENA_HEAL_PER_KILL = 4; // player.maxHp is typically 100, so this is a meaningful but not trivial recovery
+  const ARENA_BOW_COOLDOWN_FRAMES = 45; // auto-fires roughly 1.3x/second
+  const ARENA_BOW_DAMAGE = 8;
+  const ARENA_PLACEHOLDER_POOL = ["knight", "wizard", "ogre"]; // Hercules Fighter is a later phase's scope
+  let arenaWaveNumber = 0;
+  let arenaWaveKillsRemaining = 0;
+  let arenaBowCooldown = 0;
+
   let darkForestZones = [];
   let darkForestFurthestGeneratedX = 0;
   let darkForestBiomeIndex = 0; // how many biomes the player has actually entered — drives darkness/sun/moon/difficulty, not raw distance
@@ -1400,6 +1506,7 @@
     if (currentMap === "tower") return "towerFloor";
     if (currentMap === "dungeon") return "dungeonRoom";
     if (currentMap === "darkforest") return "darkforest";
+    if (currentMap === "arena") return "arena";
     if (currentMap === "land1"){
       if (x < LAND1_DOCK_END) return "dock";
       if (x < LAND1_GRASS_END) return "grass";
@@ -2423,6 +2530,8 @@
     updateCageProximity();
     updateDungeonProgress();
     if (currentMap === "darkforest"){ ensureDarkForestGenerated(); updateDarkForestBiomeIndex(); }
+    updateArenaProgress();
+    updateArenaBow();
     updateVillagerProximity();
     updateCrewTimers();
     updateBlacksmithJob();
@@ -3020,6 +3129,18 @@
     if (meleeCooldown > 0) return;
     meleeCooldown = MELEE_COOLDOWN;
     const hitX = player.facing > 0 ? player.x + PLAYER_W : player.x - MELEE_RANGE;
+    // Arena mode restricts the player to a plain iron-sword-equivalent
+    // hit — no imbues, no SOTGK combos — regardless of what's actually
+    // equipped, since gear stays untouched outside the Arena and this
+    // is enforced per-hit rather than by reassigning real equipment.
+    if (currentMap === "arena"){
+      enemies.forEach(en => {
+        if (en.hp > 0 && !en.isCage && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
+          damageEnemy(en, MELEE_DAMAGE, { source: "melee" });
+        }
+      });
+      return;
+    }
     const sword = getEquippedSword();
     const imbues = sword ? Object.keys(sword.activeImbues) : [];
     enemies.forEach(en => {
@@ -3051,6 +3172,7 @@
   }
 
   function castSpell(key){
+    if (currentMap === "arena") return; // pure sword + bow combat only
     const cfg = SPELLS[key];
     if (!cfg || spellCooldowns[key] > 0) return;
     // Ghost Army needs fallen crew to summon — checked before spending
@@ -3213,7 +3335,12 @@
         if (DEBUG) console.log("[WvW] a Skin Walker's disguise dropped — true form revealed");
       }
       const sword = getEquippedSword();
-      if (!sword || sword.type !== "whiteAsh") return; // only the White Ash Sword actually harms it, disguised or not
+      // Requires BOTH the right sword equipped AND that the damage is
+      // actually a melee swing — previously this only checked which
+      // sword was equipped, so a spell or arrow landing while White Ash
+      // happened to be equipped could still damage it, even though
+      // neither of those come from the sword at all.
+      if (!sword || sword.type !== "whiteAsh" || opts.source !== "melee") return;
     }
     en.hp -= amount;
     if (en.hp <= 0 && !en.counted){
@@ -3223,6 +3350,10 @@
         return;
       }
       totalKills++;
+      if (currentMap === "arena"){
+        player.hp = Math.min(player.maxHp, player.hp + ARENA_HEAL_PER_KILL);
+        arenaWaveKillsRemaining--;
+      }
       if (ENEMY_STATS[en.type].dropsCrystal){
         player.carriedCrystals += CRYSTAL_PER_WIZARD;
         if (DEBUG) console.log("[WvW] " + en.type + " defeated, crystal carried=" + player.carriedCrystals);
@@ -3379,6 +3510,7 @@
     if (currentMap === "tower") return; // fixed per-floor enemy count, spawned once on entry — not a continuous wave
     if (currentMap === "dungeon") return; // same fixed-per-room pattern as the Tower
     if (currentMap === "darkforest"){ updateDarkForestWaveSpawning(); return; }
+    if (currentMap === "arena") return; // its own dedicated wave system (updateArenaProgress), not the generic continuous spawner
     const zone = currentZone(player.x);
     if (PEACEFUL_ZONES.includes(zone)) return;
 
@@ -3424,6 +3556,7 @@
       type, x, y: GROUND_Y - h, w, h,
       hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
       scaledDamage: Math.round(stats.damage * mult),
+      scaledScreamDamage: isSkinWalker ? Math.round(stats.screamDamage * mult) : 0,
       attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
       castCharge: 0, castChargeTimer: 0,
       disguised: isSkinWalker
@@ -3490,6 +3623,7 @@
       return { start: zones[0].end, end: zones[zones.length - 1].end };
     }
     if (currentMap === "darkforest") return { start: 0, end: darkForestFurthestGeneratedX };
+    if (currentMap === "arena") return { start: 0, end: ARENA_WORLD_WIDTH };
     return { start: TOWER_END, end: FAIR_END };
   }
 
@@ -3617,7 +3751,11 @@
         }else{
           en.moving = false;
           if (en.attackCooldown <= 0){
-            damagePlayer(en.scaledDamage);
+            // Scream: small damage, but shoves the player away — dist is
+            // already the direction FROM the Skin Walker TO the player,
+            // so its sign is exactly the direction to push.
+            damagePlayer(en.scaledScreamDamage);
+            player.x += Math.sign(dist) * stats.screamKnockback;
             en.attackCooldown = stats.attackCooldown;
           }
         }
@@ -4522,6 +4660,7 @@
     else if (action === "summitChest") openSummitChest();
     else if (action === "leaveDungeon") leaveDungeon();
     else if (action === "leaveDarkForest") leaveDarkForest();
+    else if (action === "leaveArena") leaveArena();
     else if (action === "dungeonExit") advanceDungeonRoom();
   }
 
@@ -4549,6 +4688,8 @@
       drawVillagers();
     }else if (currentMap === "darkforest"){
       drawDarkForestZones();
+    }else if (currentMap === "arena"){
+      drawArenaGround();
     }else if (currentMap === "generated"){
       drawGeneratedDock();
       drawGeneratedBiomeDecorations();
@@ -4613,6 +4754,8 @@
     let bands;
     if (currentMap === "darkforest"){
       bands = [{ from: 0, to: darkForestFurthestGeneratedX, color: darkForestSkyColor() }];
+    }else if (currentMap === "arena"){
+      bands = [{ from: 0, to: ARENA_WORLD_WIDTH, color: "#8A7256" }];
     }else if (currentMap === "land1"){
       bands = [
         { from: 0, to: LAND1_DOCK_END, color: COLORS.skyDock },
@@ -5716,6 +5859,30 @@
     ctx.lineTo(x + 40, GROUND_Y - height + 20);
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Platform positions here are deliberately identical to the ones in
+  // getClimbPoints — kept as a literal array match rather than a shared
+  // constant, since the Arena's fixed layout is short and unlikely to
+  // change independently of its own visual.
+  const ARENA_PLATFORMS = [
+    { x: 150, topY: GROUND_Y - 90 },
+    { x: 350, topY: GROUND_Y - 140 },
+    { x: 550, topY: GROUND_Y - 90 },
+    { x: 750, topY: GROUND_Y - 140 }
+  ];
+  function drawArenaGround(){
+    ctx.fillStyle = "#C9B892"; // sandy colosseum floor
+    ctx.fillRect(Math.max(0, worldToScreen(0)), GROUND_Y, Math.min(CANVAS_W, worldToScreen(ARENA_WORLD_WIDTH)) - Math.max(0, worldToScreen(0)), CANVAS_H - GROUND_Y);
+    ARENA_PLATFORMS.forEach(p => {
+      const sx = worldToScreen(p.x);
+      if (sx < -50 || sx > CANVAS_W + 50) return;
+      ctx.fillStyle = "#8A7256";
+      ctx.fillRect(sx - 20, p.topY, 40, 10);
+      ctx.strokeStyle = "#5C4A38";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - 20, p.topY, 40, 10);
+    });
   }
 
   function drawDarkForestZones(){
@@ -9385,6 +9552,7 @@
           <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
           <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons${player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : ""}</button>
           <button type="button" class="btn" id="wvw-darkforest-btn" style="margin-left:8px;">The Dark Forest</button>
+          <button type="button" class="btn" id="wvw-arena-btn" style="margin-left:8px;">The Arena</button>
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
@@ -9483,6 +9651,12 @@
     const darkForestBtn = document.getElementById("wvw-darkforest-btn");
     if (darkForestBtn) darkForestBtn.addEventListener("click", () => {
       sailToDarkForest();
+      closeMap();
+    });
+
+    const arenaBtn = document.getElementById("wvw-arena-btn");
+    if (arenaBtn) arenaBtn.addEventListener("click", () => {
+      sailToArena();
       closeMap();
     });
 
