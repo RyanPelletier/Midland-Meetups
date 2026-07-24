@@ -6459,6 +6459,112 @@
     ctx.restore();
   }
 
+  // Designed externally, reviewed before integrating. Coordinate
+  // convention checked out via math (head at x+13 is exactly half the
+  // declared 26px width). This function was reviewed and the full
+  // mechanic (Black Hole immunity, cast wind-up, its own Black Hole
+  // cast) was built around it earlier, but the actual visual function
+  // itself was never pasted into the file — a genuine gap, not a
+  // naming collision like Ghost's — which is why Dark Elves have been
+  // rendering as whatever generic fallback the dispatch falls through
+  // to instead of this design.
+  function drawDarkElf(en, x){
+    const y = en.y;
+    const bob = Math.sin(frame * 0.08 + (en.animOffset || 0)) * 1.5;
+    const casting = en.castCharge || 0;
+    ctx.save();
+    ctx.translate(0, bob);
+    ctx.fillStyle = "#22152F";
+    ctx.beginPath();
+    ctx.moveTo(x + 13, y + 10);
+    ctx.lineTo(x + 3, y + 41);
+    ctx.lineTo(x + 23, y + 41);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#35204A";
+    ctx.beginPath();
+    ctx.moveTo(x + 13, y + 14);
+    ctx.lineTo(x + 7, y + 39);
+    ctx.lineTo(x + 19, y + 39);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#1B1B1F";
+    ctx.fillRect(x + 9, y + 38, 3, 6);
+    ctx.fillRect(x + 14, y + 38, 3, 6);
+    ctx.fillStyle = "#2A2036";
+    ctx.fillRect(x + 6, y + 18, 3, 15);
+    const armRaise = casting * 7;
+    ctx.fillRect(x + 17, y + 18 - armRaise, 3, 15 + armRaise);
+    ctx.fillStyle = "#5A4533";
+    ctx.fillRect(x + 21, y + 8 - armRaise, 2, 30 + armRaise);
+    ctx.shadowBlur = 8 + casting * 12;
+    ctx.shadowColor = "#7A2BFF";
+    ctx.fillStyle = "#4A136B";
+    ctx.beginPath();
+    ctx.arc(x + 22, y + 7 - armRaise, 3 + casting, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#C8C3D6";
+    ctx.beginPath();
+    ctx.arc(x + 13, y + 10, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#18101F";
+    ctx.beginPath();
+    ctx.moveTo(x + 13, y + 2);
+    ctx.lineTo(x + 7, y + 12);
+    ctx.lineTo(x + 19, y + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#C8C3D6";
+    ctx.beginPath();
+    ctx.moveTo(x + 7, y + 9);
+    ctx.lineTo(x + 4, y + 11);
+    ctx.lineTo(x + 7, y + 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 19, y + 9);
+    ctx.lineTo(x + 22, y + 11);
+    ctx.lineTo(x + 19, y + 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#C25BFF";
+    ctx.beginPath();
+    ctx.arc(x + 11, y + 10, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 15, y + 10, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = "#822BFF";
+    ctx.fillStyle = "#6A2BFF";
+    ctx.fillRect(x + 12, y + 21, 2, 6);
+    ctx.fillRect(x + 10, y + 23, 6, 2);
+    ctx.shadowBlur = 0;
+    for (let i = 0; i < 3; i++){
+      const a = frame * 0.05 + i * 2.1;
+      ctx.fillStyle = "rgba(140,70,255,0.45)";
+      ctx.beginPath();
+      ctx.arc(x + 13 + Math.cos(a) * (6 + casting * 3), y + 21 + Math.sin(a) * (5 + casting * 2), 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (casting > 0){
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = "#6A2BFF";
+      ctx.fillStyle = "#0A0912";
+      ctx.beginPath();
+      ctx.arc(x + 22, y + 7 - armRaise, 2 + casting * 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#7E3BFF";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x + 22, y + 7 - armRaise, 4 + Math.sin(frame * 0.35) * 1.5 + casting * 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
   function drawGhostEnemy(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.08 + (en.animOffset || 0)) * 2;
@@ -8009,6 +8115,8 @@
       }else{
         drawSkinWalkerTrueForm(en, x);
       }
+    }else if (en.type === "darkElf"){
+      drawDarkElf(en, x);
     }else if (en.type === "giantEel"){
       drawGiantEel(en, x);
 
