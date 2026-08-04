@@ -773,7 +773,23 @@
     if (DEBUG) console.log("[WvW] entered the Arena");
   }
 
+  // Fire-and-forget, same tolerance-for-failure style as saveProgress —
+  // a failed leaderboard submission shouldn't interrupt anything else
+  // happening around the player leaving or dying in the Arena.
+  async function submitArenaLeaderboardScore(){
+    if (currentMap !== "arena") return;
+    if (walterGuestMode || !walterName) return; // guest / not logged in — nothing to submit under
+    if (arenaWaveNumber <= 0) return;
+    try{
+      const res = await apiPost({ action: "submitArenaWaves", name: walterName, password: walterPassword, waves: arenaWaveNumber });
+      if (DEBUG) console.log("[WvW] Arena leaderboard submission: wave " + arenaWaveNumber, res);
+    }catch(err){
+      console.error("[WvW] Arena leaderboard submission failed", err);
+    }
+  }
+
   function leaveArena(){
+    submitArenaLeaderboardScore();
     currentMap = "home";
     const spawn = spawnPoint();
     player.x = spawn.x;
@@ -806,7 +822,8 @@
         type, x, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
         hp: Math.round(stats.hp * mult), maxHp: Math.round(stats.hp * mult),
         scaledDamage: Math.round(stats.damage * mult),
-        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+        attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false,
+        attackWindup: false, windupTimer: 0
       });
     }
     if (DEBUG) console.log("[WvW] Arena wave " + arenaWaveNumber + " begins (x" + mult.toFixed(2) + ")");
@@ -1182,6 +1199,17 @@
     // per its design; disguised dimensions match the player/villager
     // rig it borrows for that state.
     skinWalker: { hp: 120, speed: 0.8, damage: 28, attackCooldown: 70, contactRange: 32, w: 24, h: 64, disguisedW: 28, disguisedH: 42, screamDamage: 8, screamKnockback: 60 },
+    // Arena enemy. Sword-wielding, knocks the player back on hit (same
+    // shove mechanic Skin Walker's scream uses), and can genuinely
+    // climb — no other enemy in this game does. climbSpeed governs how
+    // fast it moves vertically once it commits to climbing toward the
+    // player; climbTriggerDistance is how far above/below the player
+    // needs to be before it bothers climbing at all, so it doesn't
+    // twitch up and down over trivial height differences.
+    hercules: {
+      hp: 90, speed: 1.1, damage: 18, attackCooldown: 80, contactRange: 34, w: 30, h: 46,
+      knockback: 70, climbSpeed: 1.4, climbTriggerDistance: 20, windupFrames: 25
+    },
     // A rare, unscripted field encounter (like the Cyclops) rather than a
     // guaranteed land boss — distinct from Leviathan, the Under Water
     // biome's actual scripted boss. Sized between Snake and Leviathan
@@ -1439,7 +1467,7 @@
   let cameraX, frame, totalKills, keysDown;
   let spellCooldowns, spellUnlocked, activeSpell, meleeCooldown;
   let respawnMessageTimer, respawnMessageText;
-  let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, started, running;
+  let altarOpen, mapOpen, rareAltarOpen, townHallOpen, castleUiOpen, arenaLeaderboardOpen, started, running;
   let libraryUiOpen, blacksmithUiOpen, trainingUiOpen, graveyardUiOpen;
   let nearVillagerId = null; // edge-triggered proximity for the "T" interact prompt
   let nearCage = null; // nearest unbroken Tower cage in range, for the "Q" Pick Lock interact
@@ -1471,7 +1499,7 @@
   const ARENA_HEAL_PER_KILL = 4; // player.maxHp is typically 100, so this is a meaningful but not trivial recovery
   const ARENA_BOW_COOLDOWN_FRAMES = 45; // auto-fires roughly 1.3x/second
   const ARENA_BOW_DAMAGE = 8;
-  const ARENA_PLACEHOLDER_POOL = ["knight", "wizard", "ogre"]; // Hercules Fighter is a later phase's scope
+  const ARENA_PLACEHOLDER_POOL = ["knight", "wizard", "ogre", "hercules"];
   let arenaWaveNumber = 0;
   let arenaWaveKillsRemaining = 0;
   let arenaBowCooldown = 0;
@@ -2460,6 +2488,7 @@
     rareAltarOpen = false;
     townHallOpen = false;
     castleUiOpen = false;
+    arenaLeaderboardOpen = false;
     wasInInnerCave = false;
     wasInBossArena = false;
     nearMenuAction = null;
@@ -2472,7 +2501,7 @@
   function onKeyDown(e){
     if (document.activeElement !== canvas) return;
     if (!started){ if (loginComplete) startGame(); return; }
-    if (altarOpen || mapOpen || rareAltarOpen || townHallOpen || castleUiOpen || libraryUiOpen || blacksmithUiOpen || trainingUiOpen || graveyardUiOpen || villagerMenuOpen) return; // menus have their own buttons, don't also move/attack behind them
+    if (altarOpen || mapOpen || rareAltarOpen || townHallOpen || castleUiOpen || arenaLeaderboardOpen || libraryUiOpen || blacksmithUiOpen || trainingUiOpen || graveyardUiOpen || villagerMenuOpen) return; // menus have their own buttons, don't also move/attack behind them
 
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space"].includes(e.code)) e.preventDefault();
     keysDown.add(e.code);
@@ -3482,6 +3511,7 @@
   }
 
   function respawnPlayer(reason){
+    submitArenaLeaderboardScore();
     const lost = player.carriedCrystals;
     player.carriedCrystals = 0;
     player.hp = PLAYER_MAX_HP;
@@ -3741,6 +3771,49 @@
           if (en.attackCooldown <= 0){
             damagePlayer(en.scaledDamage);
             en.attackCooldown = stats.attackCooldown;
+          }
+        }
+      }else if (en.type === "hercules"){
+        const playerCy = player.y + PLAYER_H/2, enCy = en.y + en.h/2;
+        const dy = playerCy - enCy;
+
+        if (en.attackWindup){
+          // Committed to the swing — holds still, sword pulled back, until
+          // it actually lands. Fires unconditionally once started, same
+          // as this game's other windup-telegraphed attacks; the fair
+          // warning is the point during the windup, not an escape hatch
+          // after it's already begun.
+          en.windupTimer--;
+          if (en.windupTimer <= 0){
+            en.attackWindup = false;
+            damagePlayer(en.scaledDamage);
+            player.x += Math.sign(dist) * stats.knockback;
+            en.attackCooldown = stats.attackCooldown;
+          }
+        }else{
+          if (Math.abs(dist) > stats.contactRange){
+            en.x += Math.sign(dist) * stats.speed;
+            en.moving = true;
+          }else{
+            en.moving = false;
+          }
+
+          // Genuinely new capability — no other enemy in this game climbs.
+          // Constrained to actual platform positions (via getClimbPoints,
+          // the same points the player climbs) rather than free-floating
+          // vertical movement, so it doesn't visually drift in open air
+          // away from anything climbable.
+          if (Math.abs(dy) > stats.climbTriggerDistance){
+            const nearClimbPoint = getClimbPoints().some(cp => Math.abs(enCx - cp.x) < cp.halfWidth + 15);
+            if (nearClimbPoint){
+              en.y += Math.sign(dy) * stats.climbSpeed;
+              en.y = Math.max(GROUND_Y - 200, Math.min(GROUND_Y - en.h, en.y));
+            }
+          }
+
+          if (Math.abs(dist) <= stats.contactRange && Math.abs(dy) <= stats.climbTriggerDistance && en.attackCooldown <= 0){
+            en.attackWindup = true;
+            en.windupTimer = stats.windupFrames;
           }
         }
       }else if (en.type === "skinWalker"){
@@ -6510,6 +6583,178 @@
     }
   }
 
+  // Designed externally, reviewed before integrating. No coordinate
+  // convention was explicitly stated, so it was verified directly from
+  // the geometry: cx = x + en.w * 0.5 is exactly half the declared 30px
+  // width, confirming x is treated as the left edge. The design's
+  // en.attackWindup field is now backed by a real two-phase attack (see
+  // the AI branch) rather than sitting unused.
+  function drawHercules(en, x){
+    const y = en.y;
+    const cx = x + en.w * 0.5;
+    const bob = Math.sin(frame * 0.08) * 0.5;
+    const windingUp = !!en.attackWindup;
+    const attackPulse = windingUp ? Math.sin(frame * 0.35) * 1.5 : 0;
+
+    ctx.save();
+
+    ctx.fillStyle = "#9B6038";
+    ctx.beginPath();
+    ctx.moveTo(cx - 7, y + 32 + bob);
+    ctx.lineTo(cx - 3, y + 32 + bob);
+    ctx.lineTo(cx - 5, y + 43 + bob);
+    ctx.lineTo(cx - 10, y + 43 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, y + 32 + bob);
+    ctx.lineTo(cx + 7, y + 31 + bob);
+    ctx.lineTo(cx + 10, y + 43 + bob);
+    ctx.lineTo(cx + 5, y + 43 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#5B3825";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 9, y + 38 + bob);
+    ctx.lineTo(cx - 4, y + 40 + bob);
+    ctx.moveTo(cx + 4, y + 38 + bob);
+    ctx.lineTo(cx + 9, y + 40 + bob);
+    ctx.stroke();
+
+    ctx.fillStyle = "#A9683C";
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, y + 15 + bob);
+    ctx.lineTo(cx + 11, y + 15 + bob);
+    ctx.lineTo(cx + 9, y + 31 + bob);
+    ctx.lineTo(cx + 4, y + 34 + bob);
+    ctx.lineTo(cx - 6, y + 34 + bob);
+    ctx.lineTo(cx - 10, y + 30 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#77462F";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 17 + bob);
+    ctx.lineTo(cx, y + 27 + bob);
+    ctx.moveTo(cx - 10, y + 19 + bob);
+    ctx.quadraticCurveTo(cx - 5, y + 17 + bob, cx, y + 20 + bob);
+    ctx.moveTo(cx, y + 20 + bob);
+    ctx.quadraticCurveTo(cx + 5, y + 17 + bob, cx + 10, y + 19 + bob);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#4E3020";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, y + 16 + bob);
+    ctx.lineTo(cx + 5, y + 30 + bob);
+    ctx.moveTo(cx + 10, y + 16 + bob);
+    ctx.lineTo(cx - 5, y + 30 + bob);
+    ctx.stroke();
+
+    ctx.fillStyle = "#553522";
+    ctx.fillRect(cx - 8, y + 29 + bob, 16, 3);
+    ctx.fillStyle = "#D6A83A";
+    ctx.fillRect(cx - 2, y + 29 + bob, 4, 3);
+
+    ctx.fillStyle = "#A9683C";
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, y + 16 + bob);
+    ctx.lineTo(cx - 15, y + 19 + bob);
+    ctx.lineTo(cx - 14, y + 27 + bob);
+    ctx.lineTo(cx - 10, y + 25 + bob);
+    ctx.lineTo(cx - 8, y + 18 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#70442A";
+    ctx.fillRect(cx - 15, y + 24 + bob, 5, 3);
+
+    ctx.fillStyle = "#A9683C";
+    const swordArmX = windingUp ? cx + 9 : cx + 12;
+    ctx.beginPath();
+    ctx.moveTo(cx + 10, y + 16 + bob);
+    ctx.lineTo(swordArmX + 3, y + 20 + bob);
+    ctx.lineTo(swordArmX, y + 27 + bob);
+    ctx.lineTo(cx + 7, y + 25 + bob);
+    ctx.lineTo(cx + 7, y + 18 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#70442A";
+    ctx.fillRect(swordArmX - 1, y + 24 + bob, 5, 3);
+
+    ctx.fillStyle = "#A9683C";
+    ctx.beginPath();
+    ctx.arc(cx, y + 10 + bob, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, y + 12 + bob);
+    ctx.lineTo(cx - 3, y + 16 + bob);
+    ctx.lineTo(cx + 3, y + 16 + bob);
+    ctx.lineTo(cx + 6, y + 12 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#4A2A1B";
+    ctx.beginPath();
+    ctx.arc(cx, y + 7 + bob, 7, Math.PI, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#5A3423";
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, y + 12 + bob);
+    ctx.lineTo(cx, y + 15 + bob);
+    ctx.lineTo(cx + 4, y + 12 + bob);
+    ctx.lineTo(cx + 2, y + 16 + bob);
+    ctx.lineTo(cx - 2, y + 16 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#241711";
+    ctx.fillRect(cx + 2, y + 9 + bob, 2, 1);
+
+    const swordAngle = windingUp ? -0.65 : -0.15;
+    const handX = windingUp ? cx + 11 : cx + 14;
+    const handY = y + 26 + bob;
+
+    ctx.save();
+    ctx.translate(handX, handY);
+    ctx.rotate(swordAngle + attackPulse * 0.015);
+    ctx.fillStyle = "#4A2B1B";
+    ctx.fillRect(-1, -4, 2, 7);
+    ctx.fillStyle = "#C49332";
+    ctx.fillRect(-5, 1, 10, 2);
+    ctx.fillStyle = "#BFC8CC";
+    ctx.beginPath();
+    ctx.moveTo(-3, 2);
+    ctx.lineTo(3, 2);
+    ctx.lineTo(2, -15);
+    ctx.lineTo(0, -19);
+    ctx.lineTo(-2, -15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#F1F4F4";
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(2, -15);
+    ctx.lineTo(1, 1);
+    ctx.lineTo(0, 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    if (windingUp){
+      ctx.strokeStyle = "rgba(230, 190, 80, 0.65)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, y + 25 + bob, 15 + attackPulse, -0.8, 0.8);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
   function drawOgre(en, x){
     const y = en.y;
     const bob = Math.sin(frame * 0.04) * 1.5;
@@ -8288,6 +8533,8 @@
       }
     }else if (en.type === "darkElf"){
       drawDarkElf(en, x);
+    }else if (en.type === "hercules"){
+      drawHercules(en, x);
     }else if (en.type === "giantEel"){
       drawGiantEel(en, x);
 
@@ -8766,7 +9013,7 @@
   /* ---------------- loop / lifecycle ---------------- */
   function loop(){
     if (!running) return;
-    if (!altarOpen && !mapOpen && !rareAltarOpen && !townHallOpen && !castleUiOpen && !libraryUiOpen && !blacksmithUiOpen && !trainingUiOpen && !graveyardUiOpen && !villagerMenuOpen) update();
+    if (!altarOpen && !mapOpen && !rareAltarOpen && !townHallOpen && !castleUiOpen && !arenaLeaderboardOpen && !libraryUiOpen && !blacksmithUiOpen && !trainingUiOpen && !graveyardUiOpen && !villagerMenuOpen) update();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -9406,6 +9653,60 @@
     document.getElementById("wvw-graveyard-close").addEventListener("click", closeGraveyardUi);
   }
 
+  // The Arena leaderboard is the first place in this game where one
+  // player's arbitrary submitted text (their login name) gets rendered
+  // for every OTHER player to see, so — unlike crew names, which are
+  // only ever shown back to the same player who typed them — this
+  // genuinely needs real HTML escaping.
+  function escapeHtml(str){
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function openArenaLeaderboardUi(){
+    arenaLeaderboardOpen = true;
+    renderArenaLeaderboardUi(null, false);
+    overlay.style.display = "flex";
+    apiGet("getArenaLeaderboard").then(res => {
+      if (!arenaLeaderboardOpen) return; // closed before the fetch finished
+      renderArenaLeaderboardUi(res.leaderboard || [], false);
+    }).catch(err => {
+      console.error("[WvW] failed to load Arena leaderboard", err);
+      if (!arenaLeaderboardOpen) return;
+      renderArenaLeaderboardUi(null, true);
+    });
+  }
+  function closeArenaLeaderboardUi(){
+    arenaLeaderboardOpen = false;
+    hideOverlay();
+    canvas.focus();
+  }
+  function renderArenaLeaderboardUi(rows, failed){
+    let body;
+    if (failed){
+      body = `<p style="opacity:0.7;">Couldn't load the leaderboard — check your connection and try again.</p>`;
+    }else if (!rows){
+      body = `<p style="opacity:0.7;">Loading…</p>`;
+    }else if (rows.length === 0){
+      body = `<p style="opacity:0.7;">No runs submitted yet — be the first.</p>`;
+    }else{
+      body = `<ol style="text-align:left;padding-left:24px;">` +
+        rows.map(r => `<li>${escapeHtml(r.name)} — wave ${r.waves}</li>`).join("") +
+        `</ol>`;
+    }
+    overlayInner.innerHTML = `
+      <h3>Arena Leaderboard</h3>
+      ${body}
+      <button type="button" class="btn light" id="wvw-arena-leaderboard-close" style="margin-top:14px;">Close</button>
+    `;
+    const closeBtn = document.getElementById("wvw-arena-leaderboard-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeArenaLeaderboardUi);
+  }
+
   function openCastleUi(){
     castleUiOpen = true;
     renderCastleUi();
@@ -9553,6 +9854,7 @@
           <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons${player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : ""}</button>
           <button type="button" class="btn" id="wvw-darkforest-btn" style="margin-left:8px;">The Dark Forest</button>
           <button type="button" class="btn" id="wvw-arena-btn" style="margin-left:8px;">The Arena</button>
+          <button type="button" class="btn light" id="wvw-arena-leaderboard-btn" style="margin-left:8px;">Leaderboard</button>
         </div>
         <div style="margin-top:10px;">
           <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
@@ -9658,6 +9960,12 @@
     if (arenaBtn) arenaBtn.addEventListener("click", () => {
       sailToArena();
       closeMap();
+    });
+
+    const arenaLeaderboardBtn = document.getElementById("wvw-arena-leaderboard-btn");
+    if (arenaLeaderboardBtn) arenaLeaderboardBtn.addEventListener("click", () => {
+      closeMap();
+      openArenaLeaderboardUi();
     });
 
     const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
