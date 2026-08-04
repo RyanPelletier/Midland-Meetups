@@ -6307,19 +6307,354 @@
   // "code-based, systematized" per the earlier direction, rather than a
   // separate drawing routine per biome type. Density and height are the
   // only things that vary between biome types; the tree itself doesn't.
+  // Designed externally, reviewed before integrating. Confirmed correct
+  // coordinate handling — worldToScreen(wx) is called internally on the
+  // world-space parameter, exactly as specified, rather than assuming a
+  // pre-converted screen coordinate. Several new color names are
+  // referenced with a `COLORS.x || "#fallback"` pattern since those
+  // names don't exist in the palette yet — safe to integrate as-is
+  // since the fallback always applies, though named COLORS entries
+  // could be added later for consistency with the rest of the file.
   function drawDarkForestTree(wx, height){
     const x = worldToScreen(wx);
-    if (x < -60 || x > CANVAS_W + 60) return;
-    const trunkW = 14;
+    if (x < -80 || x > CANVAS_W + 80) return;
+
+    const trunkW = Math.max(10, Math.min(16, height * 0.08));
+    const trunkTop = GROUND_Y - height;
+
     ctx.fillStyle = COLORS.treeTrunk;
-    ctx.fillRect(x - trunkW / 2, GROUND_Y - height, trunkW, height);
-    ctx.fillStyle = COLORS.treeCanopy;
     ctx.beginPath();
-    ctx.moveTo(x, GROUND_Y - height - 60);
-    ctx.lineTo(x - 40, GROUND_Y - height + 20);
-    ctx.lineTo(x + 40, GROUND_Y - height + 20);
+    ctx.moveTo(x - trunkW * 0.42, GROUND_Y);
+    ctx.lineTo(x - trunkW * 0.52, trunkTop + 18);
+    ctx.lineTo(x - trunkW * 0.30, trunkTop);
+    ctx.lineTo(x + trunkW * 0.34, trunkTop + 4);
+    ctx.lineTo(x + trunkW * 0.52, trunkTop + 22);
+    ctx.lineTo(x + trunkW * 0.42, GROUND_Y);
     ctx.closePath();
     ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(x - trunkW * 0.42, GROUND_Y - 8);
+    ctx.lineTo(x - 12, GROUND_Y);
+    ctx.lineTo(x - 4, GROUND_Y - 16);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(x + trunkW * 0.42, GROUND_Y - 8);
+    ctx.lineTo(x + 12, GROUND_Y);
+    ctx.lineTo(x + 4, GROUND_Y - 16);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.treeBarkDark || "#4A2C19";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, GROUND_Y - 12);
+    ctx.lineTo(x - 2, trunkTop + 30);
+    ctx.moveTo(x + 4, GROUND_Y - 5);
+    ctx.lineTo(x + 2, trunkTop + 18);
+    ctx.moveTo(x - 7, GROUND_Y - height * 0.45);
+    ctx.lineTo(x - 4, GROUND_Y - height * 0.58);
+    ctx.stroke();
+
+    const canopyBase = trunkTop + 20;
+    const canopyTop = trunkTop - 58;
+
+    ctx.fillStyle = COLORS.treeCanopy;
+    ctx.beginPath();
+    ctx.moveTo(x, canopyTop);
+    ctx.quadraticCurveTo(x - 22, canopyTop + 12, x - 34, canopyTop + 38);
+    ctx.quadraticCurveTo(x - 48, canopyTop + 48, x - 38, canopyBase);
+    ctx.quadraticCurveTo(x - 18, canopyBase + 8, x, canopyBase - 2);
+    ctx.quadraticCurveTo(x + 20, canopyBase + 8, x + 40, canopyBase);
+    ctx.quadraticCurveTo(x + 48, canopyTop + 46, x + 32, canopyTop + 34);
+    ctx.quadraticCurveTo(x + 22, canopyTop + 10, x, canopyTop);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.treeCanopyLight || "#3B7A59";
+
+    ctx.beginPath();
+    ctx.arc(x - 24, canopyTop + 32, 19, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x + 23, canopyTop + 28, 21, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x, canopyTop + 12, 17, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.treeCanopyDark || "#24513D";
+
+    ctx.beginPath();
+    ctx.arc(x - 13, canopyTop + 49, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x + 16, canopyTop + 45, 13, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawDenseForestGround(z){
+    ctx.fillStyle = COLORS.forestShadow || "#244521";
+
+    for (let wx = z.start; wx < z.end; wx += 180){
+      const sx = worldToScreen(wx);
+      if (sx < -100 || sx > CANVAS_W + 100) continue;
+
+      ctx.beginPath();
+      ctx.ellipse(sx, GROUND_Y - 2, 58, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 30; wx < z.end; wx += 105){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+
+      ctx.fillStyle = COLORS.fernDark || "#28552A";
+
+      for (let i = 0; i < 4; i++){
+        const offset = (i - 1.5) * 7;
+        const sway = Math.sin(frame * 0.025 + wx * 0.01 + i) * 2;
+
+        ctx.beginPath();
+        ctx.moveTo(sx + offset, GROUND_Y);
+        ctx.quadraticCurveTo(sx + offset + sway - 4, GROUND_Y - 17, sx + offset + sway - 8, GROUND_Y - 25);
+        ctx.quadraticCurveTo(sx + offset + sway, GROUND_Y - 20, sx + offset + sway + 5, GROUND_Y - 8);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.fillStyle = COLORS.fernLight || "#39733A";
+
+      ctx.beginPath();
+      ctx.arc(sx - 15, GROUND_Y - 7, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 15, GROUND_Y - 6, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = COLORS.fallenBranch || "#50331F";
+    ctx.lineWidth = 5;
+
+    for (let wx = z.start + 70; wx < z.end; wx += 290){
+      const sx = worldToScreen(wx);
+      if (sx < -80 || sx > CANVAS_W + 80) continue;
+
+      ctx.beginPath();
+      ctx.moveTo(sx - 25, GROUND_Y - 4);
+      ctx.lineTo(sx + 25, GROUND_Y - 8);
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx - 2, GROUND_Y - 6);
+      ctx.lineTo(sx - 13, GROUND_Y - 18);
+      ctx.stroke();
+      ctx.lineWidth = 5;
+    }
+  }
+
+  function drawSparseForestGround(z){
+    for (let wx = z.start + 55; wx < z.end; wx += 230){
+      const sx = worldToScreen(wx);
+      if (sx < -35 || sx > CANVAS_W + 35) continue;
+
+      ctx.fillStyle = COLORS.forestRock || "#706653";
+
+      ctx.beginPath();
+      ctx.moveTo(sx - 12, GROUND_Y);
+      ctx.quadraticCurveTo(sx - 9, GROUND_Y - 13, sx + 2, GROUND_Y - 12);
+      ctx.quadraticCurveTo(sx + 14, GROUND_Y - 9, sx + 15, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.forestRockLight || "#8A7B63";
+      ctx.beginPath();
+      ctx.arc(sx - 3, GROUND_Y - 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 125; wx < z.end; wx += 190){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+
+      ctx.strokeStyle = COLORS.deadGrass || "#756C3D";
+      ctx.lineWidth = 2;
+
+      for (let i = -2; i <= 2; i++){
+        const lean = i * 3 + Math.sin(frame * 0.02 + wx) * 1.5;
+
+        ctx.beginPath();
+        ctx.moveTo(sx + i * 3, GROUND_Y);
+        ctx.lineTo(sx + i * 3 + lean, GROUND_Y - 10 - Math.abs(i) * 2);
+        ctx.stroke();
+      }
+    }
+
+    for (let wx = z.start + 360; wx < z.end; wx += 520){
+      const sx = worldToScreen(wx);
+      if (sx < -100 || sx > CANVAS_W + 100) continue;
+
+      ctx.fillStyle = COLORS.fallenLog || "#56371F";
+      ctx.fillRect(sx - 38, GROUND_Y - 9, 76, 9);
+
+      ctx.fillStyle = COLORS.fallenLogEnd || "#392516";
+      ctx.beginPath();
+      ctx.arc(sx - 38, GROUND_Y - 4, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = COLORS.logRing || "#755033";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx - 38, GROUND_Y - 4, 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function drawTallTreesLowBushGround(z){
+    for (let wx = z.start + 45; wx < z.end; wx += 135){
+      const sx = worldToScreen(wx);
+      if (sx < -65 || sx > CANVAS_W + 65) continue;
+
+      const sway = Math.sin(frame * 0.018 + wx * 0.02) * 1.5;
+
+      ctx.fillStyle = COLORS.bushDark || "#263F27";
+
+      ctx.beginPath();
+      ctx.arc(sx - 17, GROUND_Y - 10, 13, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx, GROUND_Y - 16, 17, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 18, GROUND_Y - 9, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.bushLight || "#3C6334";
+
+      ctx.beginPath();
+      ctx.arc(sx - 10 + sway, GROUND_Y - 20, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 9 + sway, GROUND_Y - 18, 11, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.bushHighlight || "#557A3D";
+
+      ctx.beginPath();
+      ctx.arc(sx - 19, GROUND_Y - 24, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 3, GROUND_Y - 29, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 21, GROUND_Y - 20, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (Math.floor(wx / 135) % 3 === 0){
+        ctx.fillStyle = COLORS.bushBerry || "#8B3F58";
+
+        ctx.beginPath();
+        ctx.arc(sx + 8, GROUND_Y - 12, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(sx + 13, GROUND_Y - 17, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawTallGrassClearingGround(z){
+    for (let wx = z.start; wx < z.end; wx += 48){
+      const sx = worldToScreen(wx);
+      if (sx < -35 || sx > CANVAS_W + 35) continue;
+
+      const breeze = Math.sin(frame * 0.035 + wx * 0.018) * 3;
+
+      ctx.strokeStyle = COLORS.tallGrass || "#4F7833";
+      ctx.lineWidth = 2;
+
+      for (let i = -2; i <= 2; i++){
+        const baseX = sx + i * 4;
+        const height = 12 + ((Math.abs(i) * 3 + Math.floor(wx)) % 10);
+        const lean = breeze + i * 2;
+
+        ctx.beginPath();
+        ctx.moveTo(baseX, GROUND_Y);
+        ctx.quadraticCurveTo(baseX + lean * 0.4, GROUND_Y - height * 0.55, baseX + lean, GROUND_Y - height);
+        ctx.stroke();
+      }
+    }
+
+    for (let wx = z.start + 75; wx < z.end; wx += 175){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+
+      ctx.strokeStyle = COLORS.flowerStem || "#3E6A2D";
+      ctx.lineWidth = 1;
+
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.lineTo(sx, GROUND_Y - 13);
+      ctx.stroke();
+
+      const flowerColor =
+        Math.floor(wx / 175) % 3 === 0
+          ? (COLORS.flowerYellow || "#E5C84A")
+          : Math.floor(wx / 175) % 3 === 1
+            ? (COLORS.flowerWhite || "#E8E2C9")
+            : (COLORS.flowerPurple || "#9B78A8");
+
+      ctx.fillStyle = flowerColor;
+
+      for (let i = 0; i < 4; i++){
+        const angle = i * Math.PI / 2;
+
+        ctx.beginPath();
+        ctx.arc(sx + Math.cos(angle) * 3, GROUND_Y - 15 + Math.sin(angle) * 3, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(sx, GROUND_Y - 15, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 300; wx < z.end; wx += 480){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+
+      ctx.fillStyle = COLORS.clearingRock || "#68705A";
+
+      ctx.beginPath();
+      ctx.moveTo(sx - 15, GROUND_Y);
+      ctx.quadraticCurveTo(sx - 12, GROUND_Y - 14, sx, GROUND_Y - 17);
+      ctx.quadraticCurveTo(sx + 15, GROUND_Y - 13, sx + 17, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.moss || "#55763A";
+
+      ctx.beginPath();
+      ctx.arc(sx - 5, GROUND_Y - 13, 5, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(sx + 5, GROUND_Y - 11, 4, Math.PI, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // Platform positions here are deliberately identical to the ones in
@@ -6377,29 +6712,10 @@
       ctx.fillStyle = COLORS.darkForestGround;
       ctx.fillRect(Math.max(0, x1), GROUND_Y, Math.min(CANVAS_W, x2) - Math.max(0, x1), CANVAS_H - GROUND_Y);
 
-      if (z.biomeType === "tallGrassClearing"){
-        // no trees at all here — the ground accent is the only decoration
-        ctx.strokeStyle = COLORS.ground;
-        ctx.lineWidth = 1;
-        for (let wx = z.start; wx < z.end; wx += 12){
-          const sx = worldToScreen(wx);
-          if (sx < -10 || sx > CANVAS_W + 10) continue;
-          ctx.beginPath();
-          ctx.moveTo(sx, GROUND_Y);
-          ctx.lineTo(sx - 2, GROUND_Y - 22);
-          ctx.stroke();
-        }
-      }else if (z.biomeType === "tallTreesLowBush"){
-        // low bushes filling the gaps between the taller, wider-spaced trees
-        ctx.fillStyle = "#2E4A2E";
-        for (let wx = z.start + 30; wx < z.end; wx += 60){
-          const sx = worldToScreen(wx);
-          if (sx < -20 || sx > CANVAS_W + 20) continue;
-          ctx.beginPath();
-          ctx.arc(sx, GROUND_Y - 6, 10, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+      if (z.biomeType === "tallGrassClearing") drawTallGrassClearingGround(z);
+      else if (z.biomeType === "tallTreesLowBush") drawTallTreesLowBushGround(z);
+      else if (z.biomeType === "denseForest") drawDenseForestGround(z);
+      else if (z.biomeType === "sparseForest") drawSparseForestGround(z);
     });
 
     getDarkForestTrunks().forEach(wx => {
