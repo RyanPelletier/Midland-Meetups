@@ -1499,7 +1499,7 @@
   const ARENA_HEAL_PER_KILL = 4; // player.maxHp is typically 100, so this is a meaningful but not trivial recovery
   const ARENA_BOW_COOLDOWN_FRAMES = 45; // auto-fires roughly 1.3x/second
   const ARENA_BOW_DAMAGE = 8;
-  const ARENA_PLACEHOLDER_POOL = ["knight", "wizard", "ogre", "hercules"];
+  const ARENA_PLACEHOLDER_POOL = ["knight", "ogre", "archer", "hercules"];
   let arenaWaveNumber = 0;
   let arenaWaveKillsRemaining = 0;
   let arenaBowCooldown = 0;
@@ -2830,6 +2830,13 @@
     return getGeneratedTreehouseTrunks().map(wx => ({ x1: wx - 30, x2: wx + 60, topY: GROUND_Y - 150 }));
   }
 
+  // Matches ARENA_PLATFORMS' actual positions/widths (the same 40px-wide
+  // rectangles drawn in drawArenaGround), rather than an independent set
+  // of numbers that could quietly drift out of sync with what's visible.
+  function getArenaPlatforms(){
+    return ARENA_PLATFORMS.map(p => ({ x1: p.x - 20, x2: p.x + 20, topY: p.topY }));
+  }
+
   function updatePlayerMovement(){
     const climb = activeClimbPoint();
 
@@ -2850,14 +2857,16 @@
       const floorY = GROUND_Y - PLAYER_H;
 
       // One-way platform landing — generated lands' treehouse platforms
-      // only, deliberately contained to this specific map type so it
-      // can't affect physics anywhere else in the game. Falling onto a
-      // platform from above lands on it; jumping up through it, or
-      // walking off its edge, both pass through freely like normal.
+      // and the Arena's parkour platforms. Deliberately contained to
+      // these specific map types so it can't affect physics anywhere
+      // else in the game. Falling onto a platform from above lands on
+      // it; jumping up through it, or walking off its edge, both pass
+      // through freely like normal.
       let landedOnPlatform = false;
-      if (currentMap === "generated" && player.vy >= 0){
+      if ((currentMap === "generated" || currentMap === "arena") && player.vy >= 0){
         const cx = player.x + PLAYER_W / 2;
-        const platform = getGeneratedTreehousePlatforms().find(p =>
+        const platforms = currentMap === "arena" ? getArenaPlatforms() : getGeneratedTreehousePlatforms();
+        const platform = platforms.find(p =>
           cx >= p.x1 && cx <= p.x2 && prevFeetY <= p.topY + 12 && newFeetY >= p.topY
         );
         if (platform){
@@ -3787,7 +3796,11 @@
           if (en.windupTimer <= 0){
             en.attackWindup = false;
             damagePlayer(en.scaledDamage);
-            player.x += Math.sign(dist) * stats.knockback;
+            // If that hit was lethal, respawnPlayer() already moved the
+            // player back to the boat (inside damagePlayer) — applying
+            // knockback on top of that would shove them away from where
+            // they just respawned, so only push them if they're still here.
+            if (currentMap === "arena") player.x += Math.sign(dist) * stats.knockback;
             en.attackCooldown = stats.attackCooldown;
           }
         }else{
@@ -3828,7 +3841,10 @@
             // already the direction FROM the Skin Walker TO the player,
             // so its sign is exactly the direction to push.
             damagePlayer(en.scaledScreamDamage);
-            player.x += Math.sign(dist) * stats.screamKnockback;
+            // Same reasoning as Hercules's knockback — skip it if that
+            // scream was lethal, since respawnPlayer() already moved the
+            // player elsewhere inside damagePlayer().
+            if (currentMap === "darkforest") player.x += Math.sign(dist) * stats.screamKnockback;
             en.attackCooldown = stats.attackCooldown;
           }
         }
@@ -4437,6 +4453,7 @@
   }
 
   function updateFollowingCrew(){
+    if (currentMap === "arena") return; // the Arena's restricted loadout is meant to be a solo challenge — crew doesn't come along
     const followers = player.crew.filter(c => c.status === "following");
     followers.forEach((c, i) => {
       if (c.x === undefined){
@@ -4518,6 +4535,7 @@
   }
 
   function drawFollowingCrew(){
+    if (currentMap === "arena") return; // matches updateFollowingCrew's gate — crew doesn't come along or appear in the Arena
     player.crew.forEach(c => {
       if (c.status !== "following" || c.x === undefined) return;
       const sx = worldToScreen(c.x);
@@ -5950,6 +5968,29 @@
     ARENA_PLATFORMS.forEach(p => {
       const sx = worldToScreen(p.x);
       if (sx < -50 || sx > CANVAS_W + 50) return;
+
+      // Ladder — the climb point at this same x was always functional,
+      // but had no visual at all showing where to climb, which is what
+      // was actually reported. Simple wooden rails + rungs from the
+      // ground up to the platform's underside.
+      const railGap = 10;
+      ctx.strokeStyle = "#6B4A30";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx - railGap, GROUND_Y);
+      ctx.lineTo(sx - railGap, p.topY + 10);
+      ctx.moveTo(sx + railGap, GROUND_Y);
+      ctx.lineTo(sx + railGap, p.topY + 10);
+      ctx.stroke();
+      ctx.strokeStyle = "#8A6440";
+      ctx.lineWidth = 2;
+      for (let ry = GROUND_Y - 8; ry > p.topY + 10; ry -= 16){
+        ctx.beginPath();
+        ctx.moveTo(sx - railGap, ry);
+        ctx.lineTo(sx + railGap, ry);
+        ctx.stroke();
+      }
+
       ctx.fillStyle = "#8A7256";
       ctx.fillRect(sx - 20, p.topY, 40, 10);
       ctx.strokeStyle = "#5C4A38";
