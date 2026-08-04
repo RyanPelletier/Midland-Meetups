@@ -5305,7 +5305,377 @@
       else if (z.id === "swamp") drawSwampZone(z);
       else if (z.id === "jungle") drawJungleZone(z);
       else if (z.id === "treehouses") drawTreehousesZone(z);
+      else if (z.id === "river") drawRiverZone(z);
+      else if (z.id === "grasslands") drawGrasslandsZone(z);
+      else if (z.id === "village") drawVillageZone(z);
+      else if (z.id === "forest") drawForestZone(z);
+      else if (z.id === "castlewalls") drawCastlewallsZone(z);
     });
+  }
+
+  // Designed externally, reviewed before integrating. All 5 follow the
+  // reference function's structure exactly (z = {start, end}, the same
+  // worldToScreen + off-screen-skip pattern already used everywhere
+  // else), so there was no coordinate convention to reconcile.
+  // drawCastlewallsZone deliberately only adds banners/torches/a gate —
+  // it doesn't redraw the wall itself, which stays the existing shared
+  // backdrop function also used by Land 1's own castle wall zone.
+  function drawRiverZone(z){
+    ctx.fillStyle = "#2C6E8E";
+    for (let wx = z.start; wx < z.end; wx += 160){
+      const sx = worldToScreen(wx);
+      if (sx < -180 || sx > CANVAS_W + 180) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y - 34);
+      ctx.quadraticCurveTo(sx + 80, GROUND_Y - 42, sx + 160, GROUND_Y - 34);
+      ctx.lineTo(sx + 160, GROUND_Y + 12);
+      ctx.lineTo(sx, GROUND_Y + 12);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#1B4F72";
+    for (let wx = z.start + 20; wx < z.end; wx += 160){
+      const sx = worldToScreen(wx);
+      if (sx < -180 || sx > CANVAS_W + 180) continue;
+      const ripple = Math.sin(frame * 0.04 + wx * 0.03) * 3;
+      ctx.fillRect(sx + 25, GROUND_Y - 15 + ripple, 70, 3);
+      ctx.fillRect(sx + 95, GROUND_Y - 5 - ripple, 35, 2);
+    }
+
+    for (let wx = z.start + 35; wx < z.end; wx += 210){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+      ctx.strokeStyle = "#557044";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y - 5);
+      ctx.lineTo(sx - 3, GROUND_Y - 31);
+      ctx.moveTo(sx + 6, GROUND_Y - 5);
+      ctx.lineTo(sx + 9, GROUND_Y - 27);
+      ctx.moveTo(sx + 12, GROUND_Y - 5);
+      ctx.lineTo(sx + 16, GROUND_Y - 34);
+      ctx.stroke();
+
+      ctx.fillStyle = "#5A4937";
+      ctx.fillRect(sx + 7, GROUND_Y - 29, 4, 7);
+    }
+
+    for (let wx = z.start + 115; wx < z.end; wx += 250){
+      const sx = worldToScreen(wx);
+      if (sx < -25 || sx > CANVAS_W + 25) continue;
+      ctx.fillStyle = "#827A6D";
+      ctx.beginPath();
+      ctx.arc(sx, GROUND_Y - 2, 9, Math.PI, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 175; wx < z.end; wx += 420){
+      const sx = worldToScreen(wx);
+      if (sx < -80 || sx > CANVAS_W + 80) continue;
+      ctx.fillStyle = "#756653";
+      for (let i = 0; i < 5; i++){
+        ctx.beginPath();
+        ctx.arc(sx + i * 25, GROUND_Y - 19, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawGrasslandsZone(z){
+    ctx.fillStyle = "#6E9B54";
+    for (let wx = z.start; wx < z.end; wx += 220){
+      const sx = worldToScreen(wx);
+      if (sx < -240 || sx > CANVAS_W + 240) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.quadraticCurveTo(sx + 110, GROUND_Y - 28, sx + 220, GROUND_Y);
+      ctx.lineTo(sx + 220, GROUND_Y + 10);
+      ctx.lineTo(sx, GROUND_Y + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#4E8F35";
+    ctx.lineWidth = 2;
+    for (let wx = z.start + 15; wx < z.end; wx += 32){
+      const sx = worldToScreen(wx);
+      if (sx < -20 || sx > CANVAS_W + 20) continue;
+      const sway = Math.sin(frame * 0.06 + wx * 0.08) * 4;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.quadraticCurveTo(sx + sway, GROUND_Y - 13, sx + sway * 1.5, GROUND_Y - 21);
+      ctx.stroke();
+    }
+
+    for (let wx = z.start + 70; wx < z.end; wx += 190){
+      const sx = worldToScreen(wx);
+      if (sx < -25 || sx > CANVAS_W + 25) continue;
+
+      ctx.strokeStyle = "#47732F";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++){
+        const px = sx + i * 7;
+        const py = GROUND_Y - 8 - (i % 2) * 4;
+        ctx.beginPath();
+        ctx.moveTo(px, GROUND_Y);
+        ctx.lineTo(px, py);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#E7C84A";
+      ctx.beginPath(); ctx.arc(sx, GROUND_Y - 10, 3, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = "#F3F0D4";
+      ctx.beginPath(); ctx.arc(sx + 14, GROUND_Y - 14, 3, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = "#A98CC7";
+      ctx.beginPath(); ctx.arc(sx + 21, GROUND_Y - 9, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    for (let wx = z.start + 100; wx < z.end; wx += 360){
+      const sx = worldToScreen(wx);
+      if (sx < -100 || sx > CANVAS_W + 100) continue;
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.beginPath();
+      ctx.arc(sx, 82, 13, Math.PI, Math.PI * 2);
+      ctx.arc(sx + 15, 78, 17, Math.PI, Math.PI * 2);
+      ctx.arc(sx + 34, 83, 11, Math.PI, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawVillageZone(z){
+    for (let wx = z.start + 70; wx < z.end; wx += 300){
+      const sx = worldToScreen(wx);
+      if (sx < -100 || sx > CANVAS_W + 100) continue;
+
+      ctx.fillStyle = "#9A704E";
+      ctx.fillRect(sx, GROUND_Y - 55, 72, 55);
+
+      ctx.fillStyle = "#B58A4E";
+      ctx.beginPath();
+      ctx.moveTo(sx - 8, GROUND_Y - 55);
+      ctx.lineTo(sx + 36, GROUND_Y - 86);
+      ctx.lineTo(sx + 80, GROUND_Y - 55);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#573A29";
+      ctx.fillRect(sx + 29, GROUND_Y - 34, 14, 34);
+
+      ctx.fillStyle = "#D8B85D";
+      ctx.fillRect(sx + 9, GROUND_Y - 40, 13, 13);
+      ctx.fillRect(sx + 50, GROUND_Y - 40, 13, 13);
+
+      ctx.fillStyle = "#80604B";
+      ctx.fillRect(sx + 56, GROUND_Y - 76, 10, 21);
+
+      const smokeY = GROUND_Y - 87 - Math.sin(frame * 0.025 + wx) * 3;
+      ctx.fillStyle = "rgba(190,190,180,0.45)";
+      ctx.beginPath();
+      ctx.arc(sx + 61, smokeY, 6, 0, Math.PI * 2);
+      ctx.arc(sx + 66, smokeY - 9, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 15; wx < z.end; wx += 180){
+      const sx = worldToScreen(wx);
+      if (sx < -40 || sx > CANVAS_W + 40) continue;
+
+      ctx.fillStyle = "#67452E";
+      ctx.fillRect(sx, GROUND_Y - 24, 5, 24);
+      ctx.fillRect(sx + 35, GROUND_Y - 24, 5, 24);
+
+      ctx.fillRect(sx - 2, GROUND_Y - 19, 44, 5);
+      ctx.fillRect(sx - 2, GROUND_Y - 8, 44, 5);
+    }
+
+    for (let wx = z.start + 190; wx < z.end; wx += 500){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+
+      ctx.fillStyle = "#82786A";
+      ctx.beginPath();
+      ctx.arc(sx, GROUND_Y - 13, 17, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#543C2C";
+      ctx.fillRect(sx - 12, GROUND_Y - 15, 24, 15);
+
+      ctx.strokeStyle = "#67452E";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx - 18, GROUND_Y - 27);
+      ctx.lineTo(sx - 11, GROUND_Y - 47);
+      ctx.moveTo(sx + 18, GROUND_Y - 27);
+      ctx.lineTo(sx + 11, GROUND_Y - 47);
+      ctx.stroke();
+
+      ctx.fillStyle = "#B58A4E";
+      ctx.fillRect(sx - 13, GROUND_Y - 49, 26, 4);
+    }
+  }
+
+  function drawForestZone(z){
+    for (let wx = z.start + 35; wx < z.end; wx += 125){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+
+      const trunkW = 16 + (Math.abs(Math.sin(wx)) * 8);
+
+      ctx.fillStyle = "#60412D";
+      ctx.fillRect(sx, GROUND_Y - 115, trunkW, 115);
+
+      ctx.fillStyle = "#4A3325";
+      ctx.fillRect(sx + 4, GROUND_Y - 90, 3, 38);
+      ctx.fillRect(sx + trunkW - 5, GROUND_Y - 70, 3, 28);
+
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND_Y);
+      ctx.lineTo(sx - 9, GROUND_Y + 5);
+      ctx.lineTo(sx + 5, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 80; wx < z.end; wx += 95){
+      const sx = worldToScreen(wx);
+      if (sx < -35 || sx > CANVAS_W + 35) continue;
+
+      ctx.strokeStyle = "#35612F";
+      ctx.lineWidth = 2;
+
+      for (let i = -1; i <= 1; i++){
+        const sway = Math.sin(frame * 0.04 + wx + i) * 2;
+        ctx.beginPath();
+        ctx.moveTo(sx, GROUND_Y);
+        ctx.quadraticCurveTo(sx + i * 8, GROUND_Y - 12, sx + i * 13 + sway, GROUND_Y - 22);
+        ctx.stroke();
+      }
+    }
+
+    for (let wx = z.start + 230; wx < z.end; wx += 410){
+      const sx = worldToScreen(wx);
+      if (sx < -90 || sx > CANVAS_W + 90) continue;
+
+      ctx.fillStyle = "#543A29";
+      ctx.fillRect(sx, GROUND_Y - 15, 72, 14);
+
+      ctx.fillStyle = "#76513A";
+      ctx.beginPath();
+      ctx.arc(sx + 72, GROUND_Y - 8, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#355B2E";
+      ctx.fillRect(sx + 18, GROUND_Y - 18, 13, 5);
+      ctx.fillRect(sx + 43, GROUND_Y - 17, 10, 4);
+    }
+
+    for (let wx = z.start + 145; wx < z.end; wx += 220){
+      const sx = worldToScreen(wx);
+      if (sx < -30 || sx > CANVAS_W + 30) continue;
+
+      ctx.fillStyle = "#D5C9A2";
+      ctx.fillRect(sx, GROUND_Y - 10, 3, 10);
+
+      ctx.fillStyle = "#B54D46";
+      ctx.beginPath();
+      ctx.arc(sx + 1, GROUND_Y - 11, 6, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#E6D5B3";
+      ctx.beginPath();
+      ctx.arc(sx - 1, GROUND_Y - 14, 1, 0, Math.PI * 2);
+      ctx.arc(sx + 3, GROUND_Y - 12, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 60; wx < z.end; wx += 180){
+      const sx = worldToScreen(wx);
+      if (sx < -50 || sx > CANVAS_W + 50) continue;
+
+      const pulse = Math.sin(frame * 0.025 + wx * 0.01) * 2;
+      ctx.fillStyle = "rgba(245,235,170,0.18)";
+      ctx.beginPath();
+      ctx.ellipse(sx, GROUND_Y - 4, 22 + pulse, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawCastlewallsZone(z){
+    for (let wx = z.start + 90; wx < z.end; wx += 230){
+      const sx = worldToScreen(wx);
+      if (sx < -45 || sx > CANVAS_W + 45) continue;
+
+      const wave = Math.sin(frame * 0.08 + wx * 0.04) * 2;
+
+      ctx.fillStyle = "#574633";
+      ctx.fillRect(sx - 2, 95, 4, GROUND_Y - 95);
+
+      ctx.fillStyle = "#7D2730";
+      ctx.beginPath();
+      ctx.moveTo(sx + 3, 115);
+      ctx.lineTo(sx + 31, 115 + wave);
+      ctx.lineTo(sx + 31, 155 + wave);
+      ctx.lineTo(sx + 24, 150 + wave);
+      ctx.lineTo(sx + 17, 155 + wave);
+      ctx.lineTo(sx + 3, 150);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#D3AA45";
+      ctx.beginPath();
+      ctx.arc(sx + 17, 132 + wave, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 175; wx < z.end; wx += 300){
+      const sx = worldToScreen(wx);
+      if (sx < -35 || sx > CANVAS_W + 35) continue;
+
+      ctx.fillStyle = "#4A4037";
+      ctx.fillRect(sx - 3, 190, 6, 18);
+      ctx.fillRect(sx - 8, 205, 16, 5);
+
+      const flicker = Math.sin(frame * 0.25 + wx) * 2;
+      ctx.fillStyle = "#E57A24";
+      ctx.beginPath();
+      ctx.moveTo(sx, 191);
+      ctx.quadraticCurveTo(sx - 7, 199 + flicker, sx, 207);
+      ctx.quadraticCurveTo(sx + 7, 199 + flicker, sx, 191);
+      ctx.fill();
+
+      ctx.fillStyle = "#FFD45A";
+      ctx.beginPath();
+      ctx.arc(sx, 201 + flicker * 0.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let wx = z.start + 520; wx < z.end; wx += 900){
+      const sx = worldToScreen(wx);
+      if (sx < -100 || sx > CANVAS_W + 100) continue;
+
+      ctx.fillStyle = "#4A3022";
+      ctx.fillRect(sx, GROUND_Y - 105, 82, 105);
+
+      ctx.fillStyle = "#63422C";
+      for (let i = 0; i < 5; i++){
+        ctx.fillRect(sx + i * 17, GROUND_Y - 105, 13, 105);
+      }
+
+      ctx.fillStyle = "#332921";
+      ctx.fillRect(sx - 4, GROUND_Y - 78, 90, 8);
+      ctx.fillRect(sx - 4, GROUND_Y - 35, 90, 8);
+
+      ctx.fillStyle = "#8B8173";
+      for (let i = 0; i < 5; i++){
+        ctx.beginPath();
+        ctx.arc(sx + 7 + i * 17, GROUND_Y - 74, 2, 0, Math.PI * 2);
+        ctx.arc(sx + 7 + i * 17, GROUND_Y - 31, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   function drawDesertZone(z){
