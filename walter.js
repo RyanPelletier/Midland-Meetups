@@ -1496,7 +1496,7 @@
   // more elaborate.
   const ARENA_WORLD_WIDTH = 900;
   const ARENA_ENEMIES_PER_WAVE = 10;
-  const ARENA_HEAL_PER_KILL = 4; // player.maxHp is typically 100, so this is a meaningful but not trivial recovery
+  const ARENA_HEAL_PER_KILL = 4; // PLAYER_MAX_HP is 100, so this is a meaningful but not trivial recovery
   const ARENA_BOW_COOLDOWN_FRAMES = 45; // auto-fires roughly 1.3x/second
   const ARENA_BOW_DAMAGE = 8;
   const ARENA_PLACEHOLDER_POOL = ["knight", "ogre", "archer", "hercules"];
@@ -3389,7 +3389,7 @@
       }
       totalKills++;
       if (currentMap === "arena"){
-        player.hp = Math.min(player.maxHp, player.hp + ARENA_HEAL_PER_KILL);
+        player.hp = Math.min(PLAYER_MAX_HP, player.hp + ARENA_HEAL_PER_KILL);
         arenaWaveKillsRemaining--;
       }
       if (ENEMY_STATS[en.type].dropsCrystal){
