@@ -3,6 +3,11 @@
    ========================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+/* Ancient-scroll menu theme, used only within Walter's overlay
+   (#walter-overlay-inner) — additive fonts, doesn't touch the site's
+   own --display/--body fonts used everywhere else, including the
+   other game on this same page. */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:wght@400;500;600&display=swap');
 
 :root{
   --bg:        #F5F6F8;
@@ -17,6 +22,7 @@
   --red:    #E5484D;
   --yellow: #F6B93B;
   --green:  #12B76A;
+  --green-ink: #0E9058;
 
   --display: 'Space Grotesk', sans-serif;
   --body:    'Inter', sans-serif;
@@ -554,6 +560,11 @@ button{ font-family: inherit; }
   color: var(--ink);
 }
 .btn.light:hover{ background: var(--surface-2); }
+.btn.green{
+  background: var(--green);
+  color: var(--surface);
+}
+.btn.green:hover{ background: var(--green-ink); }
 .btn.block{
   width: 100%;
   justify-content: center;
@@ -927,6 +938,107 @@ textarea{ resize: vertical; min-height: 110px; }
 .game-overlay-inner input{ text-align: center; }
 .game-overlay-inner .btn{ margin: 4px; padding: 11px 18px; font-size: 0.88rem; }
 .game-overlay-inner .form-note{ color: #D9DDE1; }
+
+/* =========================================================
+   WALTER'S ANCIENT-SCROLL MENU THEME
+   Scoped entirely to #walter-overlay-inner (ID, not the shared
+   .game-overlay-inner class) so this can never affect the other
+   game's menus on this same page, which reuse that same class.
+   Static cosmetics only — no roll/unroll animation.
+   ========================================================= */
+#walter-overlay{
+  background: rgba(38,26,14,0.72); /* warm torch-lit dark, instead of the site's cool blue-black backdrop */
+}
+#walter-overlay-inner{
+  max-width: 380px;
+  padding: 28px 26px 22px;
+  border-radius: 6px;
+  color: #3A2A18;
+  text-align: center;
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(120,90,50,0.16), transparent 55%),
+    radial-gradient(ellipse at 85% 80%, rgba(120,90,50,0.14), transparent 50%),
+    radial-gradient(ellipse at 60% 40%, rgba(160,130,80,0.10), transparent 60%),
+    linear-gradient(180deg, #EFE0BC 0%, #E6D3A5 45%, #DFC994 100%);
+  box-shadow:
+    inset 0 0 0 2px #B89457,
+    inset 0 0 0 6px #EFE0BC,
+    inset 0 0 0 8px #8A6A3B,
+    0 18px 46px -12px rgba(20,12,4,0.55);
+}
+/* Rolled-dowel caps top and bottom, suggesting a scroll without any
+   actual unroll motion or animation. */
+#walter-overlay-inner::before,
+#walter-overlay-inner::after{
+  content: "";
+  position: absolute;
+  left: -14px;
+  right: -14px;
+  height: 16px;
+  background: linear-gradient(180deg, #9C7A45, #6E5228 55%, #52391A);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.35);
+  z-index: -1;
+}
+#walter-overlay-inner{ position: relative; margin-top: 8px; margin-bottom: 8px; }
+#walter-overlay-inner::before{ top: -8px; }
+#walter-overlay-inner::after{ bottom: -8px; }
+
+#walter-overlay-inner h3{
+  font-family: 'Cinzel', var(--display);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 1.35rem;
+  color: #5C3E1C;
+  text-shadow: 0 1px 0 rgba(255,240,210,0.5);
+  margin: 4px 0 10px;
+}
+#walter-overlay-inner p{
+  font-family: 'EB Garamond', var(--body);
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: #4A3620;
+}
+#walter-overlay-inner .form-note{ color: #6B5636; font-family: 'EB Garamond', var(--body); }
+#walter-overlay-inner input{
+  font-family: 'EB Garamond', var(--body);
+  background: #F5EACB;
+  border: 1.5px solid #B89457;
+  color: #3A2A18;
+  border-radius: 4px;
+}
+
+/* Carved-plaque buttons, replacing the site's flat blue .btn only
+   within this scroll — the shared .btn class itself is untouched, so
+   every other page on the site keeps its normal button styling. */
+#walter-overlay-inner .btn{
+  font-family: 'Cinzel', var(--body);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  background: linear-gradient(180deg, #A9803F, #7C5B2C);
+  color: #FBF0D6;
+  border: 1px solid #5A3F1C;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,235,195,0.35), 0 2px 3px rgba(30,18,6,0.35);
+  text-shadow: 0 1px 1px rgba(20,10,0,0.4);
+}
+#walter-overlay-inner .btn:hover, #walter-overlay-inner .btn:focus-visible{
+  background: linear-gradient(180deg, #BD9247, #8C6832);
+  outline: none;
+}
+#walter-overlay-inner .btn.light{
+  background: linear-gradient(180deg, #F5EACB, #E5D2A0);
+  color: #4A3620;
+  border-color: #B89457;
+  text-shadow: none;
+}
+#walter-overlay-inner .btn.light:hover{ background: linear-gradient(180deg, #F9F1DA, #EDDCAE); }
+#walter-overlay-inner .btn.green{
+  background: linear-gradient(180deg, #5C7A3E, #3F5A28);
+  border-color: #2E4319;
+}
+#walter-overlay-inner .btn.green:hover{ background: linear-gradient(180deg, #6C8C4A, #4A6A30); }
 
 @media (max-height: 480px){
   .game-overlay-inner h3{ font-size: 1.1rem; margin-bottom: 4px; }
