@@ -1040,6 +1040,14 @@ textarea{ resize: vertical; min-height: 110px; }
 }
 #walter-overlay-inner .btn.green:hover{ background: linear-gradient(180deg, #6C8C4A, #4A6A30); }
 
+/* Captain's Map — each landmass is a real clickable button now, not
+   decoration sitting above a separate list. Opacity-only feedback
+   (not a transform/scale) since SVG transform-origin per-element is
+   unreliable and this just needs to feel responsive without any risk
+   of visibly shifting a landmass out of position on hover. */
+.wvw-landmass{ transition: opacity 0.15s ease; }
+.wvw-landmass:hover{ opacity: 0.72; }
+
 @media (max-height: 480px){
   .game-overlay-inner h3{ font-size: 1.1rem; margin-bottom: 4px; }
   .game-overlay-inner p{ font-size: 0.8rem; margin-bottom: 8px; }
