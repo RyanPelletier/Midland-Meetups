@@ -1433,6 +1433,26 @@
      specific buffSpell is actually sitting in one of the 9 slots.
      Only one amulet exists so far — the cyclops is the only boss. */
   const AMULET_ORDER = ["cyclopsEye", "banner_of_valor", "champions_crest", "moon_blossom", "emerald_fang", "bog_core", "buried_heart", "heartwood_seed", "leviathan_scale", "lightning_glass"];
+
+  // Progression guidance — an ordered list of significant beats, not
+  // every small action in the game. Checked periodically (not on every
+  // possible trigger point) via updateMilestones(), which is simpler
+  // and more robust than trying to hook every place state could change.
+  // Each check() reads already-existing game state directly; nothing
+  // here needed new tracking fields added just to support it.
+  const MILESTONES = [
+    { id: "sailing", label: "Unlock Sailing", check: () => player.crewHired },
+    { id: "cyclops", label: "Defeat the Cyclops", check: () => player.amuletsOwned.has("cyclopsEye") },
+    // Distinct from merely owning an amulet (which "cyclops" above
+    // already covers) — this is specifically about actually socketing a
+    // spell into a slot for the first time.
+    { id: "firstAmulet", label: "Create Your First Amulet", check: () => Object.values(player.amuletSlots).some(slots => slots && slots.some(Boolean)) },
+    { id: "newLand", label: "Set Foot in a New Land", check: () => player.highestUnlockedLand > 2 },
+    { id: "tower", label: "Climb the Tower", check: () => player.towerHighestFloor > 0 },
+    { id: "dungeon", label: "Clear a Dungeon Room", check: () => player.dungeonHighestRoom > 0 },
+    { id: "castle", label: "Rebuild the Castle", check: () => player.castleRebuilt },
+    { id: "sotgk", label: "Forge the Sword of the Great King", check: () => player.swordInventory.swords.some(s => s.id === "sotgk") }
+  ];
   const AMULETS = {
     cyclopsEye:      { label: "The Cyclops's Eye", buffSpell: "fireball",  burnDurationMultiplier: 1.5 },
     // Reinterpreted from spec: "fires one additional projectile" / "Chain
@@ -1508,6 +1528,13 @@
   const TOWER_BIOMES = ["library", "study", "lounge", "potionLab", "prison"];
   const TOWER_TOTAL_FLOORS = 20;
   let currentDungeonRoom = null; // { roomNumber, biomeId, exitType, worldWidth, cleared, enemyCount, chestClaimed }
+  let completedMilestoneIds = new Set();
+  let milestoneCheckCooldown = 0;
+  // Queued rather than fired instantly — if two milestones complete in
+  // the same check (unlikely but possible right after loading a save),
+  // this shows them one after another instead of overlapping.
+  let milestoneNotificationQueue = [];
+  let activeMilestoneNotification = null; // { label, life }
   // The Dark Forest — endless, so unlike every other map this is never
   // rebuilt wholesale on entry. Zones get appended progressively as the
   // player approaches the generated edge, and old zones well behind the
@@ -2066,6 +2093,9 @@
   function buildPlayerStateSchema(){
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
+      milestones: {
+        completed: Array.from(completedMilestoneIds)
+      },
       playerStats: {
         // Silver accrues fractionally (passive income), but only the
         // floored snapshot is persisted — the in-memory fractional part
@@ -2377,6 +2407,7 @@
   function applyLoadedProgress(){
     if (!loadedProgress) return;
     const s = loadedProgress;
+    completedMilestoneIds = new Set((s.milestones && s.milestones.completed) || []);
     player.silver = s.playerStats.silver;
     player.bankedCrystals = s.playerStats.bankedCrystals;
     player.maxMana = s.playerStats.maxMana;
@@ -2423,6 +2454,41 @@
     }
   }
 
+  // Checked roughly once a second (60 frames), not every single frame —
+  // a few boolean checks are trivial either way, but there's no reason
+  // to run them 60x more often than needed.
+  function updateMilestones(){
+    if (milestoneCheckCooldown > 0){
+      milestoneCheckCooldown--;
+    }else{
+      milestoneCheckCooldown = 60;
+      let anyNewlyCompleted = false;
+      MILESTONES.forEach(m => {
+        if (!completedMilestoneIds.has(m.id) && m.check()){
+          completedMilestoneIds.add(m.id);
+          milestoneNotificationQueue.push(m.label);
+          anyNewlyCompleted = true;
+        }
+      });
+      if (anyNewlyCompleted) saveProgress();
+    }
+
+    if (activeMilestoneNotification){
+      activeMilestoneNotification.life--;
+      if (activeMilestoneNotification.life <= 0) activeMilestoneNotification = null;
+    }
+    if (!activeMilestoneNotification && milestoneNotificationQueue.length > 0){
+      activeMilestoneNotification = { label: milestoneNotificationQueue.shift(), life: 240 }; // ~4s at 60fps
+    }
+  }
+
+  // Returns null once every milestone is complete — callers should
+  // treat that as "nothing to show", not an error.
+  function currentMilestoneLabel(){
+    const next = MILESTONES.find(m => !completedMilestoneIds.has(m.id));
+    return next ? next.label : null;
+  }
+
   async function saveProgress(){
     if (walterGuestMode || !walterName) return; // guest / not logged in — nothing to save to
     try{
@@ -2444,6 +2510,9 @@
   /* ---------------- state ---------------- */
   function resetState(){
     currentMap = "home";
+    completedMilestoneIds = new Set();
+    milestoneNotificationQueue = [];
+    activeMilestoneNotification = null;
     player = {
       x: TOWER_X, y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, onLadder: false,
       facing: 1, hp: PLAYER_MAX_HP,
@@ -2584,6 +2653,7 @@
     updateDungeonProgress();
     if (currentMap === "darkforest"){ ensureDarkForestGenerated(); updateDarkForestBiomeIndex(); }
     updateArenaProgress();
+    updateMilestones();
     updateArenaBow();
     updateVillagerProximity();
     updateCrewTimers();
@@ -4831,6 +4901,8 @@
     drawPlayer();
     drawMenuPrompt();
     drawHud();
+    drawMilestoneTracker();
+    drawMilestoneNotification();
     drawRespawnMessage();
   }
 
@@ -9881,6 +9953,62 @@
         }
       }
     }
+  }
+
+  // Pop-up banner for a just-completed milestone — slides down briefly,
+  // holds, then fades. Matches the ancient-scroll menu palette for
+  // visual consistency, drawn directly on canvas (not an HTML overlay)
+  // since it must never pause or block gameplay.
+  function drawMilestoneNotification(){
+    if (!activeMilestoneNotification) return;
+    const n = activeMilestoneNotification;
+    const totalLife = 240, slideInFrames = 20, fadeOutFrames = 30;
+    let alpha = 1, yOffset = 0;
+    if (n.life > totalLife - slideInFrames){
+      const t = (totalLife - n.life) / slideInFrames;
+      yOffset = -30 * (1 - t);
+    }else if (n.life < fadeOutFrames){
+      alpha = n.life / fadeOutFrames;
+    }
+    const bannerW = 300, bannerH = 46;
+    const bx = CANVAS_W / 2 - bannerW / 2, by = 14 + yOffset;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#E8D5A8";
+    ctx.fillRect(bx, by, bannerW, bannerH);
+    ctx.strokeStyle = "#8B6B4A";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, bannerW, bannerH);
+    ctx.fillStyle = "#5C3E1C";
+    ctx.textAlign = "center";
+    ctx.font = "700 10px 'JetBrains Mono', monospace";
+    ctx.fillText("MILESTONE COMPLETE", CANVAS_W / 2, by + 17);
+    ctx.font = "700 14px 'JetBrains Mono', monospace";
+    ctx.fillText(n.label, CANVAS_W / 2, by + 36);
+    ctx.restore();
+  }
+
+  // Small persistent tag, bottom-right — both HUD corners at the top
+  // are already busy with HP/armor/mana bars and spell/status text, so
+  // this lives somewhere genuinely free rather than crowding those.
+  function drawMilestoneTracker(){
+    const label = currentMilestoneLabel();
+    if (!label) return; // every milestone done — nothing to show, not an error
+    const text = "Next: " + label;
+    ctx.save();
+    ctx.font = "700 10px 'JetBrains Mono', monospace";
+    const textW = ctx.measureText(text).width;
+    const padX = 10, boxW = textW + padX * 2, boxH = 20;
+    const bx = CANVAS_W - boxW - 10, by = CANVAS_H - boxH - 10;
+    ctx.fillStyle = "rgba(232,213,168,0.88)";
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.strokeStyle = "#8B6B4A";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, boxW, boxH);
+    ctx.fillStyle = "#5C3E1C";
+    ctx.textAlign = "left";
+    ctx.fillText(text, bx + padX, by + 14);
+    ctx.restore();
   }
 
   function drawHud(){
