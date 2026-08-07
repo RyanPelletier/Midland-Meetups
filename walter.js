@@ -52,14 +52,92 @@
     houseDecrepit: "#8A8378",
     houseDecrepitDark: "#5C574C",
     houseWall: "#E8C99B",
-    houseRoof: "#B8543A",
-    houseDoor: "#6B4222",
+    houseRoof: "#9A7040",
+    houseDoor: "#4B3020",
     shrineDecrepit: "#8A8378",
     shrineDecrepitDark: "#5C574C",
     shrineStone: "#B8AFA0",
     shrineStoneDark: "#8C8272",
     townHallWall: "#D9C08A",
-    townHallRoof: "#8B5A2B",
+    townHallRoof: "#665344",
+    houseDecrepit: "#6B6157",
+    houseDecrepitDark: "#443D38",
+    houseRoofDark: "#51402F",
+    houseWallDark: "#8A6A4A",
+    houseDoorLight: "#7C5435",
+    houseWindow: "#D9C36A",
+    houseWindowFrame: "#493B2B",
+    houseShutter: "#5D4635",
+    chimney: "#76594A",
+    chimneyDark: "#574238",
+    smoke: "#B8B6A9",
+    houseTrim: "#D1A65A",
+    houseFoundation: "#675548",
+    houseWeeds: "#3E6130",
+    houseFlowerBox: "#6B4222",
+    houseFlowers: "#E7C85A",
+    townHallStone: "#9B9385",
+    townHallStoneDark: "#665C52",
+    townHallRoofDark: "#403A35",
+    townHallDoor: "#3B2B22",
+    townHallWindow: "#D7C46D",
+    townHallAccent: "#B58A3A",
+    townHallTower: "#786D60",
+    townHallTowerDark: "#514A43",
+    townHallBell: "#B08B3E",
+    townHallBanner: "#8D3038",
+    castleStone: "#9A958A",
+    castleStoneDark: "#6F6A62",
+    castleTower: "#878176",
+    castleTowerDark: "#625D56",
+    castleRoof: "#493E37",
+    castleWindow: "#D5BF67",
+    castleGate: "#382A20",
+    castleGateMetal: "#A0844D",
+    castleFlagPole: "#4A3827",
+    castleBanner: "#8D3038",
+    castleCrest: "#D4B24F",
+    castleRuined: "#625C57",
+    castleRuinedDark: "#45413E",
+    castleCrack: "#393735",
+    castleDoor: "#292522",
+    castleRubble: "#77716B",
+    libraryWall: "#9A8065",
+    libraryRoof: "#745840",
+    libraryRoofDark: "#4D4035",
+    libraryDoor: "#443329",
+    libraryWindow: "#D8C777",
+    libraryTrim: "#D0A85B",
+    libraryFinial: "#C39B4A",
+    libraryDecrepit: "#655D57",
+    libraryDecrepitDark: "#433E3A",
+    libraryCrack: "#393633",
+    bookRed: "#9B4B43",
+    bookBlue: "#496A83",
+    bookGold: "#B4934B",
+    blacksmithWall: "#765744",
+    blacksmithRoof: "#49392F",
+    blacksmithChimney: "#55443A",
+    blacksmithChimneyDark: "#3C312B",
+    blacksmithFoundation: "#57483C",
+    blacksmithFireDark: "#672B1B",
+    blacksmithDecrepit: "#5A514A",
+    blacksmithDecrepitDark: "#3C3733",
+    blacksmithCrack: "#302D2A",
+    forgeGlow: "#FF7A25",
+    anvil: "#45474A",
+    trainingGround: "#806844",
+    trainingFence: "#6B4222",
+    trainingDummy: "#8B5A2B",
+    trainingDummyDark: "#5A3925",
+    trainingTarget: "#D9C36A",
+    trainingWeapon: "#51402F",
+    graveyardWall: "#5A554F",
+    graveyardWallDark: "#403D39",
+    graveyardGrass: "#4C653C",
+    graveStone: "#858078",
+    graveStoneDark: "#625F5A",
+    graveMark: "#B1ACA1",
     castleDecrepit: "#7A7264",
     castleDecrepitDark: "#5C564A",
     castleRebuilt: "#D4AF37",
@@ -5955,42 +6033,144 @@
   }
 
   function drawHomebaseHouses(){
-    HOMEBASE_HOUSES.forEach(h => {
-      const x = worldToScreen(h.x);
-      if (x < -60 || x > CANVAS_W + 60) return;
-      const level = player.houseLevels[h.id] || 0;
-      const baseW = 50, baseH = 40;
-      const w = baseW + Math.min(level, 5) * 4; // grows slightly with level, then caps
-      const houseY = GROUND_Y - baseH;
+    for (const house of HOMEBASE_HOUSES){
+      const x = worldToScreen(house.x);
+      if (x < -70 || x > CANVAS_W + 70) continue;
+
+      const level = player.houseLevels[house.id] || 0;
+      const scale = Math.min(level, 5);
+      const w = 50 + scale * 3;
+      const h = 40 + scale * 2;
+      const left = x - w / 2;
+      const top = GROUND_Y - h;
 
       if (level === 0){
         ctx.fillStyle = COLORS.houseDecrepit;
-        ctx.fillRect(x, houseY, baseW, baseH);
-        ctx.strokeStyle = COLORS.houseDecrepitDark;
-        ctx.lineWidth = 2;
+        ctx.fillRect(left + 5, GROUND_Y - 18, w - 10, 18);
+
+        ctx.fillStyle = COLORS.houseDecrepitDark;
+        ctx.fillRect(left + 8, GROUND_Y - 28, 12, 28);
+        ctx.fillRect(left + 27, GROUND_Y - 23, 16, 23);
+
+        ctx.fillStyle = COLORS.houseRoofDark;
         ctx.beginPath();
-        ctx.moveTo(x - 4, houseY + 6);
-        ctx.lineTo(x + baseW + 2, houseY - 6); // a broken, tilted roofline
-        ctx.stroke();
-      }else{
-        ctx.fillStyle = COLORS.houseWall;
-        ctx.fillRect(x, houseY + 10, w, baseH - 10);
-        ctx.fillStyle = COLORS.houseRoof;
-        ctx.beginPath();
-        ctx.moveTo(x - 4, houseY + 10);
-        ctx.lineTo(x + w / 2, houseY - 12);
-        ctx.lineTo(x + w + 4, houseY + 10);
+        ctx.moveTo(left + 1, GROUND_Y - 28);
+        ctx.lineTo(left + w * 0.42, GROUND_Y - 39);
+        ctx.lineTo(left + w * 0.68, GROUND_Y - 27);
+        ctx.lineTo(left + w - 2, GROUND_Y - 34);
+        ctx.lineTo(left + w - 4, GROUND_Y - 26);
+        ctx.lineTo(left + 4, GROUND_Y - 21);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = COLORS.houseDoor;
-        ctx.fillRect(x + w / 2 - 6, houseY + 20, 12, 20);
 
-        ctx.fillStyle = COLORS.hud;
-        ctx.font = "700 10px 'JetBrains Mono', monospace";
-        ctx.textAlign = "center";
-        ctx.fillText("Lv" + level, x + w / 2, houseY - 16);
+        ctx.fillStyle = COLORS.houseDoor;
+        ctx.fillRect(x - 5, GROUND_Y - 17, 10, 17);
+
+        ctx.strokeStyle = COLORS.houseWeeds;
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 4; i++){
+          const wx = left + 7 + i * 13;
+          ctx.beginPath();
+          ctx.moveTo(wx, GROUND_Y);
+          ctx.lineTo(wx - 2, GROUND_Y - 7 - (i % 2) * 3);
+          ctx.stroke();
+        }
+
+        continue;
       }
-    });
+
+      ctx.fillStyle = COLORS.houseFoundation;
+      ctx.fillRect(left - 2, GROUND_Y - 5, w + 4, 5);
+
+      ctx.fillStyle = COLORS.houseWall;
+      ctx.fillRect(left, top + 12, w, h - 12);
+
+      ctx.fillStyle = COLORS.houseWallDark;
+      ctx.fillRect(left, GROUND_Y - 8, w, 8);
+
+      ctx.fillStyle = COLORS.houseRoofDark;
+      ctx.beginPath();
+      ctx.moveTo(left - 5, top + 14);
+      ctx.lineTo(x, top - 9);
+      ctx.lineTo(left + w + 5, top + 14);
+      ctx.lineTo(left + w, top + 18);
+      ctx.lineTo(x, top - 2);
+      ctx.lineTo(left, top + 18);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.houseRoof;
+      ctx.beginPath();
+      ctx.moveTo(left, top + 12);
+      ctx.lineTo(x, top - 6);
+      ctx.lineTo(left + w, top + 12);
+      ctx.lineTo(left + w - 3, top + 16);
+      ctx.lineTo(x, top + 1);
+      ctx.lineTo(left + 3, top + 16);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.houseDoor;
+      ctx.fillRect(x - 6, GROUND_Y - 23, 12, 23);
+      ctx.fillStyle = COLORS.houseDoorLight;
+      ctx.fillRect(x - 4, GROUND_Y - 21, 2, 18);
+
+      for (const side of [-1, 1]){
+        const wx = x + side * (w * 0.29);
+        ctx.fillStyle = COLORS.houseWindow;
+        ctx.fillRect(wx - 5, GROUND_Y - 27, 10, 10);
+        ctx.fillStyle = COLORS.houseWindowFrame;
+        ctx.fillRect(wx - 1, GROUND_Y - 27, 2, 10);
+        ctx.fillRect(wx - 5, GROUND_Y - 23, 10, 2);
+
+        if (level >= 2){
+          ctx.fillStyle = COLORS.houseShutter;
+          ctx.fillRect(wx - 8, GROUND_Y - 28, 3, 12);
+          ctx.fillRect(wx + 5, GROUND_Y - 28, 3, 12);
+        }
+      }
+
+      if (level >= 2){
+        const chimneyX = left + w * 0.72;
+        ctx.fillStyle = COLORS.chimney;
+        ctx.fillRect(chimneyX, top + 1, 8, 18);
+        ctx.fillStyle = COLORS.chimneyDark;
+        ctx.fillRect(chimneyX - 1, top, 10, 4);
+      }
+
+      if (level >= 3){
+        const chimneyX = left + w * 0.72 + 4;
+        const drift = Math.sin(frame * 0.025 + house.id.length) * 2;
+        ctx.fillStyle = COLORS.smoke;
+        ctx.globalAlpha = 0.38;
+        ctx.beginPath();
+        ctx.arc(chimneyX + drift, top - 5, 4, 0, Math.PI * 2);
+        ctx.arc(chimneyX + drift + 3, top - 11, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      if (level >= 4){
+        ctx.fillStyle = COLORS.houseTrim;
+        ctx.fillRect(left, top + 12, w, 3);
+        ctx.fillRect(left + 3, GROUND_Y - 34, w - 6, 2);
+      }
+
+      if (level >= 5){
+        ctx.fillStyle = COLORS.houseFlowerBox;
+        ctx.fillRect(left + 4, GROUND_Y - 19, 13, 4);
+        ctx.fillStyle = COLORS.houseFlowers;
+        ctx.beginPath();
+        ctx.arc(left + 7, GROUND_Y - 21, 2, 0, Math.PI * 2);
+        ctx.arc(left + 12, GROUND_Y - 22, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 10px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("Lv" + level, x, top - 13);
+    }
   }
 
   function drawHomebaseShrine(){
@@ -6038,61 +6218,204 @@
   function drawHomebaseTownHall(){
     const x = worldToScreen(HOMEBASE_TOWNHALL_X);
     if (x < -60 || x > CANVAS_W + 60) return;
-    const w = 44, h = 60;
-    const y = GROUND_Y - h;
-    ctx.fillStyle = COLORS.townHallWall;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = COLORS.townHallRoof;
+
+    const w = 44;
+    const h = 60;
+    const left = x - w / 2;
+    const top = GROUND_Y - h;
+
+    ctx.fillStyle = COLORS.townHallStoneDark;
+    ctx.fillRect(left - 3, GROUND_Y - 7, w + 6, 7);
+
+    ctx.fillStyle = COLORS.townHallStone;
+    ctx.fillRect(left, top + 18, w, h - 18);
+
+    ctx.fillStyle = COLORS.townHallStoneDark;
+    ctx.fillRect(left, top + 18, 6, h - 18);
+    ctx.fillRect(left + w - 6, top + 18, 6, h - 18);
+
+    ctx.fillStyle = COLORS.townHallRoofDark;
     ctx.beginPath();
-    ctx.moveTo(x - 6, y);
-    ctx.lineTo(x + w / 2, y - 20);
-    ctx.lineTo(x + w + 6, y);
+    ctx.moveTo(left - 6, top + 20);
+    ctx.lineTo(x, top - 5);
+    ctx.lineTo(left + w + 6, top + 20);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = COLORS.townHallRoof;
-    ctx.lineWidth = 2;
+
+    ctx.fillStyle = COLORS.townHallRoof;
     ctx.beginPath();
-    ctx.moveTo(x + w / 2, y - 20);
-    ctx.lineTo(x + w / 2, y - 34);
-    ctx.stroke();
-    ctx.fillStyle = COLORS.hud;
+    ctx.moveTo(left, top + 17);
+    ctx.lineTo(x, top);
+    ctx.lineTo(left + w, top + 17);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.townHallDoor;
     ctx.beginPath();
-    ctx.moveTo(x + w / 2, y - 34);
-    ctx.lineTo(x + w / 2 + 14, y - 28);
-    ctx.lineTo(x + w / 2, y - 22);
+    ctx.arc(x, GROUND_Y - 16, 7, Math.PI, 0);
+    ctx.lineTo(x + 7, GROUND_Y);
+    ctx.lineTo(x - 7, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.townHallWindow;
+    ctx.fillRect(left + 8, top + 28, 8, 10);
+    ctx.fillRect(left + w - 16, top + 28, 8, 10);
+
+    ctx.fillStyle = COLORS.townHallAccent;
+    ctx.beginPath();
+    ctx.arc(x, top + 25, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.townHallTower;
+    ctx.fillRect(x - 8, top - 12, 16, 15);
+    ctx.fillStyle = COLORS.townHallTowerDark;
+    ctx.beginPath();
+    ctx.moveTo(x - 10, top - 12);
+    ctx.lineTo(x, top - 22);
+    ctx.lineTo(x + 10, top - 12);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.townHallBell;
+    ctx.beginPath();
+    ctx.arc(x, top - 7, 4, 0, Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.townHallBanner;
+    ctx.fillRect(x + 11, top - 8, 7, 25);
+    ctx.beginPath();
+    ctx.moveTo(x + 11, top + 17);
+    ctx.lineTo(x + 14.5, top + 13);
+    ctx.lineTo(x + 18, top + 17);
     ctx.closePath();
     ctx.fill();
   }
 
   function drawHomebaseCastle(){
     const x = worldToScreen(HOMEBASE_CASTLE_X);
-    if (x < -100 || x > CANVAS_W + 100) return;
-    const w = 120, h = 130;
-    const y = GROUND_Y - h;
+    if (x < -90 || x > CANVAS_W + 90) return;
+
     const rebuilt = player.castleRebuilt;
+    const w = 120;
+    const h = 130;
+    const left = x - w / 2;
+    const top = GROUND_Y - h;
 
-    ctx.fillStyle = rebuilt ? COLORS.castleRebuilt : COLORS.castleDecrepit;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = rebuilt ? COLORS.castleRebuiltDark : COLORS.castleDecrepitDark;
-    for (let cx = 0; cx < w; cx += 24){
-      ctx.fillRect(x + cx, y - 12, 14, 12);
-    }
+    if (!rebuilt){
+      ctx.fillStyle = COLORS.castleRuined;
+      ctx.fillRect(left + 25, GROUND_Y - 78, 70, 78);
 
-    if (rebuilt){
-      ctx.strokeStyle = COLORS.castleRebuiltDark;
+      ctx.fillRect(left, GROUND_Y - 60, 28, 60);
+      ctx.fillRect(left + 92, GROUND_Y - 48, 28, 48);
+
+      ctx.fillStyle = COLORS.castleRuinedDark;
+      ctx.fillRect(left, GROUND_Y - 60, 10, 8);
+      ctx.fillRect(left + 18, GROUND_Y - 51, 10, 7);
+      ctx.fillRect(left + 25, GROUND_Y - 78, 12, 8);
+      ctx.fillRect(left + 55, GROUND_Y - 69, 15, 7);
+      ctx.fillRect(left + 92, GROUND_Y - 48, 11, 8);
+      ctx.fillRect(left + 110, GROUND_Y - 40, 10, 7);
+
+      ctx.strokeStyle = COLORS.castleCrack;
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x + w / 2, y - 12);
-      ctx.lineTo(x + w / 2, y - 40);
-      ctx.stroke();
-      ctx.fillStyle = COLORS.mana;
-      ctx.beginPath();
-      ctx.moveTo(x + w / 2, y - 40);
-      ctx.lineTo(x + w / 2 + 16, y - 33);
-      ctx.lineTo(x + w / 2, y - 26);
-      ctx.closePath();
-      ctx.fill();
+      for (let i = 0; i < 5; i++){
+        const cx = left + 32 + i * 16;
+        ctx.beginPath();
+        ctx.moveTo(cx, GROUND_Y - 60 - (i % 2) * 5);
+        ctx.lineTo(cx - 4, GROUND_Y - 43);
+        ctx.lineTo(cx + 2, GROUND_Y - 30);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = COLORS.castleDoor;
+      ctx.fillRect(x - 10, GROUND_Y - 35, 20, 35);
+
+      ctx.fillStyle = COLORS.castleRubble;
+      for (let i = 0; i < 7; i++){
+        const rx = left + 10 + i * 15;
+        ctx.fillRect(rx, GROUND_Y - 4 - (i % 3) * 3, 7, 4);
+      }
+
+      return;
     }
+
+    ctx.fillStyle = COLORS.castleStone;
+    ctx.fillRect(left + 24, top + 25, w - 48, h - 25);
+
+    ctx.fillStyle = COLORS.castleStoneDark;
+    ctx.fillRect(left + 24, GROUND_Y - 10, w - 48, 10);
+
+    ctx.fillStyle = COLORS.castleTower;
+    ctx.fillRect(left, top + 38, 30, h - 38);
+    ctx.fillRect(left + w - 30, top + 38, 30, h - 38);
+
+    ctx.fillStyle = COLORS.castleTowerDark;
+    ctx.fillRect(left, top + 38, 6, h - 38);
+    ctx.fillRect(left + w - 6, top + 38, 6, h - 38);
+
+    ctx.fillStyle = COLORS.castleStone;
+    for (let tx = left - 2; tx < left + 32; tx += 10){
+      ctx.fillRect(tx, top + 26, 7, 12);
+    }
+    for (let tx = left + w - 30; tx < left + w + 2; tx += 10){
+      ctx.fillRect(tx, top + 26, 7, 12);
+    }
+
+    for (let tx = left + 30; tx < left + w - 30; tx += 13){
+      ctx.fillRect(tx, top + 20, 9, 10);
+    }
+
+    ctx.fillStyle = COLORS.castleRoof;
+    ctx.beginPath();
+    ctx.moveTo(left + 27, top + 22);
+    ctx.lineTo(x, top + 3);
+    ctx.lineTo(left + w - 27, top + 22);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.castleWindow;
+    for (const tx of [left + 11, left + w - 19]){
+      ctx.fillRect(tx, top + 55, 8, 13);
+      ctx.fillRect(tx + 3, top + 55, 2, 13);
+    }
+
+    ctx.fillStyle = COLORS.castleGate;
+    ctx.beginPath();
+    ctx.arc(x, GROUND_Y - 25, 13, Math.PI, 0);
+    ctx.lineTo(x + 13, GROUND_Y);
+    ctx.lineTo(x - 13, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.castleGateMetal;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 11, GROUND_Y - 17);
+    ctx.lineTo(x + 11, GROUND_Y - 17);
+    ctx.moveTo(x, GROUND_Y - 36);
+    ctx.lineTo(x, GROUND_Y);
+    ctx.stroke();
+
+    ctx.strokeStyle = COLORS.castleFlagPole;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, top + 4);
+    ctx.lineTo(x, top - 23);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.castleBanner;
+    ctx.beginPath();
+    ctx.moveTo(x + 1, top - 22);
+    ctx.lineTo(x + 23, top - 17);
+    ctx.lineTo(x + 1, top - 10);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.castleCrest;
+    ctx.beginPath();
+    ctx.arc(x, top + 32, 5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawVillagers(){
@@ -6140,81 +6463,295 @@
 
   function drawHomebaseLibrary(){
     const x = worldToScreen(HOMEBASE_LIBRARY_X);
-    if (x < -40 || x > CANVAS_W + 40) return;
-    const built = player.libraryLevel > 0;
-    ctx.fillStyle = built ? COLORS.houseWall : COLORS.houseDecrepit;
-    ctx.fillRect(x - 20, GROUND_Y - 50, 40, 50);
-    ctx.fillStyle = built ? COLORS.townHallRoof : COLORS.houseDecrepitDark;
+    if (x < -60 || x > CANVAS_W + 60) return;
+
+    const level = player.libraryLevel || 0;
+
+    if (level === 0){
+      const left = x - 20;
+      ctx.fillStyle = COLORS.libraryDecrepit;
+      ctx.fillRect(left + 4, GROUND_Y - 27, 32, 27);
+
+      ctx.fillStyle = COLORS.libraryDecrepitDark;
+      ctx.beginPath();
+      ctx.moveTo(left, GROUND_Y - 27);
+      ctx.lineTo(x - 4, GROUND_Y - 40);
+      ctx.lineTo(x + 22, GROUND_Y - 31);
+      ctx.lineTo(left + 40, GROUND_Y - 37);
+      ctx.lineTo(left + 40, GROUND_Y - 27);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = COLORS.libraryCrack;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 12, GROUND_Y - 24);
+      ctx.lineTo(x - 6, GROUND_Y - 13);
+      ctx.lineTo(x - 10, GROUND_Y);
+      ctx.stroke();
+
+      return;
+    }
+
+    const h = 50 + Math.min(level, 5) * 2;
+    const topY = GROUND_Y - h;
+    const w = 40 + Math.min(level, 5) * 2;
+    const leftX = x - w / 2;
+
+    ctx.fillStyle = COLORS.libraryStoneDark || "#655B50";
+    ctx.fillRect(leftX - 2, GROUND_Y - 5, w + 4, 5);
+
+    ctx.fillStyle = COLORS.libraryWall;
+    ctx.fillRect(leftX, topY + 15, w, h - 15);
+
+    ctx.fillStyle = COLORS.libraryRoofDark;
     ctx.beginPath();
-    ctx.moveTo(x - 24, GROUND_Y - 50);
-    ctx.lineTo(x, GROUND_Y - 66);
-    ctx.lineTo(x + 24, GROUND_Y - 50);
+    ctx.moveTo(leftX - 5, topY + 16);
+    ctx.lineTo(x, topY - 7);
+    ctx.lineTo(leftX + w + 5, topY + 16);
     ctx.closePath();
     ctx.fill();
-    if (built){
-      // a couple of little "book" marks on the front to read as a library
-      ctx.fillStyle = COLORS.mana;
-      ctx.fillRect(x - 12, GROUND_Y - 30, 6, 10);
-      ctx.fillRect(x - 3, GROUND_Y - 30, 6, 10);
-      ctx.fillRect(x + 6, GROUND_Y - 30, 6, 10);
+
+    ctx.fillStyle = COLORS.libraryRoof;
+    ctx.beginPath();
+    ctx.moveTo(leftX, topY + 14);
+    ctx.lineTo(x, topY - 3);
+    ctx.lineTo(leftX + w, topY + 14);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.libraryDoor;
+    ctx.beginPath();
+    ctx.arc(x, GROUND_Y - 14, 7, Math.PI, 0);
+    ctx.lineTo(x + 7, GROUND_Y);
+    ctx.lineTo(x - 7, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.libraryWindow;
+    ctx.fillRect(leftX + 6, topY + 25, 8, 13);
+    ctx.fillRect(leftX + w - 14, topY + 25, 8, 13);
+
+    const bookColors = [COLORS.bookRed, COLORS.bookBlue, COLORS.bookGold];
+    for (let i = 0; i < Math.min(level + 1, 3); i++){
+      ctx.fillStyle = bookColors[i];
+      ctx.fillRect(leftX + 7 + i * 7, GROUND_Y - 12, 5, 8);
     }
+
+    if (level >= 3){
+      ctx.fillStyle = COLORS.libraryTrim;
+      ctx.fillRect(leftX, topY + 14, w, 3);
+    }
+
+    if (level >= 4){
+      ctx.fillStyle = COLORS.libraryFinial;
+      ctx.beginPath();
+      ctx.arc(x, topY - 7, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = COLORS.hud;
+    ctx.font = "700 10px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("Lv" + level, x, topY - 15);
   }
 
   function drawHomebaseBlacksmith(){
     const x = worldToScreen(HOMEBASE_BLACKSMITH_X);
-    if (x < -40 || x > CANVAS_W + 40) return;
+    if (x < -60 || x > CANVAS_W + 60) return;
+
     const built = player.blacksmithBuilt;
-    ctx.fillStyle = built ? COLORS.shrineStone : COLORS.houseDecrepit;
-    ctx.fillRect(x - 20, GROUND_Y - 40, 40, 40);
-    if (built){
-      // a little forge glow
-      ctx.fillStyle = COLORS.sunColor;
-      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(frame * 0.15);
+    const left = x - 20;
+    const top = GROUND_Y - 40;
+
+    if (!built){
+      ctx.fillStyle = COLORS.blacksmithDecrepit;
+      ctx.fillRect(left + 4, GROUND_Y - 25, 32, 25);
+
+      ctx.fillStyle = COLORS.blacksmithDecrepitDark;
       ctx.beginPath();
-      ctx.arc(x, GROUND_Y - 14, 5, 0, Math.PI * 2);
+      ctx.moveTo(left, GROUND_Y - 25);
+      ctx.lineTo(x, GROUND_Y - 38);
+      ctx.lineTo(left + 40, GROUND_Y - 25);
+      ctx.closePath();
       ctx.fill();
-      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = COLORS.blacksmithCrack;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, GROUND_Y - 21);
+      ctx.lineTo(x - 4, GROUND_Y - 9);
+      ctx.lineTo(x - 8, GROUND_Y);
+      ctx.stroke();
+
+      return;
     }
-    ctx.fillStyle = built ? COLORS.shrineStoneDark : COLORS.houseDecrepitDark;
-    ctx.fillRect(x - 22, GROUND_Y - 44, 44, 6);
+
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.09);
+    ctx.fillStyle = COLORS.forgeGlow;
+    ctx.globalAlpha = 0.16 + pulse * 0.12;
+    ctx.beginPath();
+    ctx.arc(x - 9, GROUND_Y - 17, 15 + pulse * 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = COLORS.blacksmithFoundation;
+    ctx.fillRect(left - 2, GROUND_Y - 5, 44, 5);
+
+    ctx.fillStyle = COLORS.blacksmithWall;
+    ctx.fillRect(left, top + 12, 40, 28);
+
+    ctx.fillStyle = COLORS.blacksmithRoof;
+    ctx.beginPath();
+    ctx.moveTo(left - 4, top + 13);
+    ctx.lineTo(x, top - 2);
+    ctx.lineTo(left + 44, top + 13);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.blacksmithChimney;
+    ctx.fillRect(left + 27, top - 4, 8, 18);
+    ctx.fillStyle = COLORS.blacksmithChimneyDark;
+    ctx.fillRect(left + 26, top - 5, 10, 4);
+
+    ctx.fillStyle = COLORS.blacksmithFireDark;
+    ctx.fillRect(left + 4, GROUND_Y - 22, 12, 12);
+
+    ctx.fillStyle = COLORS.forgeGlow;
+    ctx.globalAlpha = 0.75 + pulse * 0.25;
+    ctx.beginPath();
+    ctx.arc(left + 10, GROUND_Y - 15, 4 + pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = COLORS.anvil;
+    ctx.fillRect(left + 22, GROUND_Y - 14, 12, 5);
+    ctx.fillRect(left + 25, GROUND_Y - 9, 6, 9);
+    ctx.beginPath();
+    ctx.moveTo(left + 22, GROUND_Y - 14);
+    ctx.lineTo(left + 34, GROUND_Y - 14);
+    ctx.lineTo(left + 37, GROUND_Y - 17);
+    ctx.lineTo(left + 25, GROUND_Y - 17);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawHomebaseTraining(){
     const x = worldToScreen(HOMEBASE_TRAINING_X);
-    if (x < -50 || x > CANVAS_W + 50) return;
+    if (x < -70 || x > CANVAS_W + 70) return;
+
+    const w = 60;
+    const left = x - w / 2;
     const built = player.trainingGroundsBuilt;
-    ctx.strokeStyle = built ? COLORS.houseDoor : COLORS.houseDecrepitDark;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(x - 30, GROUND_Y - 20);
-    ctx.lineTo(x - 30, GROUND_Y);
-    ctx.moveTo(x + 30, GROUND_Y - 20);
-    ctx.lineTo(x + 30, GROUND_Y);
-    ctx.moveTo(x - 30, GROUND_Y - 20);
-    ctx.lineTo(x + 30, GROUND_Y - 20);
-    ctx.stroke();
+
+    ctx.fillStyle = COLORS.trainingGround;
+    ctx.fillRect(left, GROUND_Y - 5, w, 5);
+
+    ctx.fillStyle = COLORS.trainingFence;
+    for (let px = left; px <= left + w; px += 15){
+      ctx.fillRect(px - 2, GROUND_Y - 19, 4, 19);
+    }
+    ctx.fillRect(left, GROUND_Y - 16, w, 4);
+    ctx.fillRect(left, GROUND_Y - 8, w, 3);
+
     if (built){
-      ctx.fillStyle = COLORS.houseDoor;
+      const dx = x;
+      const dy = GROUND_Y - 27;
+
+      ctx.fillStyle = COLORS.trainingDummyDark;
+      ctx.fillRect(dx - 3, dy + 7, 6, 20);
+
+      ctx.fillStyle = COLORS.trainingDummy;
       ctx.beginPath();
-      ctx.arc(x, GROUND_Y - 8, 8, 0, Math.PI * 2);
-      ctx.fill(); // a practice dummy/target
+      ctx.arc(dx, dy + 4, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = COLORS.trainingDummy;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(dx - 10, dy + 10);
+      ctx.lineTo(dx + 10, dy + 10);
+      ctx.stroke();
+
+      ctx.strokeStyle = COLORS.trainingTarget;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(dx, dy + 4, 4, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = COLORS.trainingWeapon;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(left + 8, GROUND_Y - 6);
+      ctx.lineTo(left + 8, GROUND_Y - 24);
+      ctx.moveTo(left + 14, GROUND_Y - 6);
+      ctx.lineTo(left + 14, GROUND_Y - 22);
+      ctx.stroke();
     }
   }
 
   function drawHomebaseGraveyard(){
     const x = worldToScreen(HOMEBASE_GRAVEYARD_X);
-    if (x < -50 || x > CANVAS_W + 50) return;
+    if (x < -90 || x > CANVAS_W + 90) return;
+
+    // The delegated version referenced player.deadCrewCount, which
+    // doesn't exist anywhere in this codebase — the real mechanism is
+    // computed here, matching how the rest of the game already tracks
+    // it. Also restored the original "always at least 2 stones" floor
+    // rather than letting the graveyard disappear entirely at zero
+    // deaths, since every other building in the village is a permanent
+    // fixture regardless of its built/level state.
     const deadCount = player.crew.filter(c => c.status === "dead").length;
-    ctx.fillStyle = COLORS.shrineDecrepitDark;
-    ctx.fillRect(x - 40, GROUND_Y - 4, 80, 4); // low stone wall footing
-    const stoneCount = Math.max(2, Math.min(6, deadCount + 2));
-    for (let i = 0; i < stoneCount; i++){
-      const sx = x - 32 + i * (64 / (stoneCount - 1));
-      ctx.fillStyle = COLORS.shrineStone;
-      ctx.fillRect(sx - 4, GROUND_Y - 22, 8, 18);
+    const count = Math.max(2, Math.min(6, deadCount + 2));
+
+    const spacing = 13;
+    const totalW = (count - 1) * spacing;
+    const startX = x - totalW / 2;
+
+    ctx.fillStyle = COLORS.graveyardWall;
+    ctx.fillRect(x - 42, GROUND_Y - 5, 84, 5);
+
+    ctx.fillStyle = COLORS.graveyardWallDark;
+    ctx.fillRect(x - 42, GROUND_Y - 5, 84, 2);
+
+    ctx.strokeStyle = COLORS.graveyardGrass;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++){
+      const gx = x - 35 + i * 14;
       ctx.beginPath();
-      ctx.arc(sx, GROUND_Y - 22, 4, Math.PI, 0);
+      ctx.moveTo(gx, GROUND_Y - 5);
+      ctx.lineTo(gx - 2, GROUND_Y - 11 - (i % 2) * 2);
+      ctx.moveTo(gx, GROUND_Y - 5);
+      ctx.lineTo(gx + 3, GROUND_Y - 10);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < count; i++){
+      const sx = startX + i * spacing;
+      const sh = 15 + (i % 3) * 3;
+      const sy = GROUND_Y - sh;
+
+      ctx.fillStyle = COLORS.graveStone;
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, GROUND_Y);
+      ctx.lineTo(sx - 5, sy + 5);
+      ctx.quadraticCurveTo(sx - 5, sy, sx, sy);
+      ctx.quadraticCurveTo(sx + 5, sy, sx + 5, sy + 5);
+      ctx.lineTo(sx + 5, GROUND_Y);
+      ctx.closePath();
       ctx.fill();
+
+      ctx.fillStyle = COLORS.graveStoneDark;
+      ctx.fillRect(sx + 2, sy + 7, 3, sh - 7);
+
+      ctx.strokeStyle = COLORS.graveMark;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + 5);
+      ctx.lineTo(sx, sy + 11);
+      ctx.moveTo(sx - 3, sy + 8);
+      ctx.lineTo(sx + 3, sy + 8);
+      ctx.stroke();
     }
   }
 
