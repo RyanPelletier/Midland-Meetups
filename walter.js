@@ -10562,82 +10562,133 @@
   function renderMap(){
     const onAnyLand = currentMap === "land1" || currentMap === "land2" || currentMap === "homebase" || currentMap === "generated";
 
-    let actionHTML;
+    let bodyHTML;
     if (onAnyLand){
-      actionHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Set Sail</button>`;
+      bodyHTML = `<button type="button" class="btn" id="wvw-sail-home-btn">Set Sail</button>`;
     }else if (!player.crewHired){
       const affordable = player.silver >= HIRE_CREW_COST;
-      actionHTML = `
+      bodyHTML = `
         <p style="font-size:0.85rem;opacity:0.85;">A crew costs ${HIRE_CREW_COST} silver, and unlocks setting sail for new lands.</p>
         <button type="button" class="btn" id="wvw-hire-crew-btn" ${affordable ? "" : "disabled"}>Hire a Crew (${HIRE_CREW_COST} silver)</button>
       `;
     }else{
       const nextLand = player.highestUnlockedLand + 1;
-      actionHTML = `
-        <button type="button" class="btn" id="wvw-sail-land1-btn">Grasslands</button>
-        <button type="button" class="btn" id="wvw-sail-land2-btn" style="margin-left:8px;">Home of the Cyclops</button>
-        <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-tower-btn">The Tower${player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : ""}</button>
-          <button type="button" class="btn" id="wvw-dungeons-btn" style="margin-left:8px;">Dungeons${player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : ""}</button>
-          <button type="button" class="btn" id="wvw-darkforest-btn" style="margin-left:8px;">The Dark Forest</button>
-          <button type="button" class="btn" id="wvw-arena-btn" style="margin-left:8px;">The Arena</button>
-          <button type="button" class="btn light" id="wvw-arena-leaderboard-btn" style="margin-left:8px;">Leaderboard</button>
-        </div>
-        <div style="margin-top:10px;">
-          <button type="button" class="btn" id="wvw-sail-generated-btn" data-land="${nextLand}">Explore New Lands</button>
-        </div>
-        <div style="margin-top:10px;">
-          <button type="button" class="btn green" id="wvw-sail-homebase-btn">Home Village</button>
-        </div>
+      const towerLabel = player.towerHighestFloor > 0 ? ` (best: floor ${player.towerHighestFloor})` : "";
+      const dungeonLabel = player.dungeonHighestRoom > 0 ? ` (best: room ${player.dungeonHighestRoom})` : "";
+      // Every landmass below is a real clickable region (data-sail
+      // identifies which one) — this SVG is the actual navigation now,
+      // not decoration sitting above a separate button list.
+      bodyHTML = `
+        <svg viewBox="0 0 420 280" width="100%" height="auto" style="border-radius:8px;">
+          <rect x="0" y="0" width="420" height="280" rx="8" fill="#E8D5A8" />
+          <rect x="6" y="6" width="408" height="268" rx="5" fill="none" stroke="#8B6B4A" stroke-width="2" />
+          <rect x="14" y="14" width="392" height="252" fill="#3A7CA5" />
+          <path d="M20,50 Q34,46 48,50 T76,50" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+          <path d="M20,230 Q34,226 48,230 T76,230" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+          <path d="M330,40 Q344,36 358,40 T386,40" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+          <path d="M330,240 Q344,236 358,240 T386,240" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
+
+          <!-- sail routes, converging on the compass at the center -->
+          <line x1="210" y1="140" x2="90"  y2="60"  stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="330" y2="60"  stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="90"  y2="220" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="330" y2="220" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="210" y2="35"  stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="210" y2="248" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="55"  y2="140" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+          <line x1="210" y1="140" x2="368" y2="140" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
+
+          <g class="wvw-landmass" data-sail="land1" style="cursor:pointer;">
+            <g transform="translate(24,8)">
+              <path d="M48,38 Q60,26 84,32 Q100,38 96,54 Q92,72 70,76 Q48,78 40,60 Q36,46 48,38 Z" fill="#4A9D5F" stroke="#2D6A4F" stroke-width="1.5"/>
+              <circle cx="66" cy="52" r="4" fill="#2D6A4F"/>
+            </g>
+            <text x="90" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Grasslands</text>
+          </g>
+
+          <g class="wvw-landmass" data-sail="land2" style="cursor:pointer;">
+            <g transform="translate(108,14)">
+              <path d="M198,32 Q212,22 232,26 Q248,32 246,46 Q244,62 226,64 Q206,66 198,50 Q194,40 198,32 Z" fill="#7A8A6E" stroke="#4A5A40" stroke-width="1.5"/>
+              <circle cx="222" cy="46" r="6" fill="#F5F0E6"/>
+              <circle cx="222" cy="46" r="2.5" fill="#E14B3C"/>
+            </g>
+            <text x="330" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Home of the Cyclops</text>
+          </g>
+
+          <g class="wvw-landmass" data-sail="generated" style="cursor:pointer;">
+            <g transform="translate(32,80)">
+              <path d="M40,124 Q54,114 76,120 Q90,128 84,144 Q78,160 58,162 Q40,162 34,146 Q30,132 40,124 Z" fill="#8B7AB8" stroke="#5B4E77" stroke-width="1.5"/>
+              <path d="M52,140 Q58,132 66,138 Q70,144 62,148 Q56,150 52,144" fill="none" stroke="#F5F0E6" stroke-width="1.5"/>
+            </g>
+            <text x="90" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Explore New Lands</text>
+          </g>
+
+          <g class="wvw-landmass" data-sail="homebase" style="cursor:pointer;">
+            <g transform="translate(104,75)">
+              <path d="M204,128 Q220,118 244,124 Q258,132 254,148 Q248,164 226,166 Q206,166 200,150 Q196,138 204,128 Z" fill="#D9C08A" stroke="#8B6B4A" stroke-width="1.5"/>
+              <rect x="216" y="140" width="10" height="8" fill="#8B5A2B"/>
+              <path d="M214,140 L221,133 L228,140 Z" fill="#B8543A"/>
+              <rect x="232" y="144" width="8" height="6" fill="#8B5A2B"/>
+              <path d="M230,144 L236,138 L242,144 Z" fill="#B8543A"/>
+            </g>
+            <text x="330" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Home Village</text>
+          </g>
+
+          <!-- The Tower — north -->
+          <g class="wvw-landmass" data-sail="tower" style="cursor:pointer;">
+            <path d="M186,18 Q198,10 216,12 Q230,16 228,28 Q226,40 210,42 Q192,42 188,30 Q184,22 186,18 Z" fill="#8B8B96" stroke="#4A4A56" stroke-width="1.5"/>
+            <rect x="203" y="12" width="8" height="20" fill="#5A5A66"/>
+            <path d="M201,12 L207,4 L213,12 Z" fill="#7A2730"/>
+            <rect x="204" y="17" width="2" height="3" fill="#2A2A32"/>
+            <rect x="208" y="17" width="2" height="3" fill="#2A2A32"/>
+            <text x="210" y="54" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Tower</text>
+          </g>
+
+          <!-- Dungeons — south -->
+          <g class="wvw-landmass" data-sail="dungeon" style="cursor:pointer;">
+            <path d="M186,222 Q198,212 218,216 Q234,222 230,236 Q226,250 206,250 Q188,250 184,236 Q182,228 186,222 Z" fill="#6B6157" stroke="#3A342E" stroke-width="1.5"/>
+            <path d="M198,250 L202,232 Q207,224 212,232 L216,250 Z" fill="#241E1A"/>
+            <text x="207" y="264" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Dungeons</text>
+          </g>
+
+          <!-- The Dark Forest — west -->
+          <g class="wvw-landmass" data-sail="darkforest" style="cursor:pointer;">
+            <path d="M28,116 Q40,106 58,110 Q72,116 68,132 Q64,148 46,150 Q28,150 24,134 Q22,124 28,116 Z" fill="#2E4A2E" stroke="#1A2E1A" stroke-width="1.5"/>
+            <path d="M36,140 L39,122 L42,140 Z" fill="#1A2E1A"/>
+            <path d="M46,142 L49,120 L52,142 Z" fill="#1A2E1A"/>
+            <path d="M56,140 L59,126 L62,140 Z" fill="#1A2E1A"/>
+            <text x="46" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Dark Forest</text>
+          </g>
+
+          <!-- The Arena — east -->
+          <g class="wvw-landmass" data-sail="arena" style="cursor:pointer;">
+            <path d="M350,116 Q362,106 380,110 Q394,116 390,132 Q386,148 368,150 Q350,150 346,134 Q344,124 350,116 Z" fill="#C9A96A" stroke="#8B6B3A" stroke-width="1.5"/>
+            <ellipse cx="368" cy="130" rx="13" ry="9" fill="none" stroke="#6B4A22" stroke-width="2"/>
+            <text x="368" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Arena</text>
+          </g>
+
+          <!-- Leaderboard — not a physical destination, a small scroll icon near the compass instead of a landmass -->
+          <g class="wvw-landmass" data-sail="leaderboard" style="cursor:pointer;">
+            <rect x="198" y="160" width="24" height="16" rx="2" fill="#F5EACB" stroke="#8B6B4A" stroke-width="1.5"/>
+            <line x1="202" y1="165" x2="218" y2="165" stroke="#8B6B4A" stroke-width="1"/>
+            <line x1="202" y1="169" x2="218" y2="169" stroke="#8B6B4A" stroke-width="1"/>
+            <line x1="202" y1="173" x2="214" y2="173" stroke="#8B6B4A" stroke-width="1"/>
+            <text x="210" y="188" text-anchor="middle" font-size="9" font-weight="700" fill="#2D3B2F">Leaderboard</text>
+          </g>
+
+          <circle cx="210" cy="140" r="16" fill="none" stroke="#E8D5A8" stroke-width="1.5" opacity="0.9"/>
+          <path d="M210,126 L214,140 L210,154 L206,140 Z" fill="#E8D5A8" opacity="0.9"/>
+          <path d="M196,140 L210,136 L224,140 L210,144 Z" fill="#E8D5A8" opacity="0.6"/>
+          <circle cx="210" cy="140" r="2.5" fill="#F6C945"/>
+        </svg>
+        <p class="form-note" style="margin-top:6px;">${player.crewHired ? "Click a landmass to set sail." : ""}</p>
       `;
     }
 
     overlayInner.innerHTML = `
       <h3>Captain's Map</h3>
-      <p>Four continents, charted so far. ${player.crewHired ? "Your crew can set sail whenever you're ready." : "Hiring a crew is the first step toward reaching them."}</p>
-      <svg viewBox="0 0 300 200" width="100%" height="auto" style="border-radius:8px;">
-        <!-- parchment frame -->
-        <rect x="0" y="0" width="300" height="200" rx="8" fill="#E8D5A8" />
-        <rect x="6" y="6" width="288" height="188" rx="5" fill="none" stroke="#8B6B4A" stroke-width="2" />
-        <!-- ocean -->
-        <rect x="14" y="14" width="272" height="172" fill="#3A7CA5" />
-        <path d="M18,40 Q30,36 42,40 T66,40" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
-        <path d="M18,160 Q30,156 42,160 T66,160" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
-        <path d="M220,25 Q232,21 244,25 T268,25" stroke="#5A9BC4" stroke-width="1.5" fill="none" opacity="0.6"/>
-
-        <!-- sail routes, dotted, converging near the compass -->
-        <line x1="150" y1="100" x2="72" y2="55"  stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
-        <line x1="150" y1="100" x2="222" y2="50" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
-        <line x1="150" y1="100" x2="60" y2="145" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
-        <line x1="150" y1="100" x2="228" y2="150" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
-
-        <!-- Grasslands (Land 1) — green, irregular coastline -->
-        <path d="M48,38 Q60,26 84,32 Q100,38 96,54 Q92,72 70,76 Q48,78 40,60 Q36,46 48,38 Z" fill="#4A9D5F" stroke="#2D6A4F" stroke-width="1.5"/>
-        <circle cx="66" cy="52" r="4" fill="#2D6A4F"/>
-
-        <!-- Home of the Cyclops (Land 2) — rocky grey-green, with an eye marker -->
-        <path d="M198,32 Q212,22 232,26 Q248,32 246,46 Q244,62 226,64 Q206,66 198,50 Q194,40 198,32 Z" fill="#7A8A6E" stroke="#4A5A40" stroke-width="1.5"/>
-        <circle cx="222" cy="46" r="6" fill="#F5F0E6"/>
-        <circle cx="222" cy="46" r="2.5" fill="#E14B3C"/>
-
-        <!-- Explore New Lands — mysterious violet-tinged island, swirl mark -->
-        <path d="M40,124 Q54,114 76,120 Q90,128 84,144 Q78,160 58,162 Q40,162 34,146 Q30,132 40,124 Z" fill="#8B7AB8" stroke="#5B4E77" stroke-width="1.5"/>
-        <path d="M52,140 Q58,132 66,138 Q70,144 62,148 Q56,150 52,144" fill="none" stroke="#F5F0E6" stroke-width="1.5"/>
-
-        <!-- Home Village — warm tan, tiny house shapes -->
-        <path d="M204,128 Q220,118 244,124 Q258,132 254,148 Q248,164 226,166 Q206,166 200,150 Q196,138 204,128 Z" fill="#D9C08A" stroke="#8B6B4A" stroke-width="1.5"/>
-        <rect x="216" y="140" width="10" height="8" fill="#8B5A2B"/>
-        <path d="M214,140 L221,133 L228,140 Z" fill="#B8543A"/>
-        <rect x="232" y="144" width="8" height="6" fill="#8B5A2B"/>
-        <path d="M230,144 L236,138 L242,144 Z" fill="#B8543A"/>
-
-        <!-- compass rose -->
-        <circle cx="150" cy="100" r="16" fill="none" stroke="#E8D5A8" stroke-width="1.5" opacity="0.9"/>
-        <path d="M150,86 L154,100 L150,114 L146,100 Z" fill="#E8D5A8" opacity="0.9"/>
-        <path d="M136,100 L150,96 L164,100 L150,104 Z" fill="#E8D5A8" opacity="0.6"/>
-        <circle cx="150" cy="100" r="2.5" fill="#F6C945"/>
-      </svg>
-      <div style="margin-top:14px;">${actionHTML}</div>
+      <p>Eight destinations charted so far. ${player.crewHired ? "Your crew can set sail whenever you're ready." : "Hiring a crew is the first step toward reaching them."}</p>
+      ${bodyHTML}
       <p class="form-note" id="wvw-map-status"></p>
       <button type="button" class="btn light" id="wvw-map-close" style="margin-top:10px;">Close</button>
     `;
@@ -10647,58 +10698,23 @@
       if (buyHireCrew()){ renderMap(); saveProgress(); }
     });
 
-    const sailLand1Btn = document.getElementById("wvw-sail-land1-btn");
-    if (sailLand1Btn) sailLand1Btn.addEventListener("click", () => {
-      sailToLand1();
-      closeMap();
-    });
-
-    const sailLand2Btn = document.getElementById("wvw-sail-land2-btn");
-    if (sailLand2Btn) sailLand2Btn.addEventListener("click", () => {
-      sailToLand2();
-      closeMap();
-    });
-
-    const sailHomebaseBtn = document.getElementById("wvw-sail-homebase-btn");
-    if (sailHomebaseBtn) sailHomebaseBtn.addEventListener("click", () => {
-      sailToHomebase();
-      closeMap();
-    });
-
-    const sailTowerBtn = document.getElementById("wvw-sail-tower-btn");
-    if (sailTowerBtn) sailTowerBtn.addEventListener("click", () => {
-      sailToTower();
-      closeMap();
-    });
-
-    const dungeonsBtn = document.getElementById("wvw-dungeons-btn");
-    if (dungeonsBtn) dungeonsBtn.addEventListener("click", () => {
-      sailToDungeon();
-      closeMap();
-    });
-
-    const darkForestBtn = document.getElementById("wvw-darkforest-btn");
-    if (darkForestBtn) darkForestBtn.addEventListener("click", () => {
-      sailToDarkForest();
-      closeMap();
-    });
-
-    const arenaBtn = document.getElementById("wvw-arena-btn");
-    if (arenaBtn) arenaBtn.addEventListener("click", () => {
-      sailToArena();
-      closeMap();
-    });
-
-    const arenaLeaderboardBtn = document.getElementById("wvw-arena-leaderboard-btn");
-    if (arenaLeaderboardBtn) arenaLeaderboardBtn.addEventListener("click", () => {
-      closeMap();
-      openArenaLeaderboardUi();
-    });
-
-    const sailGeneratedBtn = document.getElementById("wvw-sail-generated-btn");
-    if (sailGeneratedBtn) sailGeneratedBtn.addEventListener("click", () => {
-      sailToGeneratedLand(Number(sailGeneratedBtn.dataset.land));
-      closeMap();
+    // Every landmass (and the leaderboard icon) is wired the same way —
+    // one shared handler keyed off data-sail, rather than a separate
+    // getElementById call per destination like the old button stack.
+    const sailActions = {
+      land1: () => { sailToLand1(); closeMap(); },
+      land2: () => { sailToLand2(); closeMap(); },
+      generated: () => { sailToGeneratedLand(player.highestUnlockedLand + 1); closeMap(); },
+      homebase: () => { sailToHomebase(); closeMap(); },
+      tower: () => { sailToTower(); closeMap(); },
+      dungeon: () => { sailToDungeon(); closeMap(); },
+      darkforest: () => { sailToDarkForest(); closeMap(); },
+      arena: () => { sailToArena(); closeMap(); },
+      leaderboard: () => { closeMap(); openArenaLeaderboardUi(); }
+    };
+    document.querySelectorAll(".wvw-landmass").forEach(el => {
+      const action = sailActions[el.dataset.sail];
+      if (action) el.addEventListener("click", action);
     });
 
     const sailHomeBtn = document.getElementById("wvw-sail-home-btn");
