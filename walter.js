@@ -91,11 +91,35 @@
     waterLine: "#F2F7FA",
     boatHull: "#8B5A2B",
     boatHullDark: "#6B4222",
+    boatHullDeep: "#4A3018",
+    boatTrim: "#C9963D",
+    boatTrimDark: "#9A6F28",
+    boatPlank: "#7A4E24",
+    boatPlankDark: "#5A3818",
+    boatWeathered: "#A97B4A",
+    boatWeatheredDark: "#6B4A28",
+    boatDeck: "#B5895A",
+    boatDeckLine: "#8A6238",
     boatMast: "#4A3420",
+    boatMastDark: "#2E2214",
+    boatMastLight: "#6B5030",
+    ladderSide: "#3D2A16",
+    ladderRung: "#5A3E22",
     boatSail: "#F5F0E6",
+    boatSailShade: "#D8D0BE",
+    boatSailLine: "#B8AC94",
+    boatSailPatch: "#E8DCC0",
+    boatSailEmblem: "#7A2730",
+    rigging: "#3D2A16",
+    boatFlag: "#7A2730",
     wheel: "#6B4222",
+    wheelStand: "#4A3420",
+    wheelLight: "#8B6B4A",
     wheelSpoke: "#3D2A16",
+    wheelHub: "#3D2A16",
     crowsNest: "#4A3420",
+    crowsNestDark: "#2E2214",
+    crowsNestTrim: "#6B4A28",
     ground: "#1F2430",
     tower: "#8B5A2B",
     towerDark: "#6B4222",
@@ -6202,26 +6226,132 @@
     ctx.stroke();
   }
 
+  // Designed externally, reviewed before integrating. All new COLORS.x
+  // names it referenced (it didn't supply hex values as asked) were
+  // inferred to fit the existing warm-wood/cream boat palette. The
+  // delegated version redeclared a local MAP_Y shadowing the existing
+  // global constant of the same name — harmless (same formula, same
+  // value) but removed here to avoid two definitions of the same thing.
   function drawBoat(){
     const x = worldToScreen(BOAT_X);
     if (x + BOAT_W < -40 || x > CANVAS_W + 40) return;
 
     const deckY = GROUND_Y - 30;
+    const mastX = worldToScreen(CROWSNEST_X);
+    const wheelX = worldToScreen(BOAT_ALTAR_X + 18);
+    const wheelY = deckY - 18;
 
-    // hull
+    ctx.fillStyle = COLORS.boatHullDeep;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, deckY + 6);
+    ctx.lineTo(x + BOAT_W - 8, deckY + 6);
+    ctx.lineTo(x + BOAT_W - 25, GROUND_Y + 15);
+    ctx.quadraticCurveTo(x + BOAT_W * 0.5, GROUND_Y + 28, x + 25, GROUND_Y + 15);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.fillStyle = COLORS.boatHull;
     ctx.beginPath();
     ctx.moveTo(x, deckY);
     ctx.lineTo(x + BOAT_W, deckY);
-    ctx.lineTo(x + BOAT_W - 20, GROUND_Y + 14);
-    ctx.lineTo(x + 20, GROUND_Y + 14);
+    ctx.lineTo(x + BOAT_W - 18, GROUND_Y + 4);
+    ctx.quadraticCurveTo(x + BOAT_W * 0.5, GROUND_Y + 22, x + 18, GROUND_Y + 4);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = COLORS.boatHullDark;
-    ctx.fillRect(x, deckY, BOAT_W, 8);
 
-    // mast + sail
-    const mastX = worldToScreen(CROWSNEST_X);
+    ctx.fillStyle = COLORS.boatHullDark;
+    ctx.beginPath();
+    ctx.moveTo(x, deckY + 2);
+    ctx.lineTo(x + BOAT_W, deckY + 2);
+    ctx.lineTo(x + BOAT_W - 5, deckY + 12);
+    ctx.lineTo(x + 5, deckY + 12);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.boatTrim;
+    ctx.beginPath();
+    ctx.moveTo(x + 5, deckY + 13);
+    ctx.quadraticCurveTo(x + BOAT_W * 0.5, deckY + 18, x + BOAT_W - 5, deckY + 13);
+    ctx.lineTo(x + BOAT_W - 7, deckY + 17);
+    ctx.quadraticCurveTo(x + BOAT_W * 0.5, deckY + 22, x + 7, deckY + 17);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.boatPlank;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++){
+      const py = deckY + 22 + i * 9;
+      const inset = 11 + i * 3;
+      ctx.beginPath();
+      ctx.moveTo(x + inset, py);
+      ctx.quadraticCurveTo(x + BOAT_W * 0.5, py + 4, x + BOAT_W - inset, py);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = COLORS.boatPlankDark;
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 7; i++){
+      const px = x + i * (BOAT_W / 7);
+      ctx.beginPath();
+      ctx.moveTo(px, deckY + 15);
+      ctx.lineTo(px - (i % 2 ? 2 : -2), GROUND_Y - 1);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = COLORS.boatWeathered;
+    ctx.fillRect(x + 30, deckY + 28, 18, 3);
+    ctx.fillRect(x + BOAT_W - 58, deckY + 38, 20, 3);
+    ctx.fillRect(x + 74, deckY + 46, 11, 2);
+
+    ctx.fillStyle = COLORS.boatTrimDark;
+    ctx.beginPath();
+    ctx.moveTo(x + BOAT_W - 12, deckY - 1);
+    ctx.lineTo(x + BOAT_W + 7, deckY + 8);
+    ctx.lineTo(x + BOAT_W - 18, deckY + 10);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.boatMast;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + BOAT_W - 4, deckY + 2);
+    ctx.lineTo(x + BOAT_W + 25, deckY - 18);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.boatTrim;
+    ctx.beginPath();
+    ctx.moveTo(x + BOAT_W - 7, deckY + 1);
+    ctx.lineTo(x + BOAT_W + 3, deckY - 5);
+    ctx.lineTo(x + BOAT_W - 3, deckY + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.boatDeck;
+    ctx.fillRect(x + 4, deckY - 5, BOAT_W - 8, 7);
+
+    ctx.strokeStyle = COLORS.boatDeckLine;
+    ctx.lineWidth = 1;
+    for (let px = x + 18; px < x + BOAT_W - 8; px += 24){
+      ctx.beginPath();
+      ctx.moveTo(px, deckY - 4);
+      ctx.lineTo(px, deckY + 1);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = COLORS.boatTrim;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 3, deckY - 4);
+    ctx.lineTo(x + BOAT_W - 3, deckY - 4);
+    ctx.stroke();
+
+    ctx.strokeStyle = COLORS.boatMastDark;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(mastX + 2, deckY);
+    ctx.lineTo(mastX + 2, MAP_Y - 20);
+    ctx.stroke();
+
     ctx.strokeStyle = COLORS.boatMast;
     ctx.lineWidth = 5;
     ctx.beginPath();
@@ -6229,43 +6359,167 @@
     ctx.lineTo(mastX, MAP_Y - 20);
     ctx.stroke();
 
-    ctx.fillStyle = COLORS.boatSail;
+    ctx.strokeStyle = COLORS.boatMastLight;
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(mastX, deckY - 10);
-    ctx.lineTo(mastX, MAP_Y + 10);
-    ctx.lineTo(mastX - 40, deckY - 20);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(mastX - 1, deckY - 2);
+    ctx.lineTo(mastX - 1, MAP_Y - 20);
+    ctx.stroke();
 
-    // crow's nest platform + climb rungs
-    ctx.fillStyle = COLORS.crowsNest;
-    ctx.fillRect(mastX - CROWSNEST_HALF_WIDTH, MAP_Y - 20, CROWSNEST_HALF_WIDTH * 2, 12);
-    ctx.strokeStyle = COLORS.boatMast;
+    ctx.strokeStyle = COLORS.ladderSide;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 7, deckY - 3);
+    ctx.lineTo(mastX - 7, MAP_Y - 8);
+    ctx.moveTo(mastX + 7, deckY - 3);
+    ctx.lineTo(mastX + 7, MAP_Y - 8);
+    ctx.stroke();
+
+    ctx.strokeStyle = COLORS.ladderRung;
     ctx.lineWidth = 3;
-    for (let y = MAP_Y; y < GROUND_Y; y += 22){
+    for (let ly = deckY - 12; ly > MAP_Y - 5; ly -= 16){
       ctx.beginPath();
-      ctx.moveTo(mastX - 6, y);
-      ctx.lineTo(mastX + 6, y);
+      ctx.moveTo(mastX - 7, ly);
+      ctx.lineTo(mastX + 7, ly);
       ctx.stroke();
     }
 
-    // steering wheel (the boat's altar)
-    const wheelX = worldToScreen(BOAT_ALTAR_X + 18);
-    const wheelY = deckY - 18;
+    ctx.fillStyle = COLORS.boatSail;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 2, deckY - 13);
+    ctx.lineTo(mastX - 2, MAP_Y + 9);
+    ctx.quadraticCurveTo(mastX - 18, MAP_Y + 20, mastX - 48, deckY - 22);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.boatSailShade;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 3, MAP_Y + 8);
+    ctx.lineTo(mastX - 3, deckY - 13);
+    ctx.lineTo(mastX - 19, deckY - 17);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.boatSailLine;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 8, deckY - 15);
+    ctx.lineTo(mastX - 8, MAP_Y + 7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mastX - 3, deckY - 47);
+    ctx.lineTo(mastX - 34, deckY - 29);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.boatSailPatch;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 28, deckY - 39);
+    ctx.lineTo(mastX - 15, deckY - 47);
+    ctx.lineTo(mastX - 15, deckY - 32);
+    ctx.lineTo(mastX - 27, deckY - 27);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.boatSailEmblem;
+    ctx.beginPath();
+    ctx.moveTo(mastX - 25, deckY - 55);
+    ctx.lineTo(mastX - 18, deckY - 44);
+    ctx.lineTo(mastX - 31, deckY - 44);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.rigging;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(mastX, MAP_Y - 19);
+    ctx.lineTo(x + BOAT_W - 18, deckY - 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mastX, MAP_Y - 19);
+    ctx.lineTo(x + 12, deckY - 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mastX, MAP_Y - 19);
+    ctx.lineTo(x + BOAT_W + 22, deckY - 18);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.crowsNestDark;
+    ctx.fillRect(mastX - CROWSNEST_HALF_WIDTH - 2, MAP_Y - 19, CROWSNEST_HALF_WIDTH * 2 + 4, 14);
+
+    ctx.fillStyle = COLORS.crowsNest;
+    ctx.fillRect(mastX - CROWSNEST_HALF_WIDTH, MAP_Y - 21, CROWSNEST_HALF_WIDTH * 2, 10);
+
+    ctx.fillStyle = COLORS.crowsNestTrim;
+    ctx.fillRect(mastX - CROWSNEST_HALF_WIDTH, MAP_Y - 21, CROWSNEST_HALF_WIDTH * 2, 3);
+
+    ctx.strokeStyle = COLORS.rigging;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mastX - CROWSNEST_HALF_WIDTH + 2, MAP_Y - 21);
+    ctx.lineTo(mastX - CROWSNEST_HALF_WIDTH + 2, MAP_Y - 29);
+    ctx.lineTo(mastX + CROWSNEST_HALF_WIDTH - 2, MAP_Y - 29);
+    ctx.lineTo(mastX + CROWSNEST_HALF_WIDTH - 2, MAP_Y - 21);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.boatFlag;
+    ctx.beginPath();
+    ctx.moveTo(mastX + 3, MAP_Y - 28);
+    ctx.lineTo(mastX + 22, MAP_Y - 24);
+    ctx.lineTo(mastX + 3, MAP_Y - 19);
+    ctx.closePath();
+    ctx.fill();
+
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.08);
+
+    ctx.strokeStyle = `rgba(255, 220, 100, ${0.12 + pulse * 0.14})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(wheelX, wheelY, 21 + pulse * 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.wheelStand;
+    ctx.fillRect(wheelX - 3, wheelY + 10, 6, 18);
+
     ctx.strokeStyle = COLORS.wheel;
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.arc(wheelX, wheelY, 16, 0, Math.PI * 2);
     ctx.stroke();
+
+    ctx.strokeStyle = COLORS.wheelLight;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(wheelX, wheelY, 10, 0, Math.PI * 2);
+    ctx.stroke();
+
     ctx.strokeStyle = COLORS.wheelSpoke;
     ctx.lineWidth = 2;
-    for (let i = 0; i < 4; i++){
-      const angle = (Math.PI / 2) * i;
+    for (let i = 0; i < 8; i++){
+      const angle = (Math.PI * 2 / 8) * i;
       ctx.beginPath();
       ctx.moveTo(wheelX, wheelY);
       ctx.lineTo(wheelX + Math.cos(angle) * 16, wheelY + Math.sin(angle) * 16);
       ctx.stroke();
     }
+
+    ctx.fillStyle = COLORS.wheelHub;
+    ctx.beginPath();
+    ctx.arc(wheelX, wheelY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255, 230, 130, ${0.35 + pulse * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(wheelX - 5, wheelY - 6, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.boatWeatheredDark;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 16, deckY + 25);
+    ctx.lineTo(x + 25, deckY + 28);
+    ctx.moveTo(x + BOAT_W - 34, deckY + 24);
+    ctx.lineTo(x + BOAT_W - 26, deckY + 27);
+    ctx.stroke();
   }
 
   function drawTower(){
@@ -10636,34 +10890,52 @@
 
           <!-- The Tower — north -->
           <g class="wvw-landmass" data-sail="tower" style="cursor:pointer;">
-            <path d="M186,18 Q198,10 216,12 Q230,16 228,28 Q226,40 210,42 Q192,42 188,30 Q184,22 186,18 Z" fill="#8B8B96" stroke="#4A4A56" stroke-width="1.5"/>
-            <rect x="203" y="12" width="8" height="20" fill="#5A5A66"/>
-            <path d="M201,12 L207,4 L213,12 Z" fill="#7A2730"/>
-            <rect x="204" y="17" width="2" height="3" fill="#2A2A32"/>
-            <rect x="208" y="17" width="2" height="3" fill="#2A2A32"/>
+            <path d="M184,29 Q184,18 193,13 Q201,8 212,10 Q225,12 231,21 Q235,31 228,38 Q220,44 205,44 Q192,43 186,37 Q183,34 184,29 Z" fill="#747582" stroke="#41434D" stroke-width="1.5"/>
+            <path d="M192,34 L194,15 Q201,11 207,12 L211,34 Z" fill="#9698A2"/>
+            <path d="M211,34 L214,14 Q221,17 225,23 L225,35 Z" fill="#5F606A"/>
+            <path d="M195,13 L207,4 L219,14 L214,17 L207,10 L200,17 Z" fill="#762A32" stroke="#512027" stroke-width="1"/>
+            <path d="M200,18 L203,18 L203,23 L200,23 Z M210,17 L213,17 L213,22 L210,22 Z" fill="#292A31"/>
+            <path d="M196,28 L222,27" stroke="#5B5C66" stroke-width="1.5"/>
+            <path d="M198,31 L207,30 L218,31" stroke="#B0B0B7" stroke-width="1" opacity=".7"/>
             <text x="210" y="54" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Tower</text>
           </g>
 
           <!-- Dungeons — south -->
           <g class="wvw-landmass" data-sail="dungeon" style="cursor:pointer;">
-            <path d="M186,222 Q198,212 218,216 Q234,222 230,236 Q226,250 206,250 Q188,250 184,236 Q182,228 186,222 Z" fill="#6B6157" stroke="#3A342E" stroke-width="1.5"/>
-            <path d="M198,250 L202,232 Q207,224 212,232 L216,250 Z" fill="#241E1A"/>
+            <path d="M184,232 Q184,220 194,216 Q207,210 220,217 Q231,222 232,234 Q231,245 222,250 L193,250 Q184,244 184,232 Z" fill="#665C52" stroke="#38322D" stroke-width="1.5"/>
+            <path d="M190,238 Q191,227 199,222 Q207,216 215,222 Q222,228 222,238 L219,250 L193,250 Z" fill="#211C19"/>
+            <path d="M194,249 L197,235 Q199,228 205,226 Q211,228 215,235 L218,249 Z" fill="#151210"/>
+            <path d="M188,226 L195,222 L198,226 L192,230 Z M218,219 L226,225 L222,230 L216,225 Z" fill="#817468"/>
+            <path d="M190,241 L198,239 M218,240 L225,237" stroke="#8B7D6E" stroke-width="1.2"/>
+            <path d="M201,250 L203,239 L207,236 L211,239 L214,250" fill="#2B2520"/>
             <text x="207" y="264" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Dungeons</text>
           </g>
 
           <!-- The Dark Forest — west -->
           <g class="wvw-landmass" data-sail="darkforest" style="cursor:pointer;">
-            <path d="M28,116 Q40,106 58,110 Q72,116 68,132 Q64,148 46,150 Q28,150 24,134 Q22,124 28,116 Z" fill="#2E4A2E" stroke="#1A2E1A" stroke-width="1.5"/>
-            <path d="M36,140 L39,122 L42,140 Z" fill="#1A2E1A"/>
-            <path d="M46,142 L49,120 L52,142 Z" fill="#1A2E1A"/>
-            <path d="M56,140 L59,126 L62,140 Z" fill="#1A2E1A"/>
+            <path d="M23,134 Q22,120 31,113 Q41,105 54,108 Q67,111 71,123 Q73,135 65,144 Q56,151 42,151 Q28,150 24,141 Q22,138 23,134 Z" fill="#263F2A" stroke="#17261A" stroke-width="1.5"/>
+            <path d="M27,140 L35,119 L42,140 Z" fill="#17291C"/>
+            <path d="M34,140 L41,112 L49,140 Z" fill="#1C3321"/>
+            <path d="M44,141 L53,115 L61,141 Z" fill="#14251A"/>
+            <path d="M54,141 L61,121 L68,141 Z" fill="#1A2E1D"/>
+            <path d="M37,124 L41,119 L45,124" fill="none" stroke="#456344" stroke-width="1"/>
+            <path d="M51,119 L55,115 L59,120" fill="none" stroke="#3E5C3D" stroke-width="1"/>
+            <circle cx="60" cy="116" r="2" fill="#B8C69A" opacity=".75"/>
+            <path d="M28,143 Q39,138 50,143 Q59,146 67,141" fill="none" stroke="#345234" stroke-width="1.5"/>
             <text x="46" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Dark Forest</text>
           </g>
 
           <!-- The Arena — east -->
           <g class="wvw-landmass" data-sail="arena" style="cursor:pointer;">
-            <path d="M350,116 Q362,106 380,110 Q394,116 390,132 Q386,148 368,150 Q350,150 346,134 Q344,124 350,116 Z" fill="#C9A96A" stroke="#8B6B3A" stroke-width="1.5"/>
-            <ellipse cx="368" cy="130" rx="13" ry="9" fill="none" stroke="#6B4A22" stroke-width="2"/>
+            <path d="M345,130 Q345,117 355,112 Q365,106 379,110 Q391,114 395,126 Q398,137 389,145 Q380,151 366,151 Q353,150 347,142 Q344,137 345,130 Z" fill="#B99659" stroke="#795A2F" stroke-width="1.5"/>
+            <path d="M351,126 Q358,112 369,112 Q381,112 388,126 L388,138 Q380,145 368,146 Q356,145 351,138 Z" fill="#D2B574"/>
+            <ellipse cx="369" cy="133" rx="16" ry="10" fill="#9B743B"/>
+            <ellipse cx="369" cy="132" rx="11" ry="6" fill="#4D3921"/>
+            <ellipse cx="369" cy="131" rx="8" ry="4" fill="#241C14"/>
+            <path d="M353,121 Q369,115 386,121" fill="none" stroke="#E1C98F" stroke-width="1.5"/>
+            <path d="M355,142 Q369,147 384,141" fill="none" stroke="#75542B" stroke-width="1.5"/>
+            <path d="M357,119 L357,127 M363,116 L363,124 M375,116 L375,124 M381,119 L381,127" stroke="#8A6735" stroke-width="1.5"/>
+            <path d="M366,124 L369,120 L372,124 L372,128 L366,128 Z" fill="#6B4722"/>
             <text x="368" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Arena</text>
           </g>
 
