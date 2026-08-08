@@ -187,9 +187,7 @@
     boatSailShade: "#D8D0BE",
     boatSailLine: "#B8AC94",
     boatSailPatch: "#E8DCC0",
-    boatSailEmblem: "#7A2730",
     rigging: "#3D2A16",
-    boatFlag: "#7A2730",
     wheel: "#6B4222",
     wheelStand: "#4A3420",
     wheelLight: "#8B6B4A",
@@ -3395,7 +3393,7 @@
     if (DEBUG) console.log("[WvW] Eel Skin discharged — 10-target arc for " + Math.round(lightningDamage * 2) + " each");
   }
 
-  function fireSwordArc(maxTargets, damage){
+  function fireSwordArc(maxTargets, damage, color){
     const hitSoFar = [];
     let fromX = player.x + PLAYER_W/2, fromY = player.y + PLAYER_H/2;
     for (let i = 0; i < maxTargets; i++){
@@ -3408,7 +3406,7 @@
       if (!nearest) break;
       damageEnemy(nearest, damage, { source: "lightning" });
       hitSoFar.push(nearest);
-      effects.push({ type: "lightning-link", x1: fromX, y1: fromY, x2: nearest.x + nearest.w/2, y2: nearest.y + nearest.h/2, life: 8 });
+      effects.push({ type: "lightning-link", x1: fromX, y1: fromY, x2: nearest.x + nearest.w/2, y2: nearest.y + nearest.h/2, life: 8, color: color || COLORS.lightning });
       fromX = nearest.x + nearest.w/2; fromY = nearest.y + nearest.h/2;
     }
     return hitSoFar;
@@ -3436,7 +3434,7 @@
 
     if (has("lightning") && has("fire") && has("freeze")){
       // Ultimate: arc up to 10 targets, permanent white burn, passive freeze damage
-      fireSwordArc(SOTGK_ARC_TARGETS, MELEE_DAMAGE);
+      fireSwordArc(SOTGK_ARC_TARGETS, MELEE_DAMAGE, "#FFFFFF");
       target.burningFrames = 999999; // "permanent" for practical purposes — cleared on death/respawn like any burn
       target.whiteBurn = true;
       applyFreezeToEnemy(target, 120);
@@ -4918,6 +4916,31 @@
     }
   }
 
+  // Same "chain to nearest, not-yet-hit enemy" pattern as fireSwordArc,
+  // but anchored at the ally's own position rather than the player's,
+  // and applies burn on each hit (red is already this game's default
+  // burn variant, so demon needs no extra flag; angel sets whiteBurn,
+  // reusing the same variant system the SOTGK Ultimate already uses).
+  function fireAllyLightningArc(ally, maxTargets, damage, color, isWhiteFlame){
+    const hitSoFar = [];
+    let fromX = ally.x + PLAYER_W / 2, fromY = ally.y + PLAYER_H / 2;
+    for (let i = 0; i < maxTargets; i++){
+      let nearest = null, nearestDist = Infinity;
+      enemies.forEach(en => {
+        if (en.hp <= 0 || en.isCage || hitSoFar.includes(en)) return;
+        const d = Math.hypot((en.x + en.w/2) - fromX, (en.y + en.h/2) - fromY);
+        if (d < 260 && d < nearestDist){ nearest = en; nearestDist = d; }
+      });
+      if (!nearest) break;
+      damageEnemy(nearest, damage, { source: "lightning" });
+      nearest.burningFrames = Math.max(nearest.burningFrames || 0, 120);
+      if (isWhiteFlame) nearest.whiteBurn = true;
+      hitSoFar.push(nearest);
+      effects.push({ type: "lightning-link", x1: fromX, y1: fromY, x2: nearest.x + nearest.w/2, y2: nearest.y + nearest.h/2, life: 8, color });
+      fromX = nearest.x + nearest.w/2; fromY = nearest.y + nearest.h/2;
+    }
+  }
+
   function updateAllies(){
     allies.forEach(a => {
       a.life--;
@@ -4935,11 +4958,8 @@
           }else if (Math.abs(dist) < cfg.preferredRange - 20){
             a.x -= Math.sign(dist) * 2.4;
           }else if (a.cooldown <= 0){
-            playerProjectiles.push({
-              type: a.kind === "demon" ? "demonBolt" : "angelBolt",
-              x: a.x + PLAYER_W/2, y: a.y + PLAYER_H/2,
-              vx: cfg.projectileSpeed * Math.sign(dist), damage: a.damage
-            });
+            const color = a.kind === "demon" ? "#E14B3C" : "#FFFFFF";
+            fireAllyLightningArc(a, 3, a.damage, color, a.kind === "angel");
             a.cooldown = cfg.attackCooldown;
           }
         }
@@ -7184,14 +7204,6 @@
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = COLORS.boatSailEmblem;
-    ctx.beginPath();
-    ctx.moveTo(mastX - 25, deckY - 55);
-    ctx.lineTo(mastX - 18, deckY - 44);
-    ctx.lineTo(mastX - 31, deckY - 44);
-    ctx.closePath();
-    ctx.fill();
-
     ctx.strokeStyle = COLORS.rigging;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -7224,14 +7236,6 @@
     ctx.lineTo(mastX + CROWSNEST_HALF_WIDTH - 2, MAP_Y - 29);
     ctx.lineTo(mastX + CROWSNEST_HALF_WIDTH - 2, MAP_Y - 21);
     ctx.stroke();
-
-    ctx.fillStyle = COLORS.boatFlag;
-    ctx.beginPath();
-    ctx.moveTo(mastX + 3, MAP_Y - 28);
-    ctx.lineTo(mastX + 22, MAP_Y - 24);
-    ctx.lineTo(mastX + 3, MAP_Y - 19);
-    ctx.closePath();
-    ctx.fill();
 
     const pulse = 0.5 + 0.5 * Math.sin(frame * 0.08);
 
@@ -7815,6 +7819,13 @@
     }
   }
 
+  // Shared with drawSword() so the blade actually follows the swinging
+  // arm during a walk cycle, instead of sitting at a fixed offset that
+  // was only ever correct when standing still.
+  function walkCycleArmSwing(moving){
+    return moving ? -Math.sin(frame * 0.35) * 3 : 0;
+  }
+
   function drawWalterFigure(x, y, bodyColor, movement, accessory){
     const cx = x + PLAYER_W / 2;
     const moving = !!(movement && movement.moving);
@@ -7825,7 +7836,7 @@
     if (moving){
       const phase = Math.sin(frame * 0.35);
       legSwing = phase * 5;
-      armSwing = -phase * 3;
+      armSwing = walkCycleArmSwing(true);
     }else if (climbing){
       const phase = Math.sin(frame * 0.3);
       legSwing = phase * 3;
@@ -8012,7 +8023,7 @@
     if (!activeSpell){
       const sword = getEquippedSword();
       const isSOTGK = !!(sword && sword.type === "sotgk");
-      drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN, isSOTGK, computeSwordBladeTint(sword));
+      drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN, isSOTGK, computeSwordBladeTint(sword), walkCycleArmSwing(playerMovement.moving));
     }
     if (wasCloaked) ctx.globalAlpha = 1;
   }
@@ -8032,13 +8043,17 @@
     return COLORS.imbueFreeze;
   }
 
-  function drawSword(x, y, facing, attackCooldown, maxCooldown, isSOTGK, bladeTint){
+  function drawSword(x, y, facing, attackCooldown, maxCooldown, isSOTGK, bladeTint, armSwing){
     const swordDir = facing > 0 ? 1 : -1;
     const cx = x + PLAYER_W / 2;
     // Anchored to the humanoid figure's actual arm position now (was
     // anchored to the old full-body-width edges, which reads as
-    // floating too far out once the body got real limbs).
-    const handX = cx + 9 * swordDir;
+    // floating too far out once the body got real limbs). The
+    // -armSwing*swordDir term follows the actual swinging arm during a
+    // walk cycle — the two arms swing in opposite directions in
+    // drawWalterFigure, and this picks out whichever one is on the
+    // facing side (the one actually holding the sword).
+    const handX = cx + 9 * swordDir - (armSwing || 0) * swordDir;
     const handY = y + 23;
 
     // Quick swing: sweeps from a raised, wound-up pose down through to
@@ -10559,7 +10574,7 @@
       });
       ctx.stroke();
     }else if (fx.type === "lightning-link"){
-      ctx.strokeStyle = COLORS.lightning;
+      ctx.strokeStyle = fx.color || COLORS.lightning;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(worldToScreen(fx.x1), fx.y1);
