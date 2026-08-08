@@ -1230,6 +1230,14 @@
   // unlocks rather than a timed buff, see applyImbueToSword().
   const SOTGK_COST_SILVER = 100000;
   const WHITE_ASH_SWORD_COST_SILVER = 800; // Blacksmith-tier weapon, not a late-game unlock like the SOTGK — required to fight Skin Walkers at all, so it needs to be reasonably reachable
+  const STAFF_COST_SILVER = 50;
+  const STAFF_CHARGE_FRAMES = 180; // 3 seconds at 60fps
+  const STAFF_CHARGE_SPELLS = new Set(["fireball", "lightning", "freeze", "blackHole"]); // the only spells the staff's beam charge-up supports
+  const STAFF_MELEE_DAMAGE = 18; // a plain tap-hit, distinct from the sword's own MELEE_DAMAGE and from the charged beam
+  const STAFF_FROSTBITE_DAMAGE_PER_FRAME = 0.3;
+  const STAFF_BLACKHOLE_PULL_STRENGTH = 3.5;
+  const STAFF_BEAM_RANGE = 400;
+  const STAFF_BEAM_HALF_HEIGHT = 50; // vertical "thickness" of the beam's hit detection
   const IMBUE_BONUS_DAMAGE = 8; // standard single-imbue melee bonus
   const SOTGK_ARC_TARGETS = 10; // max enemies hit by the fully-stacked Ultimate arc
   // A technical safeguard, not a nerf to the described threat — "duplicates
@@ -1608,6 +1616,9 @@
   let currentDungeonRoom = null; // { roomNumber, biomeId, exitType, worldWidth, cleared, enemyCount, chestClaimed }
   let completedMilestoneIds = new Set();
   let milestoneCheckCooldown = 0;
+  let staffChargeHeld = false;
+  let staffChargeTimer = 0;
+  let staffPreviousSwordId = "default"; // what to switch back to when toggling the staff off with `
   // Queued rather than fired instantly — if two milestones complete in
   // the same check (unlikely but possible right after loading a save),
   // this shows them one after another instead of overlapping.
@@ -2535,6 +2546,77 @@
   // Checked roughly once a second (60 frames), not every single frame —
   // a few boolean checks are trivial either way, but there's no reason
   // to run them 60x more often than needed.
+  // Ticks every frame while Space is held with the Staff equipped.
+  // Firing (or fizzling) and resetting both happen here, not on keyup
+  // — keyup's job is only to catch an EARLY release (the tap-to-melee
+  // case); a completed charge fires on its own the moment it reaches
+  // the threshold, whether or not the key is still down at that instant.
+  function updateStaffCharge(){
+    if (!staffChargeHeld) return;
+    const sword = getEquippedSword();
+    if (!sword || sword.type !== "staff"){ staffChargeHeld = false; staffChargeTimer = 0; return; }
+    staffChargeTimer++;
+    if (staffChargeTimer >= STAFF_CHARGE_FRAMES){
+      fireStaffBeam();
+      staffChargeHeld = false;
+      staffChargeTimer = 0;
+    }
+  }
+
+  // If the spell selected isn't one of the 4 the staff supports, or
+  // there isn't enough mana, the charge simply fizzles — no partial
+  // effect, no refund needed since nothing was spent yet.
+  function fireStaffBeam(){
+    if (!STAFF_CHARGE_SPELLS.has(activeSpell)) return;
+    const manaCost = MANA_COST_PER_SPELL * 2; // none of these 4 spells are rare-tier, so 2x the standard cost
+    if (player.mana < manaCost) return;
+    player.mana -= manaCost;
+
+    const dir = player.facing;
+    const originX = player.x + PLAYER_W / 2, originY = player.y + PLAYER_H / 2;
+    const endX = originX + dir * STAFF_BEAM_RANGE;
+
+    const hitEnemies = enemies.filter(en => {
+      if (en.hp <= 0 || en.isCage) return false;
+      const enCx = en.x + en.w / 2, enCy = en.y + en.h / 2;
+      const withinReach = dir > 0 ? (enCx >= originX && enCx <= endX) : (enCx <= originX && enCx >= endX);
+      return withinReach && Math.abs(enCy - originY) < STAFF_BEAM_HALF_HEIGHT;
+    });
+
+    let element;
+    if (activeSpell === "fireball"){
+      element = "fire";
+      const cfg = SPELLS.fireball;
+      hitEnemies.forEach(en => {
+        damageEnemy(en, cfg.damage * spellDamageMultiplier());
+        en.burningFrames = Math.max(en.burningFrames || 0, cfg.burnDuration);
+      });
+    }else if (activeSpell === "lightning"){
+      element = "lightning";
+      const cfg = SPELLS.lightning;
+      hitEnemies.forEach(en => {
+        damageEnemy(en, cfg.damage * spellDamageMultiplier(), { source: "lightning" });
+        en.burningFrames = Math.max(en.burningFrames || 0, SPELLS.fireball.burnDuration); // "beam of fire/lightning that light enemies on fire" — both elements ignite
+      });
+    }else if (activeSpell === "freeze"){
+      element = "freeze";
+      const cfg = SPELLS.freeze;
+      hitEnemies.forEach(en => {
+        applyFreezeToEnemy(en, cfg.duration);
+        en.frostbiteFrames = Math.max(en.frostbiteFrames || 0, cfg.duration);
+      });
+    }else if (activeSpell === "blackHole"){
+      element = "blackhole";
+      const cfg = SPELLS.blackHole;
+      hitEnemies.forEach(en => {
+        en.pulledToPlayerFrames = Math.max(en.pulledToPlayerFrames || 0, cfg.duration);
+      });
+    }
+
+    effects.push({ type: "staff-beam", element, x1: originX, y1: originY, x2: endX, y2: originY, life: 14 });
+    if (DEBUG) console.log("[WvW] Staff beam fired: " + element + ", hit " + hitEnemies.length + " enemies");
+  }
+
   function updateMilestones(){
     if (milestoneCheckCooldown > 0){
       milestoneCheckCooldown--;
@@ -2591,6 +2673,9 @@
     completedMilestoneIds = new Set();
     milestoneNotificationQueue = [];
     activeMilestoneNotification = null;
+    staffChargeHeld = false;
+    staffChargeTimer = 0;
+    staffPreviousSwordId = "default";
     player = {
       x: TOWER_X, y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, onLadder: false,
       facing: 1, hp: PLAYER_MAX_HP,
@@ -2678,8 +2763,25 @@
     keysDown.add(e.code);
 
     if (e.code === "Space"){
-      if (activeSpell) castSpell(activeSpell);
+      const sword = getEquippedSword();
+      if (sword && sword.type === "staff"){
+        staffChargeHeld = true;
+        staffChargeTimer = 0;
+      }else if (activeSpell) castSpell(activeSpell);
       else meleeAttack();
+    }
+
+    if (e.code === "Backquote"){
+      const hasStaff = player.swordInventory.swords.some(s => s.id === "staff");
+      if (hasStaff){
+        const current = getEquippedSword();
+        if (current && current.type === "staff"){
+          equipSword(staffPreviousSwordId);
+        }else{
+          staffPreviousSwordId = current ? current.id : "default";
+          equipSword("staff");
+        }
+      }
     }
 
     if (e.code === "KeyC") activateCloak();
@@ -2706,6 +2808,13 @@
   }
   function onKeyUp(e){
     keysDown.delete(e.code);
+    if (e.code === "Space" && staffChargeHeld){
+      staffChargeHeld = false;
+      if (staffChargeTimer < STAFF_CHARGE_FRAMES){
+        staffMeleeAttack();
+      }
+      staffChargeTimer = 0;
+    }
   }
 
   function handleTap(clientX){
@@ -2732,6 +2841,7 @@
     if (currentMap === "darkforest"){ ensureDarkForestGenerated(); updateDarkForestBiomeIndex(); }
     updateArenaProgress();
     updateMilestones();
+    updateStaffCharge();
     updateArenaBow();
     updateVillagerProximity();
     updateCrewTimers();
@@ -3222,6 +3332,16 @@
     return true;
   }
 
+  function buyStaff(){
+    if (player.swordInventory.swords.some(s => s.id === "staff")) return false; // one-time purchase
+    if (player.silver < STAFF_COST_SILVER) return false;
+    player.silver -= STAFF_COST_SILVER;
+    player.swordInventory.swords.push({ id: "staff", type: "staff", label: "Staff", activeImbues: {} });
+    equipSword("staff");
+    if (DEBUG) console.log("[WvW] purchased the Staff");
+    return true;
+  }
+
   // Casting Fireball/Lightning/Freeze also imbues the equipped sword —
   // see the constant block above for why this is the trigger. A
   // standard sword only ever holds one imbue (a new element replaces the
@@ -3377,6 +3497,20 @@
           else if (el === "freeze") applyFreezeToEnemy(en, 45);
           else if (el === "lightning") fireSwordArc(SOTGK_COMBO_ARC_TARGETS, IMBUE_BONUS_DAMAGE);
         }
+      }
+    });
+  }
+
+  // A plain tap-hit with the staff — no imbues, no SOTGK-style combos,
+  // just a flat damage number. Shares meleeCooldown with the regular
+  // sword so switching between them isn't a way to attack faster.
+  function staffMeleeAttack(){
+    if (meleeCooldown > 0) return;
+    meleeCooldown = MELEE_COOLDOWN;
+    const hitX = player.facing > 0 ? player.x + PLAYER_W : player.x - MELEE_RANGE;
+    enemies.forEach(en => {
+      if (en.hp > 0 && !en.isCage && rectsOverlap(hitX, player.y, MELEE_RANGE, PLAYER_H, en.x, en.y, en.w, en.h)){
+        damageEnemy(en, STAFF_MELEE_DAMAGE, { source: "melee" });
       }
     });
   }
@@ -3874,7 +4008,27 @@
     enemies.forEach(en => {
       if (en.hp <= 0) return;
       if (en.isCage) return; // stationary, passive — no AI, no status effects, just HP to break through
-      if (en.frozenFrames > 0){ en.frozenFrames--; return; }
+      if (en.frozenFrames > 0){
+        en.frozenFrames--;
+        // Frostbite only ticks while actually frozen — this has to live
+        // inside this branch specifically, since the function returns
+        // here and anything placed after this point would never run
+        // for a frozen enemy.
+        if (en.frostbiteFrames > 0){
+          en.frostbiteFrames--;
+          damageEnemy(en, STAFF_FROSTBITE_DAMAGE_PER_FRAME);
+        }
+        return;
+      }
+
+      if (en.pulledToPlayerFrames > 0){
+        en.pulledToPlayerFrames--;
+        const dx = (player.x + PLAYER_W/2) - (en.x + en.w/2);
+        const dy = (player.y + PLAYER_H/2) - (en.y + en.h/2);
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        en.x += (dx/dist) * STAFF_BLACKHOLE_PULL_STRENGTH;
+        return;
+      }
 
       if (en.burningFrames > 0){
         en.burningFrames--;
@@ -4980,6 +5134,7 @@
     drawMenuPrompt();
     drawHud();
     drawMilestoneTracker();
+    drawStaffChargeIndicator();
     drawMilestoneNotification();
     drawRespawnMessage();
   }
@@ -10448,6 +10603,26 @@
       ctx.moveTo(sx1, fx.y1);
       ctx.lineTo(sx2, fx.y2);
       ctx.stroke();
+    }else if (fx.type === "staff-beam"){
+      const sx1 = worldToScreen(fx.x1), sx2 = worldToScreen(fx.x2);
+      const beamColor = fx.element === "fire" ? COLORS.fireball
+        : fx.element === "lightning" ? COLORS.lightning
+        : fx.element === "freeze" ? COLORS.freeze
+        : COLORS.blackHole;
+      ctx.strokeStyle = beamColor;
+      ctx.lineWidth = 6;
+      ctx.globalAlpha = fx.life / 14;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
+      ctx.stroke();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx1, fx.y1);
+      ctx.lineTo(sx2, fx.y2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }else if (fx.type === "black-hole"){
       ctx.fillStyle = COLORS.blackHole;
       ctx.beginPath();
@@ -10528,6 +10703,26 @@
   // Small persistent tag, bottom-right — both HUD corners at the top
   // are already busy with HP/armor/mana bars and spell/status text, so
   // this lives somewhere genuinely free rather than crowding those.
+  // Above the player's head, in world space — only relevant while
+  // actively charging, so unlike the armor charge bars this isn't a
+  // persistent HUD element competing for space in the already-busy
+  // corners.
+  function drawStaffChargeIndicator(){
+    if (!staffChargeHeld) return;
+    const sx = worldToScreen(player.x + PLAYER_W / 2);
+    const barY = player.y - 16;
+    const barW = 40, barH = 5;
+    const progress = Math.min(1, staffChargeTimer / STAFF_CHARGE_FRAMES);
+    ctx.fillStyle = COLORS.armorBg;
+    ctx.fillRect(sx - barW / 2, barY, barW, barH);
+    const valid = STAFF_CHARGE_SPELLS.has(activeSpell);
+    ctx.fillStyle = valid ? COLORS.mana : COLORS.hud;
+    ctx.fillRect(sx - barW / 2, barY, barW * progress, barH);
+    ctx.strokeStyle = COLORS.hud;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - barW / 2, barY, barW, barH);
+  }
+
   function drawMilestoneTracker(){
     const label = currentMilestoneLabel();
     if (!label) return; // every milestone done — nothing to show, not an error
@@ -11131,6 +11326,16 @@
       <button type="button" class="btn light" id="wvw-buy-whiteash-btn" ${player.silver >= WHITE_ASH_SWORD_COST_SILVER ? "" : "disabled"}>Forge White Ash Sword (${WHITE_ASH_SWORD_COST_SILVER} silver)</button>
     `) : "";
 
+    const hasStaff = player.swordInventory.swords.some(s => s.id === "staff");
+    const staffSection = worker ? (hasStaff ? `
+      <p style="font-weight:700;margin:14px 0 4px;">Staff</p>
+      <p style="opacity:0.85;font-size:0.85rem;">Already forged and in your inventory. Equip it with [\`], select a spell, then hold [Space] to charge a beam.</p>
+    ` : `
+      <p style="font-weight:700;margin:14px 0 4px;">Staff</p>
+      <p style="opacity:0.85;font-size:0.85rem;">Channels Fireball, Lightning, Freeze, or Black Hole into a charged beam — hold to charge, tap for a quick melee hit instead.</p>
+      <button type="button" class="btn light" id="wvw-buy-staff-btn" ${player.silver >= STAFF_COST_SILVER ? "" : "disabled"}>Forge Staff (${STAFF_COST_SILVER} silver)</button>
+    `) : "";
+
     overlayInner.innerHTML = `
       <h3>Blacksmith</h3>
       <p>Auto-repairs your broken gear whenever you're in the village with a blacksmith on duty. Costs ${BLACKSMITH_UPKEEP_PER_MINUTE} silver/minute to keep staffed.</p>
@@ -11143,12 +11348,22 @@
       }
       ${imbueShopSection}
       ${whiteAshSection}
+      ${staffSection}
       <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:14px;">Close</button>
     `;
     const whiteAshBtn = document.getElementById("wvw-buy-whiteash-btn");
     if (whiteAshBtn){
       whiteAshBtn.addEventListener("click", () => {
         if (buyWhiteAshSword()){
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    }
+    const staffBtn = document.getElementById("wvw-buy-staff-btn");
+    if (staffBtn){
+      staffBtn.addEventListener("click", () => {
+        if (buyStaff()){
           renderBlacksmithUi();
           saveProgress();
         }
