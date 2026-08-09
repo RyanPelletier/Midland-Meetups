@@ -217,6 +217,9 @@
     playerLegs: "#3D3226",
     playerSword: "#9CA3AF",
     swordHilt: "#6B4222",
+    staffShaft: "#5A3D24",
+    staffBinding: "#3D2A16",
+    staffOrbNeutral: "#8B7AB8",
     swordHiltSOTGK: "#6B4A2A", // brown leather-wrapped hilt, per the SOTGK spec
     sotgkBladeEdge: "#F5F0E6", sotgkBladeCore: "#8A8FA0", // bright white edge, opaque bright grey core
     sotgkUltimate: "#F5D742", // gold glow when all three elements are stacked
@@ -903,16 +906,20 @@
   // as the Dark Forest's depth scaling, since Arena waves are meant to
   // be survivable indefinitely by a skilled player rather than an
   // eventual hard wall.
+  // Scales more gradually than before — waves are meant to be
+  // survivable for a long stretch by a skilled player, not ramp into a
+  // hard wall within the first several waves.
   function arenaDifficultyMultiplier(){
-    return 1 + arenaWaveNumber * 0.12;
+    return 1 + arenaWaveNumber * 0.06;
   }
 
   function spawnArenaWave(){
     arenaWaveNumber++;
     arenaWaveKillsRemaining = ARENA_ENEMIES_PER_WAVE;
     const mult = arenaDifficultyMultiplier();
+    const wavePool = arenaWavePool(arenaWaveNumber);
     for (let i = 0; i < ARENA_ENEMIES_PER_WAVE; i++){
-      const type = ARENA_PLACEHOLDER_POOL[Math.floor(Math.random() * ARENA_PLACEHOLDER_POOL.length)];
+      const type = wavePool[Math.floor(Math.random() * wavePool.length)];
       const stats = ENEMY_STATS[type];
       // Half spawn from the left edge, half from the right, per the
       // "colosseum, waves from both sides" spec.
@@ -1637,7 +1644,28 @@
   const ARENA_HEAL_PER_KILL = 4; // PLAYER_MAX_HP is 100, so this is a meaningful but not trivial recovery
   const ARENA_BOW_COOLDOWN_FRAMES = 45; // auto-fires roughly 1.3x/second
   const ARENA_BOW_DAMAGE = 8;
-  const ARENA_PLACEHOLDER_POOL = ["knight", "ogre", "archer", "hercules"];
+  // Enemy types introduce progressively rather than all being available
+  // from wave 1 — Knights first, then Archers, Wizards, Ogres, and
+  // finally Hercules as the toughest, latest addition.
+  const ARENA_ROSTER_SCHEDULE = [
+    { type: "knight", unlockWave: 1 },
+    { type: "archer", unlockWave: 3 },
+    { type: "wizard", unlockWave: 5 },
+    { type: "ogre", unlockWave: 7 },
+    { type: "hercules", unlockWave: 10 }
+  ];
+  const ARENA_MAX_SIMULTANEOUS_TYPES = 3;
+
+  // Even once more than 3 types are unlocked, any single wave only
+  // draws from a random subset of at most 3 of them — keeps any one
+  // wave's roster readable rather than a chaotic mix of everything
+  // unlocked so far.
+  function arenaWavePool(waveNumber){
+    const unlocked = ARENA_ROSTER_SCHEDULE.filter(e => waveNumber >= e.unlockWave).map(e => e.type);
+    if (unlocked.length <= ARENA_MAX_SIMULTANEOUS_TYPES) return unlocked;
+    const shuffled = unlocked.slice().sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, ARENA_MAX_SIMULTANEOUS_TYPES);
+  }
   let arenaWaveNumber = 0;
   let arenaWaveKillsRemaining = 0;
   let arenaBowCooldown = 0;
@@ -4816,6 +4844,13 @@
         }else{
           c.moving = false;
         }
+        // Medic returns early, before the clamp at the end of this
+        // function — needs its own copy or it'd be the one role exempt
+        // from the boat-bounds fix.
+        const medicCenterX = player.x + PLAYER_W / 2;
+        if (currentMap === "home" && medicCenterX >= BOAT_X && medicCenterX <= BOAT_X + BOAT_W){
+          c.x = Math.max(BOAT_X, Math.min(BOAT_X + BOAT_W - PLAYER_W, c.x));
+        }
         return;
       }
 
@@ -4854,6 +4889,16 @@
         }else{
           c.moving = false;
         }
+      }
+
+      // Nothing constrained a follower's x to the boat's actual edges
+      // even while the player was standing on it — their follow-offset
+      // could easily push them past the boat's bounds into the water.
+      // Applied after every movement branch above, since any of them
+      // (follow, chase-target, medic) could be the one that moved them.
+      const playerCenterX = player.x + PLAYER_W / 2;
+      if (currentMap === "home" && playerCenterX >= BOAT_X && playerCenterX <= BOAT_X + BOAT_W){
+        c.x = Math.max(BOAT_X, Math.min(BOAT_X + BOAT_W - PLAYER_W, c.x));
       }
     });
   }
@@ -8020,8 +8065,16 @@
       drawBurningFlames(x, player.y, PLAYER_W, PLAYER_H, burnVariantFor(player));
     }
 
-    if (!activeSpell){
-      const sword = getEquippedSword();
+    const equippedWeapon = getEquippedSword();
+    const isStaffEquipped = !!(equippedWeapon && equippedWeapon.type === "staff");
+    if (isStaffEquipped){
+      // Unlike a sword, the staff doesn't get replaced by casting a
+      // spell — the spell is what its charge-up channels, so both are
+      // in use at once. It needs to stay visible regardless of
+      // activeSpell, unlike the sword's original behavior below.
+      drawStaff(x, player.y, player.facing, walkCycleArmSwing(playerMovement.moving), activeSpell);
+    }else if (!activeSpell){
+      const sword = equippedWeapon;
       const isSOTGK = !!(sword && sword.type === "sotgk");
       drawSword(x, player.y, player.facing, meleeCooldown, MELEE_COOLDOWN, isSOTGK, computeSwordBladeTint(sword), walkCycleArmSwing(playerMovement.moving));
     }
@@ -8107,6 +8160,48 @@
       ctx.fillStyle = bladeTint || COLORS.playerSword;
       ctx.fill();
     }
+  }
+
+  // The Staff — a long rod with a glowing orb at the top, distinct
+  // from the sword's blade shape. Held at the same hand-anchor
+  // position, following the arm the same way. The orb is color-coded
+  // to whichever of the 4 charge-compatible spells is selected, or a
+  // neutral tone if none of those 4 are active.
+  function drawStaff(x, y, facing, armSwing, activeSpellKey){
+    const dir = facing > 0 ? 1 : -1;
+    const cx = x + PLAYER_W / 2;
+    const handX = cx + 9 * dir - (armSwing || 0) * dir;
+    const handY = y + 23;
+    const shaftLen = 26;
+    const topX = handX + dir * 4, topY = handY - shaftLen;
+
+    ctx.strokeStyle = COLORS.staffShaft;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(handX, handY);
+    ctx.lineTo(topX, topY);
+    ctx.stroke();
+
+    ctx.strokeStyle = COLORS.staffBinding;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(handX - dir, handY - 6);
+    ctx.lineTo(handX + dir, handY - 10);
+    ctx.stroke();
+
+    const orbColor = activeSpellKey === "fireball" ? COLORS.fireball
+      : activeSpellKey === "lightning" ? COLORS.lightning
+      : activeSpellKey === "freeze" ? COLORS.freeze
+      : activeSpellKey === "blackHole" ? COLORS.blackHole
+      : COLORS.staffOrbNeutral;
+
+    ctx.fillStyle = orbColor;
+    ctx.beginPath();
+    ctx.arc(topX, topY - 4, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
   // Eight distinct boss silhouettes, per the visual design brief. All
@@ -12207,6 +12302,15 @@
     if (!canvas || !overlay) return;
 
     ctx = canvas.getContext("2d");
+    // Crisper rendering on high-DPI screens: the drawing buffer gets
+    // scaled up, but ctx.scale(dpr,dpr) means every existing draw call
+    // continues to use the same 640x460 logical coordinates unchanged.
+    // The existing CSS (width:100%, height:auto) already controls the
+    // responsive display size independently of this buffer resolution.
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = CANVAS_W * dpr;
+    canvas.height = CANVAS_H * dpr;
+    ctx.scale(dpr, dpr);
     resetState();
     running = false;
     loginComplete = false;
@@ -12243,23 +12347,14 @@
     });
 
     function applyFullscreenCanvasSize(){
-      // object-fit on a <canvas> is unreliable across browsers (it's
-      // really meant for img/video) — rather than depend on CSS to
-      // preserve the aspect ratio, compute the exact pixel size
-      // ourselves: fit within the viewport, preserving CANVAS_W:CANVAS_H,
-      // and center whatever's left over rather than stretching.
-      const targetAspect = CANVAS_W / CANVAS_H;
-      const screenAspect = window.innerWidth / window.innerHeight;
-      let w, h;
-      if (screenAspect > targetAspect){
-        h = window.innerHeight;
-        w = h * targetAspect;
-      }else{
-        w = window.innerWidth;
-        h = w / targetAspect;
-      }
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
+      // Fills the viewport completely, edge to edge — a deliberate
+      // trade-off of the previous letterboxed approach (which preserved
+      // the exact 640:460 aspect ratio but left visible gaps on any
+      // screen with a different ratio, which is most of them). This
+      // stretches to fill instead, at the cost of mild aspect distortion
+      // on screens far from 640:460.
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
       canvas.style.position = "fixed";
       canvas.style.top = "50%";
       canvas.style.left = "50%";
