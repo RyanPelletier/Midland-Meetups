@@ -1497,6 +1497,46 @@
   const MANA_UPGRADE_AMOUNT = 10;
   const HIRE_CREW_COST = 200; // silver, one-time — unlocks sailing to new lands from the map
 
+  // Sequential area unlocks — confirmed order: Grasslands -> Cyclops ->
+  // Tower & Dungeons -> Explore New Lands -> Arena, each requiring the
+  // previous one already unlocked. Home Village and the Dark Forest are
+  // NOT part of this sequence (Home Village is the free starting hub;
+  // Dark Forest wasn't included in the confirmed order) and stay
+  // reachable as soon as crew is hired, same as before.
+  const AREA_UNLOCK_ORDER = ["land1", "land2", "towerDungeons", "generatedLands", "arena"];
+  const AREA_UNLOCK_COST = 200;
+  const AREA_UNLOCK_LABELS = {
+    land1: "Grasslands",
+    land2: "Home of the Cyclops",
+    towerDungeons: "The Tower & Dungeons",
+    generatedLands: "Explore New Lands",
+    arena: "The Arena"
+  };
+
+  function isAreaUnlocked(key){
+    return !!player.areaUnlocks[key];
+  }
+
+  function areaUnlockPrereq(key){
+    const idx = AREA_UNLOCK_ORDER.indexOf(key);
+    return idx > 0 ? AREA_UNLOCK_ORDER[idx - 1] : null; // first in the sequence has no prerequisite
+  }
+
+  function canUnlockArea(key){
+    const prereq = areaUnlockPrereq(key);
+    return !prereq || isAreaUnlocked(prereq);
+  }
+
+  function unlockArea(key){
+    if (isAreaUnlocked(key)) return true;
+    if (!canUnlockArea(key)) return false;
+    if (player.silver < AREA_UNLOCK_COST) return false;
+    player.silver -= AREA_UNLOCK_COST;
+    player.areaUnlocks[key] = true;
+    if (DEBUG) console.log("[WvW] unlocked area: " + key);
+    return true;
+  }
+
   // Letter code for each spell in the progress-save string (F/L/Z/S/B),
   // uppercase = unlocked, lowercase = locked. "fireball" and "freeze" both
   // start with F, so freeze uses Z and summonAlly uses S to keep every
@@ -2272,7 +2312,8 @@
       elementalComboStates: {}, // Phase 8c
       flags: {
         crewHired: !!player.crewHired,
-        land1ChestCollected: !!player.land1ChestCollected
+        land1ChestCollected: !!player.land1ChestCollected,
+        areaUnlocks: Object.assign({ land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false }, player.areaUnlocks || {})
       }
     };
   }
@@ -2529,6 +2570,7 @@
     player.mana = s.playerStats.maxMana; // start each session with mana full, same as HP
     player.crewHired = s.flags.crewHired;
     player.land1ChestCollected = s.flags.land1ChestCollected;
+    player.areaUnlocks = Object.assign({ land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false }, s.flags.areaUnlocks || {});
     s.spells.unlocked.forEach(key => spellUnlocked.add(key));
     ARMOR_ORDER.forEach(key => {
       const item = s.armorInventory.items[key];
@@ -2711,6 +2753,7 @@
       mana: MAX_MANA_START, maxMana: MAX_MANA_START,
       waterStrokeCooldown: 0,
       crewHired: false, land1ChestCollected: false,
+      areaUnlocks: { land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false },
       equippedAmulet: null,
       burningFrames: 0,
       charmFramesLeft: 0, charmSlowMultiplier: 1,
@@ -11842,29 +11885,29 @@
           <line x1="210" y1="140" x2="55"  y2="140" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
           <line x1="210" y1="140" x2="368" y2="140" stroke="#E8D5A8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.75"/>
 
-          <g class="wvw-landmass" data-sail="land1" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="land1" style="cursor:pointer;" opacity="${isAreaUnlocked("land1") ? 1 : 0.4}">
             <g transform="translate(24,8)">
               <path d="M48,38 Q60,26 84,32 Q100,38 96,54 Q92,72 70,76 Q48,78 40,60 Q36,46 48,38 Z" fill="#4A9D5F" stroke="#2D6A4F" stroke-width="1.5"/>
               <circle cx="66" cy="52" r="4" fill="#2D6A4F"/>
             </g>
-            <text x="90" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Grasslands</text>
+            <text x="90" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Grasslands${isAreaUnlocked("land1") ? "" : " (Locked)"}</text>
           </g>
 
-          <g class="wvw-landmass" data-sail="land2" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="land2" style="cursor:pointer;" opacity="${isAreaUnlocked("land2") ? 1 : 0.4}">
             <g transform="translate(108,14)">
               <path d="M198,32 Q212,22 232,26 Q248,32 246,46 Q244,62 226,64 Q206,66 198,50 Q194,40 198,32 Z" fill="#7A8A6E" stroke="#4A5A40" stroke-width="1.5"/>
               <circle cx="222" cy="46" r="6" fill="#F5F0E6"/>
               <circle cx="222" cy="46" r="2.5" fill="#E14B3C"/>
             </g>
-            <text x="330" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Home of the Cyclops</text>
+            <text x="330" y="88" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Home of the Cyclops${isAreaUnlocked("land2") ? "" : " (Locked)"}</text>
           </g>
 
-          <g class="wvw-landmass" data-sail="generated" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="generated" style="cursor:pointer;" opacity="${isAreaUnlocked("generatedLands") ? 1 : 0.4}">
             <g transform="translate(32,80)">
               <path d="M40,124 Q54,114 76,120 Q90,128 84,144 Q78,160 58,162 Q40,162 34,146 Q30,132 40,124 Z" fill="#8B7AB8" stroke="#5B4E77" stroke-width="1.5"/>
               <path d="M52,140 Q58,132 66,138 Q70,144 62,148 Q56,150 52,144" fill="none" stroke="#F5F0E6" stroke-width="1.5"/>
             </g>
-            <text x="90" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Explore New Lands</text>
+            <text x="90" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Explore New Lands${isAreaUnlocked("generatedLands") ? "" : " (Locked)"}</text>
           </g>
 
           <g class="wvw-landmass" data-sail="homebase" style="cursor:pointer;">
@@ -11879,7 +11922,7 @@
           </g>
 
           <!-- The Tower — north -->
-          <g class="wvw-landmass" data-sail="tower" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="tower" style="cursor:pointer;" opacity="${isAreaUnlocked("towerDungeons") ? 1 : 0.4}">
             <path d="M184,29 Q184,18 193,13 Q201,8 212,10 Q225,12 231,21 Q235,31 228,38 Q220,44 205,44 Q192,43 186,37 Q183,34 184,29 Z" fill="#747582" stroke="#41434D" stroke-width="1.5"/>
             <path d="M192,34 L194,15 Q201,11 207,12 L211,34 Z" fill="#9698A2"/>
             <path d="M211,34 L214,14 Q221,17 225,23 L225,35 Z" fill="#5F606A"/>
@@ -11887,18 +11930,18 @@
             <path d="M200,18 L203,18 L203,23 L200,23 Z M210,17 L213,17 L213,22 L210,22 Z" fill="#292A31"/>
             <path d="M196,28 L222,27" stroke="#5B5C66" stroke-width="1.5"/>
             <path d="M198,31 L207,30 L218,31" stroke="#B0B0B7" stroke-width="1" opacity=".7"/>
-            <text x="210" y="54" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Tower</text>
+            <text x="210" y="54" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Tower${isAreaUnlocked("towerDungeons") ? "" : " (Locked)"}</text>
           </g>
 
           <!-- Dungeons — south -->
-          <g class="wvw-landmass" data-sail="dungeon" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="dungeon" style="cursor:pointer;" opacity="${isAreaUnlocked("towerDungeons") ? 1 : 0.4}">
             <path d="M184,232 Q184,220 194,216 Q207,210 220,217 Q231,222 232,234 Q231,245 222,250 L193,250 Q184,244 184,232 Z" fill="#665C52" stroke="#38322D" stroke-width="1.5"/>
             <path d="M190,238 Q191,227 199,222 Q207,216 215,222 Q222,228 222,238 L219,250 L193,250 Z" fill="#211C19"/>
             <path d="M194,249 L197,235 Q199,228 205,226 Q211,228 215,235 L218,249 Z" fill="#151210"/>
             <path d="M188,226 L195,222 L198,226 L192,230 Z M218,219 L226,225 L222,230 L216,225 Z" fill="#817468"/>
             <path d="M190,241 L198,239 M218,240 L225,237" stroke="#8B7D6E" stroke-width="1.2"/>
             <path d="M201,250 L203,239 L207,236 L211,239 L214,250" fill="#2B2520"/>
-            <text x="207" y="264" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Dungeons</text>
+            <text x="207" y="264" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">Dungeons${isAreaUnlocked("towerDungeons") ? "" : " (Locked)"}</text>
           </g>
 
           <!-- The Dark Forest — west -->
@@ -11916,7 +11959,7 @@
           </g>
 
           <!-- The Arena — east -->
-          <g class="wvw-landmass" data-sail="arena" style="cursor:pointer;">
+          <g class="wvw-landmass" data-sail="arena" style="cursor:pointer;" opacity="${isAreaUnlocked("arena") ? 1 : 0.4}">
             <path d="M345,130 Q345,117 355,112 Q365,106 379,110 Q391,114 395,126 Q398,137 389,145 Q380,151 366,151 Q353,150 347,142 Q344,137 345,130 Z" fill="#B99659" stroke="#795A2F" stroke-width="1.5"/>
             <path d="M351,126 Q358,112 369,112 Q381,112 388,126 L388,138 Q380,145 368,146 Q356,145 351,138 Z" fill="#D2B574"/>
             <ellipse cx="369" cy="133" rx="16" ry="10" fill="#9B743B"/>
@@ -11926,7 +11969,7 @@
             <path d="M355,142 Q369,147 384,141" fill="none" stroke="#75542B" stroke-width="1.5"/>
             <path d="M357,119 L357,127 M363,116 L363,124 M375,116 L375,124 M381,119 L381,127" stroke="#8A6735" stroke-width="1.5"/>
             <path d="M366,124 L369,120 L372,124 L372,128 L366,128 Z" fill="#6B4722"/>
-            <text x="368" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Arena</text>
+            <text x="368" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#2D3B2F">The Arena${isAreaUnlocked("arena") ? "" : " (Locked)"}</text>
           </g>
 
           <!-- Leaderboard — not a physical destination, a small scroll icon near the compass instead of a landmass -->
@@ -11963,15 +12006,39 @@
     // Every landmass (and the leaderboard icon) is wired the same way —
     // one shared handler keyed off data-sail, rather than a separate
     // getElementById call per destination like the old button stack.
+    // The 5 gated destinations attempt an unlock first if not already
+    // unlocked; ungated ones (homebase, darkforest, leaderboard) sail
+    // immediately same as before.
+    function attemptUnlockAndSail(areaKey, sailFn){
+      if (isAreaUnlocked(areaKey)){
+        sailFn();
+        closeMap();
+        return;
+      }
+      const statusEl = document.getElementById("wvw-map-status");
+      if (!canUnlockArea(areaKey)){
+        const prereqLabel = AREA_UNLOCK_LABELS[areaUnlockPrereq(areaKey)];
+        if (statusEl) statusEl.textContent = `Unlock ${prereqLabel} first.`;
+        return;
+      }
+      if (player.silver < AREA_UNLOCK_COST){
+        if (statusEl) statusEl.textContent = `Not enough silver — unlocking ${AREA_UNLOCK_LABELS[areaKey]} costs ${AREA_UNLOCK_COST}.`;
+        return;
+      }
+      unlockArea(areaKey);
+      saveProgress();
+      sailFn();
+      closeMap();
+    }
     const sailActions = {
-      land1: () => { sailToLand1(); closeMap(); },
-      land2: () => { sailToLand2(); closeMap(); },
-      generated: () => { sailToGeneratedLand(player.highestUnlockedLand + 1); closeMap(); },
+      land1: () => attemptUnlockAndSail("land1", sailToLand1),
+      land2: () => attemptUnlockAndSail("land2", sailToLand2),
+      generated: () => attemptUnlockAndSail("generatedLands", () => sailToGeneratedLand(player.highestUnlockedLand + 1)),
       homebase: () => { sailToHomebase(); closeMap(); },
-      tower: () => { sailToTower(); closeMap(); },
-      dungeon: () => { sailToDungeon(); closeMap(); },
+      tower: () => attemptUnlockAndSail("towerDungeons", sailToTower),
+      dungeon: () => attemptUnlockAndSail("towerDungeons", sailToDungeon),
       darkforest: () => { sailToDarkForest(); closeMap(); },
-      arena: () => { sailToArena(); closeMap(); },
+      arena: () => attemptUnlockAndSail("arena", sailToArena),
       leaderboard: () => { closeMap(); openArenaLeaderboardUi(); }
     };
     document.querySelectorAll(".wvw-landmass").forEach(el => {
