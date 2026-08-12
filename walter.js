@@ -1413,11 +1413,14 @@
   // Adding a 10th spell there would break both. It still unlocks the same
   // way as any other spell (crystals, shown in the Spells tab), but casts
   // from its own dedicated key (G), same pattern as the Cloak's C key.
-  const SPECIAL_SPELL_ORDER = ["ghostArmy"];
+  const SPECIAL_SPELL_ORDER = ["ghostArmy", "possession"];
   const SPECIAL_SPELLS = {
     // Cost/mana/cooldown weren't specified — priced near the rare spells
     // given how powerful "summon your whole fallen crew" reads.
-    ghostArmy: { label: "Ghost Army", cost: 30, manaCost: 30, cooldown: 3600, duration: 15 * 60 }
+    ghostArmy: { label: "Ghost Army", cost: 30, manaCost: 30, cooldown: 3600, duration: 15 * 60 },
+    // Cost/mana/cooldown weren't specified either — priced a notch above
+    // Ghost Army given the power of directly controlling an enemy.
+    possession: { label: "Possession", cost: 30, manaCost: 40, cooldown: 1800, duration: 15 * 60 }
   };
   Object.assign(SPELLS, SPECIAL_SPELLS);
   let ghosts; // temporary combat allies, one per dead crew member, cleared on cast expiry — never persisted (transient, like any other active effect)
@@ -1561,7 +1564,7 @@
     { key: "angel",       letter: "A" },
     { key: "teleport",    letter: "T" }
   ];
-  const ALL_SPELL_LETTERS = SPELL_LETTERS.concat(RARE_SPELL_LETTERS).concat([{ key: "ghostArmy", letter: "G" }]); // 10 total — one per amulet slot, plus Ghost Army (which has no default key of its own)
+  const ALL_SPELL_LETTERS = SPELL_LETTERS.concat(RARE_SPELL_LETTERS).concat([{ key: "ghostArmy", letter: "G" }, { key: "possession", letter: "P" }]); // 11 total — one per amulet slot, plus Ghost Army and Possession (neither has a default key of its own)
 
   /* ==================== Amulets ====================
      Boss-dropped, unique, 9 spell slots, no duplicates. A slot just
@@ -1669,6 +1672,9 @@
   let staffChargeHeld = false;
   let staffChargeTimer = 0;
   let staffPreviousSwordId = "default"; // what to switch back to when toggling the staff off with `
+  let possessedEnemy = null; // reference to the enemy currently under player control, or null
+  let possessionFramesLeft = 0;
+  let possessionOriginalX = 0, possessionOriginalY = 0, possessionOriginalFacing = 1;
   // Queued rather than fired instantly — if two milestones complete in
   // the same check (unlikely but possible right after loading a save),
   // this shows them one after another instead of overlapping.
@@ -2788,7 +2794,9 @@
     totalKills = 0;
     keysDown = new Set();
     spellCooldowns = { fireball: 0, lightning: 0, freeze: 0, summonAlly: 0, blackHole: 0,
-      mysticArmor: 0, demon: 0, angel: 0, teleport: 0, ghostArmy: 0 };
+      mysticArmor: 0, demon: 0, angel: 0, teleport: 0, ghostArmy: 0, possession: 0 };
+    possessedEnemy = null;
+    possessionFramesLeft = 0;
     spellUnlocked = new Set();
     ghosts = [];
     player.amuletsOwned = new Set();
@@ -2861,17 +2869,21 @@
     keysDown.add(e.code);
 
     if (e.code === "Space"){
-      const sword = getEquippedSword();
-      if (sword && sword.type === "staff"){
-        // Belt-and-suspenders alongside the e.repeat guard above — never
-        // reset an already-in-progress charge, even if this somehow
-        // fires twice for the same physical hold.
-        if (!staffChargeHeld){
-          staffChargeHeld = true;
-          staffChargeTimer = 0;
-        }
-      }else if (activeSpell) castSpell(activeSpell);
-      else meleeAttack();
+      if (possessedEnemy){
+        possessedEnemyAttack();
+      }else{
+        const sword = getEquippedSword();
+        if (sword && sword.type === "staff"){
+          // Belt-and-suspenders alongside the e.repeat guard above — never
+          // reset an already-in-progress charge, even if this somehow
+          // fires twice for the same physical hold.
+          if (!staffChargeHeld){
+            staffChargeHeld = true;
+            staffChargeTimer = 0;
+          }
+        }else if (activeSpell) castSpell(activeSpell);
+        else meleeAttack();
+      }
     }
 
     if (e.code === "Backquote"){
@@ -2933,7 +2945,8 @@
   /* ---------------- update ---------------- */
   function update(){
     frame++;
-    updatePlayerMovement();
+    if (!possessedEnemy) updatePlayerMovement();
+    updatePossession();
     updateCamera();
     updateCooldowns();
     updateMana();
@@ -3326,7 +3339,8 @@
   }
 
   function updateCamera(){
-    cameraX = clamp(player.x + PLAYER_W/2 - CANVAS_W/2, 0, Math.max(0, currentWorldWidth() - CANVAS_W));
+    const focusX = possessedEnemy ? possessedEnemy.x + possessedEnemy.w / 2 : player.x + PLAYER_W / 2;
+    cameraX = clamp(focusX - CANVAS_W/2, 0, Math.max(0, currentWorldWidth() - CANVAS_W));
   }
 
   function updateCooldowns(){
@@ -3642,6 +3656,80 @@
     });
   }
 
+  // The literal nearest living, non-cage, not-already-possessed enemy —
+  // no range cap, matching "the nearest enemy" as written with no
+  // distance qualifier.
+  function findNearestPossessableEnemy(){
+    let nearest = null, nearestDist = Infinity;
+    const px = player.x + PLAYER_W / 2, py = player.y + PLAYER_H / 2;
+    enemies.forEach(en => {
+      if (en.hp <= 0 || en.isCage || en.playerControlled) return;
+      const d = Math.hypot((en.x + en.w / 2) - px, (en.y + en.h / 2) - py);
+      if (d < nearestDist){ nearest = en; nearestDist = d; }
+    });
+    return nearest;
+  }
+
+  // Ticks every frame while possession is active. Movement is handled
+  // here directly from keysDown (mirroring how updatePlayerMovement
+  // reads arrow keys) rather than in that function, since the player's
+  // own body is frozen in place and invisible for the whole duration —
+  // simpler to keep this entirely separate than to thread a possession
+  // branch through every part of the existing movement/physics code.
+  function updatePossession(){
+    if (!possessedEnemy) return;
+    if (possessedEnemy.hp <= 0 || !enemies.includes(possessedEnemy)){
+      endPossession();
+      return;
+    }
+    possessionFramesLeft--;
+    if (possessionFramesLeft <= 0){
+      endPossession();
+      return;
+    }
+    // Deliberately a simplified, uniform control scheme rather than
+    // modeling each enemy type's own unique behavior (archer projectiles,
+    // wizard spellcasting, etc.) — ground-based left/right movement plus
+    // a melee-range attack using the possessed enemy's own damage stat,
+    // regardless of what kind of enemy it originally was. Building a
+    // fully bespoke playstyle per enemy type would be a much larger
+    // undertaking; this keeps the mechanic genuinely playable and fun
+    // without that scope.
+    const stats = ENEMY_STATS[possessedEnemy.type];
+    const speed = (stats && stats.speed ? stats.speed : 1.5) * 2; // enemy speed values are tuned for AI, not direct control — doubled to feel responsive
+    if (keysDown.has("ArrowLeft")){ possessedEnemy.x -= speed; possessedEnemy.facing = -1; }
+    if (keysDown.has("ArrowRight")){ possessedEnemy.x += speed; possessedEnemy.facing = 1; }
+    possessedEnemy.x = clamp(possessedEnemy.x, 0, currentWorldWidth() - possessedEnemy.w);
+  }
+
+  function endPossession(){
+    if (possessedEnemy) possessedEnemy.playerControlled = false;
+    possessedEnemy = null;
+    possessionFramesLeft = 0;
+    player.x = possessionOriginalX;
+    player.y = possessionOriginalY;
+    player.facing = possessionOriginalFacing;
+    if (DEBUG) console.log("[WvW] possession ended, control returned to the player's own body");
+  }
+
+  // Space's attack while possessing — a flat melee hit using the
+  // possessed enemy's own damage value, against every OTHER enemy
+  // (never itself), sharing meleeCooldown with the player's own melee
+  // so switching in/out of possession isn't a way to attack faster.
+  function possessedEnemyAttack(){
+    if (!possessedEnemy || meleeCooldown > 0) return;
+    meleeCooldown = MELEE_COOLDOWN;
+    const dir = possessedEnemy.facing >= 0 ? 1 : -1;
+    const hitX = dir > 0 ? possessedEnemy.x + possessedEnemy.w : possessedEnemy.x - MELEE_RANGE;
+    const dmg = possessedEnemy.scaledDamage || 10;
+    enemies.forEach(en => {
+      if (en === possessedEnemy || en.hp <= 0 || en.isCage) return;
+      if (rectsOverlap(hitX, possessedEnemy.y, MELEE_RANGE, possessedEnemy.h, en.x, en.y, en.w, en.h)){
+        damageEnemy(en, dmg);
+      }
+    });
+  }
+
   function castSpell(key){
     if (currentMap === "arena") return; // pure sword + bow combat only
     const cfg = SPELLS[key];
@@ -3650,7 +3738,10 @@
     // mana/cooldown, same as the other spells' implicit "always works
     // once affordable" contract; this one just has an extra condition.
     if (key === "ghostArmy" && !player.crew.some(c => c.status === "dead")) return;
-    const manaCost = key === "ghostArmy" ? cfg.manaCost
+    // Possession needs a valid target, and can't stack with itself —
+    // same "check before spending anything" pattern as Ghost Army above.
+    if (key === "possession" && (possessedEnemy || !findNearestPossessableEnemy())) return;
+    const manaCost = (key === "ghostArmy" || key === "possession") ? cfg.manaCost
       : RARE_SPELL_ORDER.includes(key) ? RARE_SPELL_MANA_COST : MANA_COST_PER_SPELL;
     if (player.mana < manaCost) return;
     spellCooldowns[key] = cfg.cooldown;
@@ -3764,6 +3855,17 @@
         });
       });
       if (DEBUG) console.log("[WvW] Ghost Army summoned — " + fallen.length + " fallen crew, " + (cfg.duration/60) + "s");
+    }else if (key === "possession"){
+      const target = findNearestPossessableEnemy();
+      if (target){
+        possessionOriginalX = player.x;
+        possessionOriginalY = player.y;
+        possessionOriginalFacing = player.facing;
+        possessedEnemy = target;
+        possessionFramesLeft = cfg.duration;
+        target.playerControlled = true;
+        if (DEBUG) console.log("[WvW] possessed a " + target.type + " for " + (cfg.duration/60) + "s");
+      }
     }
 
     if (DEBUG) console.log("[WvW] cast " + key);
@@ -3882,6 +3984,7 @@
   }
 
   function damagePlayer(amount, opts){
+    if (possessedEnemy) return; // the player's own body isn't present to be hit while possessing
     opts = opts || {};
     if (!opts.ignoreInvuln && player.invulnFrames > 0) return;
 
@@ -4173,6 +4276,11 @@
       // burning) still tick above — only aggro/movement/attack pauses.
       if (player.cloakActiveFramesLeft > 0) return;
       if (player.armorType === "goblin" && GOBLIN_ARMOR_PACIFIES.has(en.type)) return;
+      // Same pattern — a possessed enemy is under direct player control
+      // (updatePossession/possessedEnemyAttack), so its own AI dispatch
+      // below must not also run and fight for control of it. Status
+      // effects above still apply normally either way.
+      if (en.playerControlled) return;
 
       const stats = ENEMY_STATS[en.type];
       const enCx = en.x + en.w/2;
@@ -8140,6 +8248,7 @@
   }
 
   function drawPlayer(){
+    if (possessedEnemy) return; // the player's own body isn't present while possessing
     const x = worldToScreen(player.x);
     if (player.invulnFrames > 0 && Math.floor(frame / 4) % 2 === 0) return;
     const bodyColor = player.armorType === "leather" ? COLORS.playerLeather
@@ -10283,6 +10392,15 @@
     if (en.hp <= 0) return;
     const x = worldToScreen(en.x);
     if (x < -40 || x > CANVAS_W + 40) return;
+
+    if (en.playerControlled){
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + pulse * 0.4})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(x + en.w / 2, en.y + en.h + 4, en.w / 2 + 4 + pulse * 2, 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     if (en.type === "cage"){
       const w = en.w, h = en.h, y = en.y;
