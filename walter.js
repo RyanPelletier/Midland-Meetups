@@ -1437,7 +1437,12 @@
     dragonScale: { label: "Dragon Scale Armor", cost: 500, multiplier: 1.5, trait: "fireCharge" },
     // Tier-0 utility — no HP buffer at all (multiplier: 0). Its value is
     // the activated ability, not damage soak.
-    cloak:   { label: "Invisibility Cloak", cost: 200, multiplier: 0,   trait: "cloak" }
+    cloak:   { label: "Invisibility Cloak", cost: 200, multiplier: 0,   trait: "cloak" },
+    // Deliberately NOT added to ARMOR_ORDER below — that array drives
+    // the regular Shops tab listing, and this armor is meant to be
+    // purchasable only from the Castle menu's SOTGK section, matching
+    // its endgame status alongside the Sword of the Great King.
+    greatKing: { label: "Armor of the Great King", cost: 150000, multiplier: 3, trait: "greatKingCharge" }
   };
   // Tiered repair: standard armor is cheap to fix, special/trait armor costs more.
   const ARMOR_REPAIR_COST_STANDARD = 20;
@@ -2015,13 +2020,15 @@
   function updateBlacksmithAutoRepair(){
     if (currentMap !== "homebase") return;
     if (!player.crew.some(c => c.status === "blacksmith")) return;
-    ARMOR_ORDER.forEach(key => {
+    const tryRepair = key => {
       const inv = player.armorInventory[key];
       if (inv && inv.owned && inv.broken){
         inv.broken = false;
         if (key === player.armorType){ player.armorHp = player.armorMaxHp; player.armorBroken = false; }
       }
-    });
+    };
+    ARMOR_ORDER.forEach(tryRepair);
+    tryRepair("greatKing"); // not part of ARMOR_ORDER, needs its own explicit call
   }
 
   function assignCrewToLibrary(crewId){
@@ -2278,7 +2285,12 @@
           const inv = player.armorInventory[key];
           acc[key] = { owned: !!(inv && inv.owned), broken: !!(inv && inv.broken) };
           return acc;
-        }, {})
+        }, {
+          // Not part of ARMOR_ORDER (Castle-menu-only) so it needs its
+          // own explicit entry here, or a purchased Armor of the Great
+          // King would silently be lost on the next save/load.
+          greatKing: { owned: !!(player.armorInventory.greatKing && player.armorInventory.greatKing.owned), broken: !!(player.armorInventory.greatKing && player.armorInventory.greatKing.broken) }
+        })
       },
       amuletLibrary: {
         owned: AMULET_ORDER.filter(k => player.amuletsOwned.has(k)),
@@ -2576,6 +2588,11 @@
       const item = s.armorInventory.items[key];
       player.armorInventory[key] = { owned: !!(item && item.owned), broken: !!(item && item.broken) };
     });
+    // Not part of ARMOR_ORDER — needs its own explicit restoration, or
+    // a purchased Armor of the Great King would revert to unowned on
+    // every reload despite being correctly saved above.
+    const gkItem = s.armorInventory.items.greatKing;
+    player.armorInventory.greatKing = { owned: !!(gkItem && gkItem.owned), broken: !!(gkItem && gkItem.broken) };
     if (s.armorInventory.equipped && player.armorInventory[s.armorInventory.equipped] && player.armorInventory[s.armorInventory.equipped].owned){
       equipArmor(s.armorInventory.equipped);
     }
@@ -2788,6 +2805,10 @@
     player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
     player.eelChargeMeter = 0; // 0-100, builds from incoming lightning damage while Eel Skin Armor is equipped
     player.dragonChargeMeter = 0; // 0-100, builds from incoming fire damage while Dragon Scale Armor is equipped
+    player.greatKingChargeMeter = 0; // 0-100, builds from ANY incoming damage while Armor of the Great King is equipped
+    // Not part of ARMOR_ORDER (Castle-menu-only, not the regular Shops
+    // tab), so it needs its own manual inventory init here.
+    player.armorInventory.greatKing = { owned: false, broken: false };
     // Village Expansion state. Villagers wander and can be recruited;
     // once recruited they move into the crew roster and villagers[] is
     // regenerated to keep the village populated.
@@ -2824,6 +2845,14 @@
 
   /* ---------------- input ---------------- */
   function onKeyDown(e){
+    // Holding a key down fires repeated keydown events at the OS/browser
+    // level (after an initial delay), not just once on the real press —
+    // this was the actual staff-charge bug: staffChargeTimer got reset
+    // to 0 on every one of those repeat events, not just the initial
+    // press, so it could never accumulate past whatever interval the
+    // repeat rate happened to be. Guarding here fixes it at the root for
+    // every key, not just Space.
+    if (e.repeat) return;
     if (document.activeElement !== canvas) return;
     if (!started){ if (loginComplete) startGame(); return; }
     if (altarOpen || mapOpen || rareAltarOpen || townHallOpen || castleUiOpen || arenaLeaderboardOpen || libraryUiOpen || blacksmithUiOpen || trainingUiOpen || graveyardUiOpen || villagerMenuOpen) return; // menus have their own buttons, don't also move/attack behind them
@@ -2834,8 +2863,13 @@
     if (e.code === "Space"){
       const sword = getEquippedSword();
       if (sword && sword.type === "staff"){
-        staffChargeHeld = true;
-        staffChargeTimer = 0;
+        // Belt-and-suspenders alongside the e.repeat guard above — never
+        // reset an already-in-progress charge, even if this somehow
+        // fires twice for the same physical hold.
+        if (!staffChargeHeld){
+          staffChargeHeld = true;
+          staffChargeTimer = 0;
+        }
       }else if (activeSpell) castSpell(activeSpell);
       else meleeAttack();
     }
@@ -2856,6 +2890,7 @@
     if (e.code === "KeyC") activateCloak();
     if (e.code === "KeyE" && player.armorType === "eelSkin" && player.eelChargeMeter >= 100) dischargeEelSkin();
     if (e.code === "KeyE" && player.armorType === "dragonScale" && player.dragonChargeMeter >= 100) dischargeDragonScale();
+    if (e.code === "KeyE" && player.armorType === "greatKing" && player.greatKingChargeMeter >= 100) dischargeGreatKingArmor();
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
     if (e.code === "KeyQ" && nearMenuAction) openMenuForAction(nearMenuAction);
@@ -3440,6 +3475,8 @@
   // Reaching 100% charge fires a big lightning arc and resets — reuses
   // the same "nearest, not yet hit" arc helper the SOTGK's combos use.
   const DRAGON_SCALE_EXPLOSION_RADIUS = 140;
+  const GREAT_KING_ARMOR_COST_SILVER = 150000;
+  const GREAT_KING_EXPLOSION_RADIUS = 200; // larger than Dragon Scale's 140, reflecting its endgame status
   function dischargeDragonScale(){
     const explosionDamage = SPELLS.fireball.damage * spellDamageMultiplier() * 3;
     const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
@@ -3454,6 +3491,27 @@
     player.dragonChargeMeter = 0;
     effects.push({ type: "dragon-scale-explosion", x: originX, y: originY, radius: DRAGON_SCALE_EXPLOSION_RADIUS, life: 20 });
     if (DEBUG) console.log("[WvW] Dragon Scale discharged — explosion for " + Math.round(explosionDamage) + " within radius " + DRAGON_SCALE_EXPLOSION_RADIUS);
+  }
+
+  // A larger, more powerful version of Dragon Scale's discharge — pure
+  // white fire (reusing the whiteBurn variant already used by the
+  // SOTGK Ultimate and the Angel ally) instead of the normal red,
+  // matching the armor's own all-white visual identity.
+  function dischargeGreatKingArmor(){
+    const explosionDamage = SPELLS.fireball.damage * spellDamageMultiplier() * 5;
+    const originX = player.x + PLAYER_W/2, originY = player.y + PLAYER_H/2;
+    enemies.forEach(en => {
+      if (en.hp <= 0 || en.isCage) return;
+      const dx = (en.x + en.w/2) - originX, dy = (en.y + en.h/2) - originY;
+      if (Math.sqrt(dx*dx + dy*dy) < GREAT_KING_EXPLOSION_RADIUS){
+        damageEnemy(en, explosionDamage);
+        en.burningFrames = Math.max(en.burningFrames || 0, 90);
+        en.whiteBurn = true;
+      }
+    });
+    player.greatKingChargeMeter = 0;
+    effects.push({ type: "great-king-explosion", x: originX, y: originY, radius: GREAT_KING_EXPLOSION_RADIUS, life: 20 });
+    if (DEBUG) console.log("[WvW] Armor of the Great King discharged — white fire ring for " + Math.round(explosionDamage) + " within radius " + GREAT_KING_EXPLOSION_RADIUS);
   }
 
   function dischargeEelSkin(){
@@ -3840,6 +3898,11 @@
     // mitigation added — the spec only asked for the charge mechanic.
     if (opts.source === "fire" && player.armorType === "dragonScale"){
       player.dragonChargeMeter = Math.min(100, player.dragonChargeMeter + amount);
+    }
+    // Armor of the Great King: unlike the other trait armors above,
+    // charges from ANY damage source, not just one element.
+    if (player.armorType === "greatKing"){
+      player.greatKingChargeMeter = Math.min(100, player.greatKingChargeMeter + amount);
     }
 
     let remaining = amount;
@@ -8086,6 +8149,7 @@
       : player.armorType === "eelSkin" ? COLORS.eelSkinBody
       : player.armorType === "dragonScale" ? COLORS.dragonScaleBody
       : player.armorType === "cloak" ? COLORS.playerCloak
+      : player.armorType === "greatKing" ? "#FFFFFF"
       : COLORS.player;
 
     const wasCloaked = player.cloakActiveFramesLeft > 0;
@@ -10701,6 +10765,19 @@
       ctx.arc(x, fx.y, fx.radius * progress, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = 1;
+    }else if (fx.type === "great-king-explosion"){
+      const progress = 1 - fx.life / 20;
+      ctx.globalAlpha = 1 - progress;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius * progress * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(x, fx.y, fx.radius * progress, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }else if (fx.type === "lightning-chain"){
       ctx.strokeStyle = COLORS.lightning;
       ctx.lineWidth = 4;
@@ -10951,6 +11028,21 @@
       ctx.textAlign = "left";
       const dragonLabel = "dragon charge " + Math.floor(player.dragonChargeMeter) + "%" + (player.dragonChargeMeter >= 100 ? " — [E] discharge!" : "");
       ctx.fillText(dragonLabel, 138, chargeY + 6);
+    }
+    if (player.armorType === "greatKing"){
+      const chargeY = (player.armorType && player.armorMaxHp > 0) ? 38 : 27;
+      ctx.fillStyle = COLORS.armorBg;
+      ctx.fillRect(12, chargeY, 120, 6);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(12, chargeY, 120 * (player.greatKingChargeMeter / 100), 6);
+      ctx.strokeStyle = COLORS.hud;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(12, chargeY, 120, 6);
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 9px 'JetBrains Mono', monospace";
+      ctx.textAlign = "left";
+      const gkLabel = "great king charge " + Math.floor(player.greatKingChargeMeter) + "%" + (player.greatKingChargeMeter >= 100 ? " — [E] discharge!" : "");
+      ctx.fillText(gkLabel, 138, chargeY + 6);
     }
 
     ctx.fillStyle = COLORS.manaBg;
@@ -11763,6 +11855,15 @@
         }
       });
     }
+    const greatKingArmorBtn = document.getElementById("wvw-greatking-armor-buy-btn");
+    if (greatKingArmorBtn){
+      greatKingArmorBtn.addEventListener("click", () => {
+        if (buyArmor("greatKing")){
+          renderCastleUi();
+          saveProgress();
+        }
+      });
+    }
     document.getElementById("wvw-castle-close").addEventListener("click", closeCastleUi);
   }
 
@@ -11799,17 +11900,24 @@
   }
 
   function renderSOTGKSection(){
-    const owned = player.swordInventory.swords.some(s => s.id === "sotgk");
-    const affordable = player.silver >= SOTGK_COST_SILVER;
-    if (owned){
-      return `<p>The Castle stands rebuilt, restored to its former glory.</p>
-        <p style="opacity:0.8;font-size:0.85rem;">The Sword of the Great King already hangs at your side.</p>`;
-    }
-    return `<p>The Castle stands rebuilt, restored to its former glory.</p>
-      <p style="font-weight:700;margin:14px 0 4px;">Sword of the Great King</p>
-      ${renderSOTGKPreviewSVG()}
-      <p style="opacity:0.85;font-size:0.85rem;">The ultimate endgame weapon — a crystalline blade that stacks Lightning, Fire, and Freeze simultaneously, unlike any other sword.</p>
-      <button type="button" class="btn" id="wvw-sotgk-buy-btn" ${affordable ? "" : "disabled"}>Forge the Sword of the Great King (${SOTGK_COST_SILVER.toLocaleString()} silver)</button>`;
+    const swordOwned = player.swordInventory.swords.some(s => s.id === "sotgk");
+    const swordAffordable = player.silver >= SOTGK_COST_SILVER;
+    const swordSection = swordOwned
+      ? `<p style="opacity:0.8;font-size:0.85rem;">The Sword of the Great King already hangs at your side.</p>`
+      : `<p style="font-weight:700;margin:14px 0 4px;">Sword of the Great King</p>
+         ${renderSOTGKPreviewSVG()}
+         <p style="opacity:0.85;font-size:0.85rem;">The ultimate endgame weapon — a crystalline blade that stacks Lightning, Fire, and Freeze simultaneously, unlike any other sword.</p>
+         <button type="button" class="btn" id="wvw-sotgk-buy-btn" ${swordAffordable ? "" : "disabled"}>Forge the Sword of the Great King (${SOTGK_COST_SILVER.toLocaleString()} silver)</button>`;
+
+    const armorOwned = player.armorInventory.greatKing && player.armorInventory.greatKing.owned;
+    const armorAffordable = player.silver >= GREAT_KING_ARMOR_COST_SILVER;
+    const armorSection = armorOwned
+      ? `<p style="opacity:0.8;font-size:0.85rem;">The Armor of the Great King already shields you.</p>`
+      : `<p style="font-weight:700;margin:14px 0 4px;">Armor of the Great King</p>
+         <p style="opacity:0.85;font-size:0.85rem;">Forged in pure white. Charges from any damage taken — once full, press [E] to release a ring of white fire.</p>
+         <button type="button" class="btn" id="wvw-greatking-armor-buy-btn" ${armorAffordable ? "" : "disabled"}>Forge Armor of the Great King (${GREAT_KING_ARMOR_COST_SILVER.toLocaleString()} silver)</button>`;
+
+    return `<p>The Castle stands rebuilt, restored to its former glory.</p>${swordSection}${armorSection}`;
   }
 
   function renderRareAltar(){
