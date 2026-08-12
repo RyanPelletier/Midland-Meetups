@@ -4712,6 +4712,13 @@
 
   const WIZARD_TYPES = new Set(WIZARD_TIERS.map(t => t.key));
 
+  // Computes a proper aim vector toward the player's actual position
+  // (both x and y), not just a left/right sign — this is what actually
+  // lets these projectiles hit a player who's above or below the
+  // shooter (on a platform, ladder, etc.), which a horizontal-only
+  // velocity never could. Applies to every projectile type that goes
+  // through this shared function, since they all share this one code
+  // path across every game mode archers (and fairy/siren/cultist) appear in.
   function fireEnemyProjectile(en, dir){
     const stats = ENEMY_STATS[en.type];
     const type = en.type === "archer" ? "arrow"
@@ -4727,8 +4734,14 @@
       fireWizardLightning(en);
       return;
     }
+    const fromX = en.x + en.w/2, fromY = en.y + en.h/2;
+    const targetX = player.x + PLAYER_W/2, targetY = player.y + PLAYER_H/2;
+    const dx = targetX - fromX, dy = targetY - fromY;
+    const dist = Math.hypot(dx, dy) || 1;
     enemyProjectiles.push({
-      type, x: en.x + en.w/2, y: en.y + en.h/2, vx: stats.projectileSpeed * dir,
+      type, x: fromX, y: fromY,
+      vx: (dx / dist) * stats.projectileSpeed,
+      vy: (dy / dist) * stats.projectileSpeed,
       damage: en.scaledDamage, sourceType: en.type
     });
   }
@@ -4928,7 +4941,7 @@
     });
     playerProjectiles = playerProjectiles.filter(p => !p.hit && p.x > -30 && p.x < currentWorldWidth() + 30);
 
-    enemyProjectiles.forEach(p => { p.x += p.vx; });
+    enemyProjectiles.forEach(p => { p.x += p.vx; p.y += (p.vy || 0); });
 
     enemyProjectiles.forEach(p => {
       if (!p.hit && hitsTree(p.x, p.y)) p.hit = true;
@@ -6212,6 +6225,14 @@
   }
 
   function drawCastlewallsZone(z){
+    // The actual bug: this decoration function was additive-only by
+    // design (banners/torches/gate on top of an assumed-existing wall),
+    // but nothing in the Generated Lands dispatch ever actually drew the
+    // base stone wall texture for this biome — it only ever called this
+    // function. Every other fixed-zone castle wall calls
+    // drawCastleWallBackdrop() separately; this biome never did.
+    drawCastleWallBackdrop(z.start, z.end);
+
     for (let wx = z.start + 90; wx < z.end; wx += 230){
       const sx = worldToScreen(wx);
       if (sx < -45 || sx > CANVAS_W + 45) continue;
