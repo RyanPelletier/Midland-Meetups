@@ -197,8 +197,13 @@
     crowsNestDark: "#2E2214",
     crowsNestTrim: "#6B4A28",
     ground: "#1F2430",
-    tower: "#8B5A2B",
-    towerDark: "#6B4222",
+    tower: "#3A322C",
+    towerDark: "#241E1A",
+    houseFireRoof: "#2E2622",
+    houseFireRoofDark: "#1A1512",
+    houseFireDoor: "#0D0A08",
+    houseFireWindowFrame: "#4A3F37",
+    houseFireCrack: "#151110",
     ladder: "#C9922A",
     chest: "#B8860B",
     treeTrunk: "#6B4222",
@@ -306,12 +311,14 @@
     { x: BOAT_CHEST_X, w: CHEST_W, h: CHEST_H }
   ];
   const WALKUP_ALTARS_HOME = [
-    { x: BOAT_ALTAR_X, w: 36, h: 46, action: "altar" }
+    { x: BOAT_ALTAR_X, w: 36, h: 46, action: "altar" },
+    // The burning house replaces the old climbable tower ladder — a
+    // house is walked into, not climbed up the outside of.
+    { x: TOWER_X, w: 44, h: 50, action: "altar" }
   ];
   // Climbable points: ladder position, how high it goes, and what opens
   // once you reach the top.
   const CLIMB_POINTS_HOME = [
-    { x: TOWER_X,     halfWidth: LADDER_HALF_WIDTH,     zone: "tower", topY: ALTAR_Y, action: "altar" },
     { x: CROWSNEST_X, halfWidth: CROWSNEST_HALF_WIDTH,  zone: "water", topY: MAP_Y,   action: "map"   }
   ];
 
@@ -1680,6 +1687,8 @@
   // this shows them one after another instead of overlapping.
   let milestoneNotificationQueue = [];
   let activeMilestoneNotification = null; // { label, life }
+  let guideMessageQueue = [];
+  let activeGuideMessage = null; // { text, life }
   // The Dark Forest — endless, so unlike every other map this is never
   // rebuilt wholesale on entry. Zones get appended progressively as the
   // player approaches the generated edge, and old zones well behind the
@@ -2331,7 +2340,13 @@
       flags: {
         crewHired: !!player.crewHired,
         land1ChestCollected: !!player.land1ChestCollected,
-        areaUnlocks: Object.assign({ land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false }, player.areaUnlocks || {})
+        areaUnlocks: Object.assign({ land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false }, player.areaUnlocks || {}),
+        guideEnabled: player.guideEnabled === null ? null : !!player.guideEnabled,
+        hasSeenIntroMessage: !!player.hasSeenIntroMessage,
+        hasSeenFirstCombatMessage: !!player.hasSeenFirstCombatMessage,
+        hasSeenCurrencyMessage: !!player.hasSeenCurrencyMessage,
+        hasSeenArmorBrokenMessage: !!player.hasSeenArmorBrokenMessage,
+        hasSeenCrystalMessage: !!player.hasSeenCrystalMessage
       }
     };
   }
@@ -2589,6 +2604,12 @@
     player.crewHired = s.flags.crewHired;
     player.land1ChestCollected = s.flags.land1ChestCollected;
     player.areaUnlocks = Object.assign({ land1: false, land2: false, towerDungeons: false, generatedLands: false, arena: false }, s.flags.areaUnlocks || {});
+    player.guideEnabled = (s.flags.guideEnabled === undefined) ? null : s.flags.guideEnabled;
+    player.hasSeenIntroMessage = !!s.flags.hasSeenIntroMessage;
+    player.hasSeenFirstCombatMessage = !!s.flags.hasSeenFirstCombatMessage;
+    player.hasSeenCurrencyMessage = !!s.flags.hasSeenCurrencyMessage;
+    player.hasSeenArmorBrokenMessage = !!s.flags.hasSeenArmorBrokenMessage;
+    player.hasSeenCrystalMessage = !!s.flags.hasSeenCrystalMessage;
     s.spells.unlocked.forEach(key => spellUnlocked.add(key));
     ARMOR_ORDER.forEach(key => {
       const item = s.armorInventory.items[key];
@@ -2708,6 +2729,24 @@
     if (DEBUG) console.log("[WvW] Staff beam fired: " + element + ", hit " + hitEnemies.length + " enemies");
   }
 
+  // Call this from anywhere a tutorial/story beat should fire. No-ops
+  // entirely if the player has opted out — callers don't need their own
+  // guideEnabled check.
+  function showGuideMessage(text){
+    if (!player.guideEnabled) return;
+    guideMessageQueue.push(text);
+  }
+
+  function updateGuideMessages(){
+    if (activeGuideMessage){
+      activeGuideMessage.life--;
+      if (activeGuideMessage.life <= 0) activeGuideMessage = null;
+    }
+    if (!activeGuideMessage && guideMessageQueue.length > 0){
+      activeGuideMessage = { text: guideMessageQueue.shift(), life: 420 }; // 7s at 60fps — narrative sentences, meant to actually be read, not a quick status ping
+    }
+  }
+
   function updateMilestones(){
     if (milestoneCheckCooldown > 0){
       milestoneCheckCooldown--;
@@ -2764,6 +2803,8 @@
     completedMilestoneIds = new Set();
     milestoneNotificationQueue = [];
     activeMilestoneNotification = null;
+    guideMessageQueue = [];
+    activeGuideMessage = null;
     staffChargeHeld = false;
     staffChargeTimer = 0;
     staffPreviousSwordId = "default";
@@ -2806,10 +2847,24 @@
       equippedSwordId: "default"
     };
     ARMOR_ORDER.forEach(key => { player.armorInventory[key] = { owned: false, broken: false }; });
+    // Starting gear — the player begins with basic leather armor
+    // equipped, so there's something for it to actually break later.
+    player.armorInventory.leather.owned = true;
+    equipArmor("leather");
     player.amuletSlots = {}; // { amuletKey: [9 slots, spell key or null] }, populated as amulets are earned
     player.houseLevels = {}; // { houseId: level }, 0 or absent = decrepit/unremodeled
     HOMEBASE_HOUSES.forEach(h => { player.houseLevels[h.id] = 0; });
     player.castleRebuilt = false;
+    // Guide text: null means "never asked yet" (distinct from an
+    // explicit false choice), so the opt-in prompt only shows once per
+    // save. The one-time story beats each get their own flag since even
+    // with guide text left enabled, they shouldn't repeat every session.
+    player.guideEnabled = null;
+    player.hasSeenIntroMessage = false;
+    player.hasSeenFirstCombatMessage = false;
+    player.hasSeenCurrencyMessage = false;
+    player.hasSeenArmorBrokenMessage = false;
+    player.hasSeenCrystalMessage = false;
     player.shrineLevel = 0; // decrepit until remodeled, then each level adds +20% mana regen
     player.eelChargeMeter = 0; // 0-100, builds from incoming lightning damage while Eel Skin Armor is equipped
     player.dragonChargeMeter = 0; // 0-100, builds from incoming fire damage while Dragon Scale Armor is equipped
@@ -2902,6 +2957,10 @@
     if (e.code === "KeyC") activateCloak();
     if (e.code === "KeyE" && player.armorType === "eelSkin" && player.eelChargeMeter >= 100) dischargeEelSkin();
     if (e.code === "KeyE" && player.armorType === "dragonScale" && player.dragonChargeMeter >= 100) dischargeDragonScale();
+    if (e.code === "KeyH"){
+      player.guideEnabled = !player.guideEnabled;
+      if (DEBUG) console.log("[WvW] guide text " + (player.guideEnabled ? "enabled" : "disabled"));
+    }
     if (e.code === "KeyE" && player.armorType === "greatKing" && player.greatKingChargeMeter >= 100) dischargeGreatKingArmor();
 
     if (e.code === "KeyT" && nearVillagerId && !villagerMenuOpen) openVillagerMenu(nearVillagerId);
@@ -2909,8 +2968,7 @@
     if (e.code === "KeyQ" && nearCage) pickLockCage(nearCage);
 
     if (e.code === "ArrowUp"){
-      const onLadderNow = Math.abs(player.x + PLAYER_W/2 - TOWER_X) < LADDER_HALF_WIDTH && currentZone(player.x) === "tower";
-      if (!onLadderNow) jumpIfGrounded();
+      jumpIfGrounded();
     }
 
     const numMatch = e.code.match(/^Digit([1-9])$/);
@@ -2958,6 +3016,7 @@
     if (currentMap === "darkforest"){ ensureDarkForestGenerated(); updateDarkForestBiomeIndex(); }
     updateArenaProgress();
     updateMilestones();
+    updateGuideMessages();
     updateStaffCharge();
     updateArenaBow();
     updateVillagerProximity();
@@ -3930,10 +3989,18 @@
       if (ENEMY_STATS[en.type].dropsCrystal){
         player.carriedCrystals += CRYSTAL_PER_WIZARD;
         if (DEBUG) console.log("[WvW] " + en.type + " defeated, crystal carried=" + player.carriedCrystals);
+        if (WIZARD_TYPES.has(en.type) && !player.hasSeenCrystalMessage){
+          player.hasSeenCrystalMessage = true;
+          showGuideMessage("Use crystals from defeated wizards to purchase spells in the shop.");
+        }
       }
       if (ENEMY_STATS[en.type].dropsSilver){
         player.silver += SILVER_PER_KNIGHT;
         if (DEBUG) console.log("[WvW] " + en.type + " defeated, silver=" + player.silver);
+        if (en.type === "knight" && !player.hasSeenCurrencyMessage){
+          player.hasSeenCurrencyMessage = true;
+          showGuideMessage("Use silver from defeated enemies to buy upgrades in the shop.");
+        }
       }
       if (en.type === "cyclops" && !player.amuletsOwned.has("cyclopsEye")){
         player.amuletsOwned.add("cyclopsEye");
@@ -4018,6 +4085,10 @@
         player.armorBroken = true; // depleted, not deleted — repairable at an altar
         if (player.armorInventory[player.armorType]) player.armorInventory[player.armorType].broken = true;
         if (DEBUG) console.log("[WvW] " + player.armorType + " armor broke");
+        if (!player.hasSeenArmorBrokenMessage){
+          player.hasSeenArmorBrokenMessage = true;
+          showGuideMessage("Armor is broken! Armor can be repaired in the shop.");
+        }
       }
     }
     if (remaining > 0) player.hp -= remaining;
@@ -5410,7 +5481,7 @@
     }else{
       drawWater();
       drawCastleWalls();
-      drawTower();
+      drawBurningHouse();
       drawBoat();
     }
     drawChest();
@@ -5426,8 +5497,10 @@
     drawMenuPrompt();
     drawHud();
     drawMilestoneTracker();
+    drawGuideToggleIndicator();
     drawStaffChargeIndicator();
     drawMilestoneNotification();
+    drawGuideMessage();
     drawRespawnMessage();
   }
 
@@ -7570,27 +7643,84 @@
     ctx.stroke();
   }
 
-  function drawTower(){
-    const x = worldToScreen(TOWER_X - LADDER_HALF_WIDTH - 10);
-    const w = (LADDER_HALF_WIDTH + 10) * 2;
-    const topY = ALTAR_Y - 20;
-    ctx.fillStyle = COLORS.tower;
-    ctx.fillRect(x, topY, w, GROUND_Y - topY);
-    ctx.fillStyle = COLORS.towerDark;
-    ctx.fillRect(x, topY, w, 14);
+  // Replaces the old climbable tower — the very last unpolished visual
+  // element in the game, per the graphics-overhaul work done everywhere
+  // else. This is where the player's journey begins: a village house,
+  // engulfed in flames, that also doubles as the chest and shop (walked
+  // into now, not climbed — see WALKUP_ALTARS_HOME).
+  function drawBurningHouse(){
+    const houseW = 44, houseH = 50;
+    const x = worldToScreen(TOWER_X - houseW / 2);
+    const topY = GROUND_Y - houseH;
 
-    ctx.strokeStyle = COLORS.ladder;
-    ctx.lineWidth = 3;
-    for (let y = topY + 20; y < GROUND_Y; y += 22){
+    // charred wall
+    ctx.fillStyle = COLORS.tower;
+    ctx.fillRect(x, topY + 12, houseW, houseH - 12);
+
+    // damaged, collapsing roofline — asymmetric, unlike a normal house's clean triangle
+    ctx.fillStyle = COLORS.houseFireRoofDark;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, topY + 14);
+    ctx.lineTo(x + houseW * 0.4, topY - 8);
+    ctx.lineTo(x + houseW * 0.75, topY + 2);
+    ctx.lineTo(x + houseW + 4, topY + 16);
+    ctx.lineTo(x + houseW - 3, topY + 20);
+    ctx.lineTo(x + houseW * 0.4, topY + 4);
+    ctx.lineTo(x + 3, topY + 18);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.houseFireRoof;
+    ctx.beginPath();
+    ctx.moveTo(x, topY + 12);
+    ctx.lineTo(x + houseW * 0.4, topY - 2);
+    ctx.lineTo(x + houseW * 0.72, topY + 6);
+    ctx.lineTo(x + houseW, topY + 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // empty, gutted doorway
+    ctx.fillStyle = COLORS.houseFireDoor;
+    ctx.fillRect(x + houseW * 0.36, GROUND_Y - 26, houseW * 0.28, 26);
+
+    // cracked, broken windows
+    for (const side of [0.14, 0.72]){
+      const wx = x + houseW * side;
+      ctx.fillStyle = COLORS.houseFireDoor;
+      ctx.fillRect(wx, topY + 24, 9, 9);
+      ctx.strokeStyle = COLORS.houseFireWindowFrame;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(wx, topY + 24, 9, 9);
+      ctx.strokeStyle = COLORS.houseFireCrack;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(worldToScreen(TOWER_X - LADDER_HALF_WIDTH + 4), y);
-      ctx.lineTo(worldToScreen(TOWER_X + LADDER_HALF_WIDTH - 4), y);
+      ctx.moveTo(wx + 2, topY + 24);
+      ctx.lineTo(wx + 6, topY + 29);
+      ctx.lineTo(wx + 3, topY + 33);
       ctx.stroke();
     }
 
+    // flames licking up from the roofline and windows — reuses the
+    // existing burn-effect utility rather than building new fire logic
+    drawBurningFlames(x, topY - 6, houseW, 26, "red");
+
+    // drifting smoke, same pattern as the homebase houses' chimney smoke
+    const drift = Math.sin(frame * 0.02) * 3;
+    ctx.fillStyle = COLORS.smoke;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(x + houseW * 0.5 + drift, topY - 30, 7, 0, Math.PI * 2);
+    ctx.arc(x + houseW * 0.5 + drift * 1.4, topY - 42, 9, 0, Math.PI * 2);
+    ctx.arc(x + houseW * 0.5 + drift * 1.8, topY - 56, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // interaction glow, same marker style as every other altar/shop
+    // entry point, repositioned near the doorway now that this is a
+    // walkup interaction rather than a climb-to-the-top one
     ctx.fillStyle = COLORS.altarGlow;
     ctx.beginPath();
-    ctx.arc(worldToScreen(TOWER_X), topY - 10, 8, 0, Math.PI * 2);
+    ctx.arc(worldToScreen(TOWER_X), GROUND_Y - 32, 8, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -11040,6 +11170,58 @@
   // holds, then fades. Matches the ancient-scroll menu palette for
   // visual consistency, drawn directly on canvas (not an HTML overlay)
   // since it must never pause or block gameplay.
+  // Simple greedy word-wrap — no existing helper for this in the
+  // codebase, and these are full narrative sentences that need it,
+  // unlike every other piece of HUD text which is short enough to fit
+  // on one line.
+  function wrapTextLines(text, maxWidth){
+    const words = text.split(" ");
+    const lines = [];
+    let current = "";
+    words.forEach(word => {
+      const test = current ? current + " " + word : word;
+      if (ctx.measureText(test).width > maxWidth && current){
+        lines.push(current);
+        current = word;
+      }else{
+        current = test;
+      }
+    });
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  // Bottom of the screen, distinct from the milestone banner up top, so
+  // a story beat and a milestone completion can never visually collide.
+  function drawGuideMessage(){
+    if (!activeGuideMessage) return;
+    const totalLife = 420, fadeInFrames = 15, fadeOutFrames = 30;
+    let alpha = 1;
+    if (activeGuideMessage.life > totalLife - fadeInFrames){
+      alpha = (totalLife - activeGuideMessage.life) / fadeInFrames;
+    }else if (activeGuideMessage.life < fadeOutFrames){
+      alpha = activeGuideMessage.life / fadeOutFrames;
+    }
+    ctx.save();
+    ctx.font = "600 12px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    const lines = wrapTextLines(activeGuideMessage.text, 360);
+    const lineHeight = 18;
+    const bannerW = 400, bannerH = 24 + lines.length * lineHeight;
+    const bx = CANVAS_W / 2 - bannerW / 2, by = CANVAS_H - bannerH - 16;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#E8D5A8";
+    ctx.fillRect(bx, by, bannerW, bannerH);
+    ctx.strokeStyle = "#8B6B4A";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, bannerW, bannerH);
+    ctx.fillStyle = "#5C3E1C";
+    lines.forEach((line, i) => {
+      ctx.fillText(line, CANVAS_W / 2, by + 20 + i * lineHeight);
+    });
+    ctx.restore();
+  }
+
   function drawMilestoneNotification(){
     if (!activeMilestoneNotification) return;
     const n = activeMilestoneNotification;
@@ -11090,6 +11272,27 @@
     ctx.strokeStyle = COLORS.hud;
     ctx.lineWidth = 1;
     ctx.strokeRect(sx - barW / 2, barY, barW, barH);
+  }
+
+  // Persistent, always-visible toggle indicator — bottom-left, since
+  // bottom-right is the milestone tracker and both top corners are
+  // already busy with HP/armor/mana bars and status text.
+  function drawGuideToggleIndicator(){
+    const text = "[H] Guide: " + (player.guideEnabled ? "ON" : "OFF");
+    ctx.save();
+    ctx.font = "700 10px 'JetBrains Mono', monospace";
+    const textW = ctx.measureText(text).width;
+    const padX = 10, boxW = textW + padX * 2, boxH = 20;
+    const bx = 10, by = CANVAS_H - boxH - 10;
+    ctx.fillStyle = "rgba(232,213,168,0.88)";
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.strokeStyle = "#8B6B4A";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, boxW, boxH);
+    ctx.fillStyle = "#5C3E1C";
+    ctx.textAlign = "left";
+    ctx.fillText(text, bx + padX, by + 14);
+    ctx.restore();
   }
 
   function drawMilestoneTracker(){
@@ -11246,10 +11449,59 @@
   function startGame(){
     resetState();
     applyLoadedProgress();
+    if (player.guideEnabled === null){
+      showGuideOptInPrompt();
+    }else{
+      actuallyStartGame();
+    }
+  }
+
+  // Both the scripted knight spawn and the message are gated behind
+  // guide text — the spec frames this whole set of 5 triggers as
+  // "subject to the guide toggle", so with it off, the player just
+  // starts normally with no forced encounter.
+  function triggerFirstCombat(){
+    if (!player.guideEnabled || player.hasSeenFirstCombatMessage) return;
+    player.hasSeenFirstCombatMessage = true;
+    const stats = ENEMY_STATS.knight;
+    enemies.push({
+      type: "knight", x: player.x + 120, y: GROUND_Y - stats.h, w: stats.w, h: stats.h,
+      hp: stats.hp, maxHp: stats.hp, scaledDamage: stats.damage,
+      attackCooldown: 0, frozenFrames: 0, burningFrames: 0, counted: false
+    });
+    showGuideMessage("You will have to fight for your freedom.");
+  }
+
+  function actuallyStartGame(){
     started = true;
     hideOverlay();
     canvas.focus();
     loop();
+    if (!player.hasSeenIntroMessage){
+      showGuideMessage("There is nothing left for you here. It's time to leave.");
+      player.hasSeenIntroMessage = true;
+    }
+    triggerFirstCombat();
+  }
+
+  function showGuideOptInPrompt(){
+    overlay.style.display = "flex";
+    overlayInner.innerHTML = `
+      <h3>Guide Text</h3>
+      <p>Would you like helpful guide messages to appear as you play? You can turn this on or off anytime from the in-game HUD.</p>
+      <button type="button" class="btn" id="wvw-guide-yes-btn">Yes, show guide text</button>
+      <button type="button" class="btn light" id="wvw-guide-no-btn" style="margin-left:8px;">No thanks</button>
+    `;
+    document.getElementById("wvw-guide-yes-btn").addEventListener("click", () => {
+      player.guideEnabled = true;
+      saveProgress();
+      actuallyStartGame();
+    });
+    document.getElementById("wvw-guide-no-btn").addEventListener("click", () => {
+      player.guideEnabled = false;
+      saveProgress();
+      actuallyStartGame();
+    });
   }
 
   function hideOverlay(){ overlay.style.display = "none"; }
