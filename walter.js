@@ -225,6 +225,9 @@
     staffShaft: "#5A3D24",
     staffBinding: "#3D2A16",
     staffOrbNeutral: "#8B7AB8",
+    bowLimb: "#5A3D24",
+    bowString: "#D9D2C0",
+    bowArrowShaft: "#8B6B4A",
     swordHiltSOTGK: "#6B4A2A", // brown leather-wrapped hilt, per the SOTGK spec
     sotgkBladeEdge: "#F5F0E6", sotgkBladeCore: "#8A8FA0", // bright white edge, opaque bright grey core
     sotgkUltimate: "#F5D742", // gold glow when all three elements are stacked
@@ -1243,6 +1246,11 @@
   const SOTGK_COST_SILVER = 100000;
   const WHITE_ASH_SWORD_COST_SILVER = 800; // Blacksmith-tier weapon, not a late-game unlock like the SOTGK — required to fight Skin Walkers at all, so it needs to be reasonably reachable
   const STAFF_COST_SILVER = 50;
+  const BOW_COST_SILVER = 50;
+  const BOW_CHARGE_FRAMES = 18; // 0.3 seconds at 60fps — a quick drawback, unlike the staff's longer 3s charge
+  const BOW_QUICK_SHOT_DAMAGE = 15; // roughly half of melee's 30 - a tap is a weak, quick shot
+  const BOW_CHARGED_SHOT_DAMAGE = 45; // 1.5x melee - rewards holding the full charge
+  const BOW_ARROW_SPEED = 9;
   const STAFF_CHARGE_FRAMES = 180; // 3 seconds at 60fps
   const STAFF_CHARGE_SPELLS = new Set(["fireball", "lightning", "freeze", "blackHole"]); // the only spells the staff's beam charge-up supports
   const STAFF_MELEE_DAMAGE = 18; // a plain tap-hit, distinct from the sword's own MELEE_DAMAGE and from the charged beam
@@ -1678,7 +1686,9 @@
   let milestoneCheckCooldown = 0;
   let staffChargeHeld = false;
   let staffChargeTimer = 0;
-  let staffPreviousSwordId = "default"; // what to switch back to when toggling the staff off with `
+  let bowChargeHeld = false;
+  let bowChargeTimer = 0;
+  let lastEquippedSwordId = "default"; // what "sword" means when cycling weapons with `
   let possessedEnemy = null; // reference to the enemy currently under player control, or null
   let possessionFramesLeft = 0;
   let possessionOriginalX = 0, possessionOriginalY = 0, possessionOriginalFacing = 1;
@@ -2675,6 +2685,31 @@
     }
   }
 
+  function updateBowCharge(){
+    if (!bowChargeHeld) return;
+    const sword = getEquippedSword();
+    if (!sword || sword.type !== "bow"){ bowChargeHeld = false; bowChargeTimer = 0; return; }
+    bowChargeTimer++;
+    if (bowChargeTimer >= BOW_CHARGE_FRAMES){
+      fireBowArrow(true);
+      bowChargeHeld = false;
+      bowChargeTimer = 0;
+    }
+  }
+
+  // charged=true for a full 3-second hold (BOW_CHARGED_SHOT_DAMAGE),
+  // false for a quick tap released early (BOW_QUICK_SHOT_DAMAGE) —
+  // same tap-vs-hold structure as the staff, adapted for a projectile
+  // instead of a beam/melee pair.
+  function fireBowArrow(charged){
+    const dir = player.facing >= 0 ? 1 : -1;
+    playerProjectiles.push({
+      type: "arrow", x: player.x + PLAYER_W / 2, y: player.y + PLAYER_H / 2,
+      vx: BOW_ARROW_SPEED * dir, damage: charged ? BOW_CHARGED_SHOT_DAMAGE : BOW_QUICK_SHOT_DAMAGE
+    });
+    if (DEBUG) console.log("[WvW] fired a " + (charged ? "charged" : "quick") + " arrow");
+  }
+
   // If the spell selected isn't one of the 4 the staff supports, or
   // there isn't enough mana, the charge simply fizzles — no partial
   // effect, no refund needed since nothing was spent yet.
@@ -2807,7 +2842,9 @@
     activeGuideMessage = null;
     staffChargeHeld = false;
     staffChargeTimer = 0;
-    staffPreviousSwordId = "default";
+    bowChargeHeld = false;
+    bowChargeTimer = 0;
+    lastEquippedSwordId = "default";
     player = {
       x: TOWER_X, y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, onLadder: false,
       facing: 1, hp: PLAYER_MAX_HP,
@@ -2936,22 +2973,18 @@
             staffChargeHeld = true;
             staffChargeTimer = 0;
           }
+        }else if (sword && sword.type === "bow"){
+          if (!bowChargeHeld){
+            bowChargeHeld = true;
+            bowChargeTimer = 0;
+          }
         }else if (activeSpell) castSpell(activeSpell);
         else meleeAttack();
       }
     }
 
     if (e.code === "Backquote"){
-      const hasStaff = player.swordInventory.swords.some(s => s.id === "staff");
-      if (hasStaff){
-        const current = getEquippedSword();
-        if (current && current.type === "staff"){
-          equipSword(staffPreviousSwordId);
-        }else{
-          staffPreviousSwordId = current ? current.id : "default";
-          equipSword("staff");
-        }
-      }
+      cycleWeapon();
     }
 
     if (e.code === "KeyC") activateCloak();
@@ -2989,6 +3022,13 @@
       }
       staffChargeTimer = 0;
     }
+    if (e.code === "Space" && bowChargeHeld){
+      bowChargeHeld = false;
+      if (bowChargeTimer < BOW_CHARGE_FRAMES){
+        fireBowArrow(false); // released early - a quick, weak shot
+      }
+      bowChargeTimer = 0;
+    }
   }
 
   function handleTap(clientX){
@@ -3018,6 +3058,7 @@
     updateMilestones();
     updateGuideMessages();
     updateStaffCharge();
+    updateBowCharge();
     updateArenaBow();
     updateVillagerProximity();
     updateCrewTimers();
@@ -3475,6 +3516,44 @@
   }
 
   /* ---------------- combat: player ---------------- */
+  const WEAPON_CYCLE_ORDER = ["bow", "sword", "staff"];
+
+  function weaponCategoryOf(sword){
+    if (sword && sword.type === "staff") return "staff";
+    if (sword && sword.type === "bow") return "bow";
+    return "sword"; // default/whiteAsh/sotgk all count as "sword"
+  }
+
+  // Cycles bow -> sword -> staff -> bow ..., skipping any category the
+  // player doesn't currently own (sword is always ownable, at minimum
+  // the starting default sword). Remembers whichever actual sword
+  // (default/whiteAsh/sotgk) was last equipped, so cycling back to the
+  // sword category restores the right one rather than always the
+  // starting default.
+  function cycleWeapon(){
+    const current = getEquippedSword();
+    const currentCategory = weaponCategoryOf(current);
+    if (currentCategory === "sword" && current) lastEquippedSwordId = current.id;
+
+    let idx = WEAPON_CYCLE_ORDER.indexOf(currentCategory);
+    for (let i = 0; i < WEAPON_CYCLE_ORDER.length; i++){
+      idx = (idx + 1) % WEAPON_CYCLE_ORDER.length;
+      const category = WEAPON_CYCLE_ORDER[idx];
+      if (category === "staff" && player.swordInventory.swords.some(s => s.id === "staff")){
+        equipSword("staff");
+        return;
+      }
+      if (category === "bow" && player.swordInventory.swords.some(s => s.id === "bow")){
+        equipSword("bow");
+        return;
+      }
+      if (category === "sword"){
+        equipSword(lastEquippedSwordId || "default");
+        return;
+      }
+    }
+  }
+
   function getEquippedSword(){
     return player.swordInventory.swords.find(s => s.id === player.swordInventory.equippedSwordId) || null;
   }
@@ -3516,6 +3595,16 @@
     player.swordInventory.swords.push({ id: "staff", type: "staff", label: "Staff", activeImbues: {} });
     equipSword("staff");
     if (DEBUG) console.log("[WvW] purchased the Staff");
+    return true;
+  }
+
+  function buyBow(){
+    if (player.swordInventory.swords.some(s => s.id === "bow")) return false; // one-time purchase
+    if (player.silver < BOW_COST_SILVER) return false;
+    player.silver -= BOW_COST_SILVER;
+    player.swordInventory.swords.push({ id: "bow", type: "bow", label: "Bow", activeImbues: {} });
+    equipSword("bow");
+    if (DEBUG) console.log("[WvW] purchased the Bow");
     return true;
   }
 
@@ -3951,6 +4040,28 @@
     saveProgress();
   }
 
+  const BOSS_CHEST_CRYSTAL_MIN = 50, BOSS_CHEST_CRYSTAL_MAX = 100;
+
+  // Called on every boss kill. 50% chance of a random undiscovered rare
+  // spell (RARE_SPELL_ORDER specifically — mysticArmor/demon/angel/
+  // teleport, not the separate "special" spells like Ghost Army or
+  // Possession); if none remain undiscovered, or the roll misses,
+  // 50-100 crystals instead. Returns a short message suffix describing
+  // what was found, appended to the existing boss-kill message.
+  function grantBossChestReward(){
+    const undiscovered = RARE_SPELL_ORDER.filter(k => !spellUnlocked.has(k));
+    if (undiscovered.length > 0 && Math.random() < 0.5){
+      const key = undiscovered[Math.floor(Math.random() * undiscovered.length)];
+      spellUnlocked.add(key);
+      if (DEBUG) console.log("[WvW] boss chest: discovered rare spell " + key);
+      return " A scroll was inside — you've discovered " + SPELLS[key].label + "!";
+    }
+    const crystals = Math.floor(Math.random() * (BOSS_CHEST_CRYSTAL_MAX - BOSS_CHEST_CRYSTAL_MIN + 1)) + BOSS_CHEST_CRYSTAL_MIN;
+    player.bankedCrystals += crystals;
+    if (DEBUG) console.log("[WvW] boss chest: " + crystals + " crystals");
+    return " The chest held " + crystals + " crystals.";
+  }
+
   function damageEnemy(en, amount, opts){
     opts = opts || {};
     if (en.burrowed) return; // sand worms take no damage while burrowed
@@ -4002,13 +4113,26 @@
           showGuideMessage("Use silver from defeated enemies to buy upgrades in the shop.");
         }
       }
-      if (en.type === "cyclops" && !player.amuletsOwned.has("cyclopsEye")){
-        player.amuletsOwned.add("cyclopsEye");
-        player.amuletSlots.cyclopsEye = new Array(9).fill(null);
-        if (!player.equippedAmulet) player.equippedAmulet = "cyclopsEye"; // auto-equip a first amulet
-        respawnMessageText = "The cyclops dropped " + AMULETS.cyclopsEye.label + "!";
+      // "Boss chest" — every boss defeat (not just the first) gets a
+      // shot at this, matching how the Giant Eel's own silver/crystal
+      // reward already fires on every kill, not just once. Modeled as
+      // an instant reward appended to the existing boss-kill message,
+      // same pattern as every other boss reward in this game (no
+      // physical, walk-up chest object exists for any boss kill
+      // currently — silver/crystals/amulets are all instant grants).
+      const isBossKill = en.isBoss || en.type === "cyclops" || en.type === "giantEel";
+      const bossChestMsg = isBossKill ? grantBossChestReward() : "";
+      if (en.type === "cyclops"){
+        let amuletMsg = "";
+        if (!player.amuletsOwned.has("cyclopsEye")){
+          player.amuletsOwned.add("cyclopsEye");
+          player.amuletSlots.cyclopsEye = new Array(9).fill(null);
+          if (!player.equippedAmulet) player.equippedAmulet = "cyclopsEye"; // auto-equip a first amulet
+          amuletMsg = " " + AMULETS.cyclopsEye.label + " earned.";
+          if (DEBUG) console.log("[WvW] earned amulet: cyclopsEye");
+        }
+        respawnMessageText = "The cyclops was defeated!" + amuletMsg + bossChestMsg;
         respawnMessageTimer = 180;
-        if (DEBUG) console.log("[WvW] earned amulet: cyclopsEye");
         saveProgress();
       }
       if (en.type === "giantEel"){
@@ -4022,7 +4146,7 @@
           if (!player.equippedAmulet) player.equippedAmulet = "lightning_glass";
           amuletMsg = " " + AMULETS.lightning_glass.label + " earned.";
         }
-        respawnMessageText = "Giant Eel defeated!" + amuletMsg;
+        respawnMessageText = "Giant Eel defeated!" + amuletMsg + bossChestMsg;
         respawnMessageTimer = 240;
         if (DEBUG) console.log("[WvW] Giant Eel defeated");
         saveProgress();
@@ -4042,7 +4166,7 @@
         }
         const landNumber = currentGeneratedLandLayout.land.landNumber;
         player.highestUnlockedLand = Math.max(player.highestUnlockedLand, landNumber);
-        respawnMessageText = bossInfo.name + " defeated!" + amuletMsg;
+        respawnMessageText = bossInfo.name + " defeated!" + amuletMsg + bossChestMsg;
         respawnMessageTimer = 240;
         if (DEBUG) console.log("[WvW] boss defeated: " + bossInfo.name + " — Land " + (landNumber + 1) + " unlocked");
         saveProgress();
@@ -5499,6 +5623,7 @@
     drawMilestoneTracker();
     drawGuideToggleIndicator();
     drawStaffChargeIndicator();
+    drawBowChargeIndicator();
     drawMilestoneNotification();
     drawGuideMessage();
     drawRespawnMessage();
@@ -8434,12 +8559,17 @@
 
     const equippedWeapon = getEquippedSword();
     const isStaffEquipped = !!(equippedWeapon && equippedWeapon.type === "staff");
+    const isBowEquipped = !!(equippedWeapon && equippedWeapon.type === "bow");
     if (isStaffEquipped){
       // Unlike a sword, the staff doesn't get replaced by casting a
       // spell — the spell is what its charge-up channels, so both are
       // in use at once. It needs to stay visible regardless of
       // activeSpell, unlike the sword's original behavior below.
       drawStaff(x, player.y, player.facing, walkCycleArmSwing(playerMovement.moving), activeSpell);
+    }else if (isBowEquipped){
+      // Same reasoning as the staff above — a pure physical weapon,
+      // not something a cast spell replaces.
+      drawBow(x, player.y, player.facing, walkCycleArmSwing(playerMovement.moving), bowChargeHeld ? bowChargeTimer / BOW_CHARGE_FRAMES : 0);
     }else if (!activeSpell){
       const sword = equippedWeapon;
       const isSOTGK = !!(sword && sword.type === "sotgk");
@@ -8569,6 +8699,50 @@
     ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = 1;
     ctx.stroke();
+  }
+
+  // Held at the same hand-anchor position as the sword/staff. The
+  // string visibly pulls back and the bend deepens as chargeProgress
+  // (0-1) increases, giving the player a clear visual read on how
+  // charged the shot is without needing to watch the HUD bar.
+  function drawBow(x, y, facing, armSwing, chargeProgress){
+    const dir = facing > 0 ? 1 : -1;
+    const cx = x + PLAYER_W / 2;
+    const handX = cx + 9 * dir - (armSwing || 0) * dir;
+    const handY = y + 23;
+    const progress = chargeProgress || 0;
+
+    const bowHeight = 22;
+    const bowBend = 6 + progress * 3;
+    const topX = handX, topY = handY - bowHeight;
+    const botX = handX, botY = handY + bowHeight;
+    const bendX = handX - dir * bowBend;
+
+    ctx.strokeStyle = COLORS.bowLimb;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(topX, topY);
+    ctx.quadraticCurveTo(bendX, handY, botX, botY);
+    ctx.stroke();
+
+    const pullBack = -dir * progress * 12;
+    const stringMidX = handX + pullBack;
+    ctx.strokeStyle = COLORS.bowString;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(topX, topY);
+    ctx.lineTo(stringMidX, handY);
+    ctx.lineTo(botX, botY);
+    ctx.stroke();
+
+    if (progress > 0){
+      ctx.strokeStyle = COLORS.bowArrowShaft;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(stringMidX, handY);
+      ctx.lineTo(stringMidX + dir * (10 + progress * 6), handY);
+      ctx.stroke();
+    }
   }
 
   // Eight distinct boss silhouettes, per the visual design brief. All
@@ -11208,7 +11382,11 @@
     const lines = wrapTextLines(activeGuideMessage.text, 360);
     const lineHeight = 18;
     const bannerW = 400, bannerH = 24 + lines.length * lineHeight;
-    const bx = CANVAS_W / 2 - bannerW / 2, by = CANVAS_H - bannerH - 16;
+    // Middle of the sky — well clear of the milestone banner up top
+    // (ends ~y=60) and the ground-level combat area (starts ~y=350),
+    // rather than the bottom of the screen where it obstructed combat
+    // visibility.
+    const bx = CANVAS_W / 2 - bannerW / 2, by = 170 - bannerH / 2;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "#E8D5A8";
     ctx.fillRect(bx, by, bannerW, bannerH);
@@ -11268,6 +11446,21 @@
     ctx.fillRect(sx - barW / 2, barY, barW, barH);
     const valid = STAFF_CHARGE_SPELLS.has(activeSpell);
     ctx.fillStyle = valid ? COLORS.mana : COLORS.hud;
+    ctx.fillRect(sx - barW / 2, barY, barW * progress, barH);
+    ctx.strokeStyle = COLORS.hud;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - barW / 2, barY, barW, barH);
+  }
+
+  function drawBowChargeIndicator(){
+    if (!bowChargeHeld) return;
+    const sx = worldToScreen(player.x + PLAYER_W / 2);
+    const barY = player.y - 16;
+    const barW = 40, barH = 5;
+    const progress = Math.min(1, bowChargeTimer / BOW_CHARGE_FRAMES);
+    ctx.fillStyle = COLORS.armorBg;
+    ctx.fillRect(sx - barW / 2, barY, barW, barH);
+    ctx.fillStyle = COLORS.bowArrowShaft;
     ctx.fillRect(sx - barW / 2, barY, barW * progress, barH);
     ctx.strokeStyle = COLORS.hud;
     ctx.lineWidth = 1;
@@ -11972,6 +12165,16 @@
       <button type="button" class="btn light" id="wvw-buy-staff-btn" ${player.silver >= STAFF_COST_SILVER ? "" : "disabled"}>Forge Staff (${STAFF_COST_SILVER} silver)</button>
     `) : "";
 
+    const hasBow = player.swordInventory.swords.some(s => s.id === "bow");
+    const bowSection = worker ? (hasBow ? `
+      <p style="font-weight:700;margin:14px 0 4px;">Bow</p>
+      <p style="opacity:0.85;font-size:0.85rem;">Already forged and in your inventory. Equip it with [\`] — tap [Space] for a quick shot, hold to charge a powerful one.</p>
+    ` : `
+      <p style="font-weight:700;margin:14px 0 4px;">Bow</p>
+      <p style="opacity:0.85;font-size:0.85rem;">A ranged weapon — tap to loose a quick arrow, hold to charge a much stronger shot.</p>
+      <button type="button" class="btn light" id="wvw-buy-bow-btn" ${player.silver >= BOW_COST_SILVER ? "" : "disabled"}>Forge Bow (${BOW_COST_SILVER} silver)</button>
+    `) : "";
+
     overlayInner.innerHTML = `
       <h3>Blacksmith</h3>
       <p>Auto-repairs your broken gear whenever you're in the village with a blacksmith on duty. Costs ${BLACKSMITH_UPKEEP_PER_MINUTE} silver/minute to keep staffed.</p>
@@ -11985,6 +12188,7 @@
       ${imbueShopSection}
       ${whiteAshSection}
       ${staffSection}
+      ${bowSection}
       <button type="button" class="btn light" id="wvw-blacksmith-close" style="margin-top:14px;">Close</button>
     `;
     const whiteAshBtn = document.getElementById("wvw-buy-whiteash-btn");
@@ -12000,6 +12204,15 @@
     if (staffBtn){
       staffBtn.addEventListener("click", () => {
         if (buyStaff()){
+          renderBlacksmithUi();
+          saveProgress();
+        }
+      });
+    }
+    const bowBtn = document.getElementById("wvw-buy-bow-btn");
+    if (bowBtn){
+      bowBtn.addEventListener("click", () => {
+        if (buyBow()){
           renderBlacksmithUi();
           saveProgress();
         }
