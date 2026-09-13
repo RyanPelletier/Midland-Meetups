@@ -94,6 +94,7 @@
     doomArmorDark: "#4F5359",
     doomMask: "#4A4E55",
     doomTrim: "#C9A227",
+    doomEyes: "#D9D4C0",
 
     plasma: "#7FE0C4",
     beam: "#3EDB8F",
@@ -185,9 +186,9 @@
       colors: { body: "#2851E3", shield: "#E5484D", shieldRim: "#9CA3AF" },
       movement: { type: "charger" },
       abilities: [
-        { name: "Shield Throw", kind: "projectile", damage: 9, speed: 11, r: 8, style: "shield", telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Shield Throw", kind: "projectile", damage: 9, speed: 11, r: 12, style: "shield", telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
         { name: "Shield Charge", kind: "band", band: "ground", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
-        { name: "Vibranium Block", kind: "reflectBuff", telegraphFrames: 14, activeFrames: 70, cdMin: 200, cdMax: 260 }
+        { name: "Bounce Back", kind: "reflectBuff", reflectChance: 0.7, telegraphFrames: 14, activeFrames: 70, cdMin: 170, cdMax: 220 }
       ]
     }
   };
@@ -196,8 +197,9 @@
   /* ==================== Doom's own kit (keys 1-9) ==================== */
   // Costs draw from a shared energy bar; every ability also has its
   // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
-  // Cap's Shield Charge / reflectable by Vibranium Block, except Nova
-  // which pierces both); 8 is "physical" (never blocked/reflected).
+  // Cap's Shield Charge / reflectable — 70% of the time — by his
+  // Bounce Back, except Nova which pierces both); 8 is "physical"
+  // (never blocked/reflected).
   const DOOM_ABILITIES = [
     { name: "Plasma Bolt", cost: 8, cooldownFrames: 12, damage: 14 },
     { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
@@ -474,6 +476,7 @@
       busy: false,
       rangedImmune: false,
       reflectPending: false,
+      reflectChance: 1,
       damageReduction: 0,
       abilityStates: def.abilities.map((a, i) => ({
         phase: "idle",
@@ -526,7 +529,10 @@
         st.timer = def.activeFrames;
         if (def.rangedImmuneWhileActive) enemy.rangedImmune = true;
         if (def.kind === "buff" && def.buffType === "damageReduction") enemy.damageReduction = def.buffAmount;
-        if (def.kind === "reflectBuff") enemy.reflectPending = true;
+        if (def.kind === "reflectBuff"){
+          enemy.reflectPending = true;
+          enemy.reflectChance = def.reflectChance != null ? def.reflectChance : 1;
+        }
         if (def.kind === "projectile") spawnEnemyProjectile(def);
       }
     } else if (st.phase === "active"){
@@ -559,18 +565,33 @@
       p.style = "shield";
       p.rimColor = enemy.def.colors.shieldRim;
       p.color = enemy.def.colors.shield;
+      p.boomerang = true;
+      p.age = 0;
+      p.turnAfter = 26; // frames outbound before it curves back to Cap, whether or not it connected
     }
     enemyProjectiles.push(p);
   }
 
   function updateEnemyProjectiles(){
-    enemyProjectiles.forEach(p => { p.x += p.vx; p.y += p.vy; });
+    enemyProjectiles.forEach(p => {
+      if (p.boomerang){
+        if (!p.returning && ++p.age > p.turnAfter) p.returning = true;
+        if (p.returning && enemy){
+          const back = aimAt(p.x, p.y, enemy.x + enemy.w/2, enemy.y + enemy.h/2, Math.hypot(p.vx, p.vy) || 6);
+          p.vx = back.vx; p.vy = back.vy;
+        }
+      }
+      p.x += p.vx; p.y += p.vy;
+    });
     enemyProjectiles = enemyProjectiles.filter(p => {
+      if (p.returning && enemy && Math.hypot((enemy.x + enemy.w/2) - p.x, (enemy.y + enemy.h/2) - p.y) < 18) return false; // caught
       if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return false;
-      const top = playerTop(), height = playerHeight();
-      if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
-        applyDamageToPlayer(p.dmg);
-        return false;
+      if (!p.returning){
+        const top = playerTop(), height = playerHeight();
+        if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
+          applyDamageToPlayer(p.dmg);
+          return false;
+        }
       }
       return true;
     });
@@ -626,9 +647,14 @@
       }
       if (enemy.reflectPending){
         enemy.reflectPending = false;
-        scheduleReflect(amount);
-        effects.push({ type: "clang", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 12 });
-        return false;
+        // A bounce-back attempt is one-shot either way — it only
+        // consumes the buff, then either sends the hit right back at
+        // Doom or (30% by default) fumbles it and takes the hit clean.
+        if (Math.random() < enemy.reflectChance){
+          scheduleReflect(amount);
+          effects.push({ type: "clang", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 12 });
+          return false;
+        }
       }
     }
     const mult = 1 - (enemy.damageReduction || 0);
@@ -816,14 +842,27 @@
 
     ctx.fillStyle = COLORS.doomArmor;
     ctx.fillRect(x, y + h * 0.18, PLAYER_W, h * 0.6);
+    ctx.fillStyle = COLORS.doomArmorDark;
+    ctx.fillRect(x, y + h * 0.18, PLAYER_W, 3);
 
     ctx.fillStyle = COLORS.doomTrim;
     ctx.fillRect(x + PLAYER_W * 0.3, y + h * 0.28, PLAYER_W * 0.4, 6);
+    ctx.fillRect(x + PLAYER_W * 0.25, y + h * 0.62, PLAYER_W * 0.5, 5);
+    ctx.fillRect(x - 3, y + h * 0.42, 6, PLAYER_W * 0.5);
+    ctx.fillRect(x + PLAYER_W - 3, y + h * 0.42, 6, PLAYER_W * 0.5);
 
     ctx.fillStyle = COLORS.doomMask;
     ctx.beginPath();
     ctx.arc(x + PLAYER_W/2, y + h * 0.14, PLAYER_W * 0.42, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = COLORS.doomEyes;
+    ctx.fillRect(x + PLAYER_W * 0.28, y + h * 0.1, PLAYER_W * 0.16, 4);
+    ctx.fillRect(x + PLAYER_W * 0.56, y + h * 0.1, PLAYER_W * 0.16, 4);
+    ctx.strokeStyle = COLORS.doomCloakDark;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + PLAYER_W/2, y + h * 0.14, PLAYER_W * 0.42, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
 
     ctx.fillStyle = COLORS.doomCloak;
     ctx.beginPath();
@@ -862,6 +901,18 @@
   }
 
   /* ---------------- draw: enemy ---------------- */
+  function drawStar(cx, cy, outerR, innerR){
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++){
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (Math.PI / 5) * i - Math.PI / 2;
+      const px = cx + r * Math.cos(angle), py = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function enemyIsDucking(){
     return enemy.def.abilities.some((def, i) => {
       const st = enemy.abilityStates[i];
@@ -887,28 +938,67 @@
     }
 
     if (enemy.defId === "wolverine"){
-      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.25, w, h*0.75);
+      ctx.fillStyle = "#3A2F1F"; ctx.fillRect(x + 4, y + h*0.85, w - 8, h*0.15);
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.25, w, h*0.62);
+      ctx.fillStyle = "#2A2140"; ctx.fillRect(x, y + h*0.62, w, 4);
       ctx.fillStyle = c.mask; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.16, w*0.4, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.mask;
+      ctx.beginPath(); ctx.moveTo(x+w*0.18, y-h*0.02); ctx.lineTo(x+w*0.02, y-h*0.16); ctx.lineTo(x+w*0.34, y+h*0.02); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+w*0.82, y-h*0.02); ctx.lineTo(x+w*0.98, y-h*0.16); ctx.lineTo(x+w*0.66, y+h*0.02); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#1A1A1A";
+      ctx.fillRect(x+w*0.28, y+h*0.14, w*0.16, 4);
+      ctx.fillRect(x+w*0.56, y+h*0.14, w*0.16, 4);
       ctx.fillStyle = c.claws;
       ctx.fillRect(x - 6, y + h*0.4, 6, 16);
       ctx.fillRect(x + w, y + h*0.4, 6, 16);
     } else if (enemy.defId === "ironman"){
+      ctx.fillStyle = "#7A2323"; ctx.fillRect(x + 4, y + h*0.86, 8, h*0.14);
+      ctx.fillStyle = "#7A2323"; ctx.fillRect(x + w - 12, y + h*0.86, 8, h*0.14);
       ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.2, w, h*0.8);
       ctx.fillStyle = c.gold; ctx.fillRect(x + w*0.25, y + h*0.3, w*0.5, h*0.3);
-      ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.38, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#8FE0F0"; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.45, w*0.12, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.gold; ctx.fillRect(x - 3, y + h*0.24, 6, h*0.22);
+      ctx.fillRect(x + w - 3, y + h*0.24, 6, h*0.22);
+      ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.38, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#8FE0F0";
+      ctx.fillRect(x+w*0.24, y+h*0.1, w*0.2, 4);
+      ctx.fillRect(x+w*0.56, y+h*0.1, w*0.2, 4);
     } else if (enemy.defId === "hulk"){
-      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.18, w, h*0.62);
       ctx.fillStyle = c.pants; ctx.fillRect(x + w*0.1, y + h*0.75, w*0.8, h*0.25);
+      ctx.fillStyle = "#3A6E2E";
+      ctx.beginPath(); ctx.moveTo(x+w*0.1, y+h); ctx.lineTo(x+w*0.22, y+h*0.9); ctx.lineTo(x+w*0.34, y+h); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+w*0.66, y+h); ctx.lineTo(x+w*0.78, y+h*0.9); ctx.lineTo(x+w*0.9, y+h); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.18, w, h*0.62);
+      ctx.fillStyle = "#3A6E2E"; ctx.fillRect(x, y + h*0.44, w, 5);
+      ctx.fillStyle = "#5FA84A";
+      ctx.beginPath(); ctx.arc(x - 2, y + h*0.4, w*0.16, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + w + 2, y + h*0.4, w*0.16, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.34, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#3A6E2E";
+      ctx.beginPath(); ctx.moveTo(x+w*0.2, y+h*0.06); ctx.lineTo(x+w*0.42, y+h*0.1); ctx.lineTo(x+w*0.24, y+h*0.14); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+w*0.8, y+h*0.06); ctx.lineTo(x+w*0.58, y+h*0.1); ctx.lineTo(x+w*0.76, y+h*0.14); ctx.closePath(); ctx.fill();
     } else if (enemy.defId === "cyclops"){
+      ctx.fillStyle = "#1E3E7A"; ctx.fillRect(x + 2, y + h*0.86, w - 4, h*0.14);
       ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.22, w, h*0.78);
+      ctx.fillStyle = "#1E3E7A"; ctx.fillRect(x, y + h*0.5, w, 3);
+      ctx.fillStyle = "#D4B24F"; ctx.fillRect(x + w*0.36, y + h*0.5 - 3, w*0.28, 9);
       ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.36, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#1E3E7A"; ctx.fillRect(x + w*0.15, y + h*0.08, w*0.7, h*0.14);
       ctx.fillStyle = c.visor; ctx.fillRect(x + w*0.18, y + h*0.1, w*0.64, h*0.1);
+      ctx.fillStyle = "#FF8A7A"; ctx.fillRect(x + w*0.2, y + h*0.115, w*0.6, 2);
     } else if (enemy.defId === "capamerica"){
+      ctx.fillStyle = "#1E3AA0"; ctx.fillRect(x + 2, y + h*0.86, w - 4, h*0.14);
       ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.2, w, h*0.8);
+      ctx.fillStyle = "#E5484D"; ctx.fillRect(x, y + h*0.56, w, h*0.08);
+      ctx.fillStyle = "#FFFFFF";
+      drawStar(x + w/2, y + h*0.42, w*0.16, w*0.07);
       ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.34, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = c.shieldRim; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 12, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 8, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#E5484D";
+      ctx.beginPath(); ctx.moveTo(x+w*0.14, y-h*0.02); ctx.lineTo(x-w*0.02, y+h*0.08); ctx.lineTo(x+w*0.22, y+h*0.1); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+w*0.86, y-h*0.02); ctx.lineTo(x+w*1.02, y+h*0.08); ctx.lineTo(x+w*0.78, y+h*0.1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = c.shieldRim; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 18, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 13, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#FFFFFF"; drawStar(x - 14, y + h*0.5, 6, 2.6);
     }
 
     ctx.restore();
@@ -1095,11 +1185,24 @@
   }
 
   /* ---------------- loop / lifecycle ---------------- */
+  // update()/draw() are wrapped so one bad frame logs to the console
+  // and gets skipped instead of silently killing the whole animation
+  // loop (which otherwise looks exactly like a freeze — the canvas
+  // just stops, with no visible error). If this ever fires, the
+  // console message names exactly what broke.
   function loop(){
     if (!running) return;
-    update();
+    try{
+      update();
+    }catch(err){
+      console.error("[Doom Scroller] update() threw — recovering:", err);
+    }
     if (running){
-      draw();
+      try{
+        draw();
+      }catch(err){
+        console.error("[Doom Scroller] draw() threw — recovering:", err);
+      }
       animId = requestAnimationFrame(loop);
     }
   }
