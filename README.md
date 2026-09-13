@@ -340,12 +340,18 @@ and the world stops scrolling until you defeat them.
   out of its height range (by flying up/down, jumping, or ducking) is
   what keeps you alive.
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
-  abilities you need — quick pokes (Plasma Bolt, Doom Bolts), bigger
-  hits (Disruptor Beam, Force Pulse), defensive options (Mystic Shield,
-  Teleport Slip, Doombot Decoy), a hybrid movement/attack (Levitation
-  Burst), and an ultimate (Hyperbolic Nova). Every ability draws from a
-  shared energy bar and has its own cooldown, shown on the hotbar at
-  the bottom of the canvas.
+  abilities you need — quick pokes (Plasma Bolt, Doom Bolts), a heavy
+  beam (Disruptor Beam), defensive options (Mystic Shield, Teleport
+  Slip, Molecular Barrier), a self-heal (Self Repair), a hybrid
+  movement/attack (Levitation Burst), and an ultimate (Hyperbolic
+  Nova). Every ability draws from a shared energy bar and has its own
+  cooldown, shown on the hotbar at the bottom of the canvas — the
+  currently-selected ability (whichever number you pressed last) is
+  also called out in the top-right corner and outlined on the hotbar.
+  Plasma Bolt, Doom Bolts, and Disruptor Beam all aim at wherever the
+  current fighter actually is (including their altitude), and
+  Disruptor Beam only ever draws as a line from Doom to that fighter —
+  never as a beam spanning the whole screen behind him.
 - **The character library:** Wolverine, Iron Man, Hulk, Cyclops, and
   Captain America to start, each with a unique movement style and
   exactly three fight abilities (defined together as one `CHARACTERS`

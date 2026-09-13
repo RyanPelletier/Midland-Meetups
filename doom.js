@@ -89,14 +89,14 @@
     doomTrim: "#C9A227",
 
     plasma: "#7FE0C4",
-    forcePulse: "#C9A227",
     beam: "#3EDB8F",
     bolt: "#7FE0C4",
     levitation: "#8FD9FF",
     nova: "#F6C945",
     shieldFx: "#3E7ADB",
     teleportFx: "#B98FE0",
-    decoyFx: "#9CA3AF"
+    healFx: "#5FD97A",
+    blockFx: "#C9A227"
   };
 
   const BIOMES = [
@@ -183,15 +183,15 @@
   // Costs draw from a shared energy bar; every ability also has its
   // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
   // Cap's Shield Charge / reflectable by Vibranium Block, except Nova
-  // which pierces both); 2/8 are "physical" (never blocked/reflected).
+  // which pierces both); 8 is "physical" (never blocked/reflected).
   const DOOM_ABILITIES = [
     { name: "Plasma Bolt", cost: 8, cooldownFrames: 14 },
-    { name: "Force Pulse", cost: 14, cooldownFrames: 45 },
+    { name: "Self Repair", cost: 35, cooldownFrames: 260, healAmount: 30 },
     { name: "Disruptor Beam", cost: 30, cooldownFrames: 100 },
     { name: "Doom Bolts", cost: 20, cooldownFrames: 55 },
     { name: "Mystic Shield", cost: 25, cooldownFrames: 170 },
     { name: "Teleport Slip", cost: 15, cooldownFrames: 75 },
-    { name: "Doombot Decoy", cost: 22, cooldownFrames: 220 },
+    { name: "Molecular Barrier", cost: 18, cooldownFrames: 90, blockReduction: 0.75, blockDurationFrames: 50 },
     { name: "Levitation Burst", cost: 22, cooldownFrames: 85 },
     { name: "Hyperbolic Nova", cost: 55, cooldownFrames: 420 }
   ];
@@ -201,7 +201,7 @@
   let biomeIndex, travelDistance, worldXTotal, lastCharacterId;
   let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
   let score, frame, running, over, started, animId;
-  let lastSpaceTapFrame;
+  let lastSpaceTapFrame, selectedAbilityIndex;
   const keysDown = {};
 
   function resetState(){
@@ -215,7 +215,8 @@
       hp: PLAYER_MAX_HP,
       energy: ENERGY_MAX,
       invulnFrames: 0,
-      decoyFrames: 0,
+      blockFrames: 0,
+      blockReduction: 0,
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
@@ -233,6 +234,7 @@
     score = 0;
     frame = 0;
     lastSpaceTapFrame = -9999;
+    selectedAbilityIndex = 0;
     running = false;
     over = false;
     for (const k in keysDown) delete keysDown[k];
@@ -256,6 +258,17 @@
   function randBetween(lo, hi){ return lo + Math.random() * (hi - lo); }
   function rectOverlap(x1,y1,w1,h1,x2,y2,w2,h2){
     return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
+  }
+  // Direction+speed from one point toward another — used so Doom's
+  // projectiles and beam always aim at wherever the enemy actually is
+  // (including its altitude), not just straight out at Doom's own y.
+  function aimAt(fromX, fromY, toX, toY, speed){
+    const dx = toX - fromX, dy = toY - fromY;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    return { vx: (dx / dist) * speed, vy: (dy / dist) * speed };
+  }
+  function enemyTargetPoint(fallbackX, fallbackY){
+    return enemy ? { x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2 } : { x: fallbackX, y: fallbackY };
   }
   function playerHeight(){
     return (player.mode === "walking" && player.ducking) ? DUCK_H : PLAYER_H;
@@ -292,7 +305,8 @@
     }
 
     if (player.invulnFrames > 0) player.invulnFrames--;
-    if (player.decoyFrames > 0) player.decoyFrames--;
+    if (player.blockFrames > 0) player.blockFrames--;
+    else player.blockReduction = 0;
     player.energy = Math.min(ENERGY_MAX, player.energy + ENERGY_REGEN);
     for (let i = 0; i < 9; i++){
       if (player.abilityCooldowns[i] > 0) player.abilityCooldowns[i]--;
@@ -312,11 +326,7 @@
 
   function applyDamageToPlayer(amount){
     if (player.invulnFrames > 0) return;
-    if (player.decoyFrames > 0){
-      player.decoyFrames = 0;
-      effects.push({ type: "decoyPop", x: player.x, y: player.y, life: 20 });
-      return;
-    }
+    if (player.blockFrames > 0) amount *= (1 - player.blockReduction);
     player.hp = Math.max(0, player.hp - amount);
     effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 14 });
     if (player.hp <= 0) endGame();
@@ -337,24 +347,29 @@
 
   const CAST_FNS = [
     function castPlasmaBolt(){
-      spawnDoomProjectile({ x: player.x + PLAYER_W, y: player.y + playerHeight()/2, vx: 10, dmg: 8, category: "energy", r: 6, color: COLORS.plasma });
+      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const target = enemyTargetPoint(originX + 300, originY);
+      const v = aimAt(originX, originY, target.x, target.y, 10);
+      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: 8, category: "energy", r: 6, color: COLORS.plasma });
     },
-    function castForcePulse(){
-      const cx = player.x + PLAYER_W/2, cy = player.y + playerHeight()/2;
-      effects.push({ type: "burst", x: cx, y: cy, maxR: 140, life: 18, color: COLORS.forcePulse });
-      if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 140){
-        applyDamageToEnemy(14, "physical", false);
-      }
+    function castSelfRepair(){
+      const def = DOOM_ABILITIES[1];
+      player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.healAmount);
+      effects.push({ type: "heal", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
     },
     function castDisruptorBeam(){
-      const cy = player.y + playerHeight()/2;
-      effects.push({ type: "beam", y: cy, life: 14, color: COLORS.beam });
+      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const target = enemyTargetPoint(originX + 300, originY);
+      effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam });
       if (enemy) applyDamageToEnemy(34, "energy", false);
     },
     function castDoomBolts(){
-      const cy = player.y + playerHeight()/2;
-      [-30, 0, 30].forEach(offset => {
-        spawnDoomProjectile({ x: player.x + PLAYER_W, y: cy + offset, vx: 9, dmg: 7, category: "energy", r: 5, color: COLORS.bolt });
+      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const target = enemyTargetPoint(originX + 300, originY);
+      const baseAngle = Math.atan2(target.y - originY, target.x - originX);
+      [-0.18, 0, 0.18].forEach(spread => {
+        const angle = baseAngle + spread;
+        spawnDoomProjectile({ x: originX, y: originY, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, dmg: 7, category: "energy", r: 5, color: COLORS.bolt });
       });
     },
     function castMysticShield(){
@@ -368,9 +383,11 @@
       player.invulnFrames = Math.max(player.invulnFrames, 20);
       effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 16 });
     },
-    function castDoombotDecoy(){
-      player.decoyFrames = 90;
-      effects.push({ type: "decoySpawn", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 30 });
+    function castMolecularBarrier(){
+      const def = DOOM_ABILITIES[6];
+      player.blockFrames = def.blockDurationFrames;
+      player.blockReduction = def.blockReduction;
+      effects.push({ type: "block", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: def.blockDurationFrames });
     },
     function castLevitationBurst(){
       if (player.mode === "walking"){
@@ -390,9 +407,9 @@
   ];
 
   function updateProjectiles(){
-    doomProjectiles.forEach(p => { p.x += p.vx; });
+    doomProjectiles.forEach(p => { p.x += p.vx; p.y += p.vy; });
     doomProjectiles = doomProjectiles.filter(p => {
-      if (p.x > CANVAS_W + 20) return false;
+      if (p.x > CANVAS_W + 20 || p.y < -50 || p.y > CANVAS_H + 50) return false;
       if (enemy && rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, enemy.x, enemy.y, enemy.w, enemy.h)){
         applyDamageToEnemy(p.dmg, p.category, false);
         return false;
@@ -773,12 +790,10 @@
       ctx.arc(x + PLAYER_W/2, y + h/2, Math.max(PLAYER_W, h) * 0.7, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (player.decoyFrames > 0){
-      ctx.strokeStyle = COLORS.decoyFx;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4,3]);
-      ctx.strokeRect(x - 4, y - 4, PLAYER_W + 8, h + 8);
-      ctx.setLineDash([]);
+    if (player.blockFrames > 0){
+      ctx.strokeStyle = COLORS.blockFx;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 6, y - 6, PLAYER_W + 12, h + 12);
     }
   }
 
@@ -846,9 +861,29 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       } else if (e.type === "beam"){
-        ctx.fillStyle = e.color;
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 6;
         ctx.globalAlpha = e.life / 14;
-        ctx.fillRect(0, e.y - 4, CANVAS_W, 8);
+        ctx.beginPath();
+        ctx.moveTo(e.x1, e.y1);
+        ctx.lineTo(e.x2, e.y2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (e.type === "heal"){
+        ctx.strokeStyle = COLORS.healFx;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = e.life / 26;
+        const r = 10 + (1 - e.life/26) * 20;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = COLORS.healFx;
+        ctx.fillRect(e.x - 2, e.y - 10, 4, 20);
+        ctx.fillRect(e.x - 10, e.y - 2, 20, 4);
+        ctx.globalAlpha = 1;
+      } else if (e.type === "block"){
+        ctx.strokeStyle = COLORS.blockFx;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = Math.min(1, e.life / 20);
+        ctx.strokeRect(e.x - 22, e.y - 26, 44, 52);
         ctx.globalAlpha = 1;
       } else if (e.type === "shield"){
         ctx.strokeStyle = COLORS.shieldFx;
@@ -860,12 +895,6 @@
         ctx.fillStyle = COLORS.teleportFx;
         ctx.globalAlpha = e.life / 16;
         ctx.beginPath(); ctx.arc(e.x, e.y, 24 * (1 - e.life/16), 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-      } else if (e.type === "decoySpawn" || e.type === "decoyPop"){
-        ctx.strokeStyle = COLORS.decoyFx;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = e.life / 30;
-        ctx.strokeRect(e.x - 20, e.y - 20, 40, 40);
         ctx.globalAlpha = 1;
       } else if (e.type === "hit" || e.type === "spark" || e.type === "clang"){
         ctx.fillStyle = e.type === "clang" ? "#FFFFFF" : COLORS.hpBar;
@@ -893,6 +922,9 @@
     ctx.fillText("SCORE " + Math.floor(score), CANVAS_W - 12, 24);
     ctx.font = "600 11px 'JetBrains Mono', monospace";
     ctx.fillText(BIOMES[biomeIndex].name, CANVAS_W - 12, 40);
+    ctx.fillStyle = COLORS.doomTrim;
+    ctx.font = "700 12px 'JetBrains Mono', monospace";
+    ctx.fillText(DOOM_ABILITIES[selectedAbilityIndex].name.toUpperCase(), CANVAS_W - 12, 56);
 
     if (phase === "encounter" && enemy){
       const barW = 220, barX = (CANVAS_W - barW)/2;
@@ -935,6 +967,12 @@
       ctx.strokeStyle = affordable ? "rgba(255,255,255,0.5)" : "rgba(225,72,60,0.6)";
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+
+      if (i === selectedAbilityIndex){
+        ctx.strokeStyle = COLORS.doomTrim;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 1.5, y - 1.5, size + 3, size + 3);
+      }
 
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "700 13px 'JetBrains Mono', monospace";
@@ -1065,6 +1103,7 @@
         const n = Number(e.code.slice(5));
         if (n >= 1 && n <= 9){
           e.preventDefault();
+          selectedAbilityIndex = n - 1;
           tryCastAbility(n - 1);
         }
       }
