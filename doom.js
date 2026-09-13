@@ -13,11 +13,12 @@
    THE CHARACTER LIBRARY (CHARACTERS below) is deliberately structured
    as one self-contained entry per fighter — movement type + exactly
    three abilities each — so adding the next Marvel character later is
-   just one more entry, no engine changes. The five abilities that ARE
+   just one more entry, no engine changes. The parts that ARE
    engine-level (updateAbilityState/dealAbilityDamageToPlayer) are
    generic: every enemy ability is one of a handful of "kinds" (a
-   telegraphed danger band, a pick-the-safe-gap barrage, a top+bottom
-   pincer, a self-buff, or a reflect) rather than bespoke code per
+   telegraphed danger band — ground-level or head-level or wider —, a
+   pick-the-safe-gap barrage, a top+bottom pincer, a real aimed
+   projectile, a self-buff, or a reflect) rather than bespoke code per
    character.
 
    TUNING: every number worth playing with lives in CONFIG below.
@@ -48,9 +49,9 @@
   const SCROLL_SPEED = 3.2;
   const BIOME_TRAVEL_DISTANCE = 900; // world-distance per biome before its resident fighter appears
 
-  const PLAYER_MAX_HP = 100;
+  const PLAYER_MAX_HP = 150;
   const ENERGY_MAX = 100;
-  const ENERGY_REGEN = 0.18; // per frame
+  const ENERGY_REGEN = 0.24; // per frame
 
   const VICTORY_PAUSE_FRAMES = 90;
   const DOUBLE_TAP_WINDOW_FRAMES = 18; // ~300ms at 60fps — how close together two Space taps must land to toggle flying
@@ -63,11 +64,17 @@
   // half-heights below are how enemy abilities threaten the player —
   // dodging is a vertical problem (fly up/down, jump, or duck), never
   // a horizontal one, so every hazard spans the full arena width.
+  // "ground" (a floor-level sweep/charge) catches Doom whether he's
+  // standing OR ducking — only jumping/flying clears it. "head" (a
+  // swing at standing head/torso height) only threatens a STANDING
+  // Doom — ducking drops him clean under it. That split is what makes
+  // duck a real choice instead of a no-op.
   const BAND = {
-    low:  { min: 230, max: 300 },
-    mid:  { min: 150, max: 230 },
-    high: { min: 60,  max: 150 },
-    wide: { min: 110, max: 300 }
+    ground: { min: 270, max: 300 },
+    head:   { min: 254, max: 274 },
+    mid:    { min: 150, max: 230 },
+    high:   { min: 60,  max: 150 },
+    wide:   { min: 110, max: 300 }
   };
 
   const COLORS = {
@@ -89,14 +96,18 @@
     doomTrim: "#C9A227",
 
     plasma: "#7FE0C4",
-    forcePulse: "#C9A227",
     beam: "#3EDB8F",
     bolt: "#7FE0C4",
     levitation: "#8FD9FF",
     nova: "#F6C945",
     shieldFx: "#3E7ADB",
     teleportFx: "#B98FE0",
-    decoyFx: "#9CA3AF"
+    healFx: "#5FD97A",
+    blockFx: "#C9A227",
+
+    repulsorFx: "#E5484D",
+    boulderFx: "#8B6B4A",
+    opticFx: "#E14B3C"
   };
 
   const BIOMES = [
@@ -111,7 +122,10 @@
   // Each fighter: displayName, size, hp, a movement type (purely how
   // they drift around their spot), and exactly three abilities. Every
   // ability is one of: "band" (a telegraphed y-range that turns
-  // dangerous), "gapPick" (three candidate bands, one picked safe),
+  // dangerous — "ground" and "head" hit a standing Doom differently,
+  // see BAND above), "projectile" (a real shot aimed at wherever Doom
+  // actually is the instant it fires — dodge by not being there when
+  // it arrives), "gapPick" (three candidate bands, one picked safe),
   // "pincer" (top+bottom bands active, middle is the safe gap),
   // "buff" (a self-effect, no player-facing zone), or "reflectBuff"
   // (blocks + bounces the next ranged hit back at the player).
@@ -119,60 +133,60 @@
     wolverine: {
       displayName: "Wolverine",
       w: 40, h: 50,
-      hp: 220,
+      hp: 180,
       colors: { body: "#5B4A9B", mask: "#F6C945", claws: "#E5E7EA" },
       movement: { type: "lunger" },
       abilities: [
-        { name: "Claw Flurry", kind: "band", band: "low", damage: 10, telegraphFrames: 16, activeFrames: 12, cdMin: 40, cdMax: 65 },
-        { name: "Berserker Lunge", kind: "band", band: "low", damage: 18, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
+        { name: "Claw Flurry", kind: "band", band: "head", damage: 7, telegraphFrames: 16, activeFrames: 12, cdMin: 55, cdMax: 85 },
+        { name: "Berserker Lunge", kind: "band", band: "ground", damage: 13, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
         { name: "Adamantium Guard", kind: "buff", buffType: "damageReduction", buffAmount: 0.7, telegraphFrames: 10, activeFrames: 130, cdMin: 260, cdMax: 320 }
       ]
     },
     ironman: {
       displayName: "Iron Man",
       w: 42, h: 54,
-      hp: 260,
+      hp: 210,
       colors: { body: "#B02E2E", gold: "#D9A93B" },
       movement: { type: "hoverer" },
       abilities: [
-        { name: "Repulsor Blast", kind: "band", band: "mid", damage: 8, telegraphFrames: 10, activeFrames: 8, cdMin: 30, cdMax: 55 },
-        { name: "Unibeam Charge", kind: "band", band: "wide", damage: 24, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
-        { name: "Missile Barrage", kind: "gapPick", damage: 7, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
+        { name: "Repulsor Blast", kind: "projectile", damage: 6, speed: 9, r: 5, color: COLORS.repulsorFx, telegraphFrames: 10, activeFrames: 8, cdMin: 40, cdMax: 65 },
+        { name: "Unibeam Charge", kind: "band", band: "wide", damage: 17, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
+        { name: "Missile Barrage", kind: "gapPick", damage: 5, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
       ]
     },
     hulk: {
       displayName: "Hulk",
       w: 54, h: 64,
-      hp: 340,
+      hp: 280,
       colors: { body: "#4C8C3A", pants: "#5B4A9B" },
       movement: { type: "stomper" },
       abilities: [
-        { name: "Ground Pound", kind: "band", band: "low", damage: 20, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
-        { name: "Boulder Throw", kind: "band", band: "mid", damage: 14, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Rage Charge", kind: "band", band: "low", damage: 18, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
+        { name: "Ground Pound", kind: "band", band: "ground", damage: 14, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
+        { name: "Boulder Throw", kind: "projectile", damage: 10, speed: 7, r: 7, color: COLORS.boulderFx, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Rage Charge", kind: "band", band: "ground", damage: 13, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
       ]
     },
     cyclops: {
       displayName: "Cyclops",
       w: 40, h: 52,
-      hp: 230,
+      hp: 190,
       colors: { body: "#2E5AA8", visor: "#E5484D" },
       movement: { type: "strafer" },
       abilities: [
-        { name: "Optic Blast", kind: "band", trackPlayerY: true, trackHalf: 35, damage: 10, telegraphFrames: 14, activeFrames: 10, cdMin: 35, cdMax: 60 },
-        { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 26, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
-        { name: "Ricochet Blast", kind: "pincer", damage: 12, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
+        { name: "Optic Blast", kind: "projectile", damage: 7, speed: 10, r: 5, color: COLORS.opticFx, telegraphFrames: 14, activeFrames: 10, cdMin: 45, cdMax: 70 },
+        { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 18, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
+        { name: "Ricochet Blast", kind: "pincer", damage: 8, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
       ]
     },
     capamerica: {
       displayName: "Captain America",
       w: 42, h: 54,
-      hp: 270,
+      hp: 220,
       colors: { body: "#2851E3", shield: "#E5484D", shieldRim: "#9CA3AF" },
       movement: { type: "charger" },
       abilities: [
-        { name: "Shield Throw", kind: "band", band: "mid", damage: 12, telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Shield Charge", kind: "band", band: "low", damage: 16, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
+        { name: "Shield Throw", kind: "projectile", damage: 9, speed: 11, r: 8, style: "shield", telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Shield Charge", kind: "band", band: "ground", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
         { name: "Vibranium Block", kind: "reflectBuff", telegraphFrames: 14, activeFrames: 70, cdMin: 200, cdMax: 260 }
       ]
     }
@@ -183,25 +197,25 @@
   // Costs draw from a shared energy bar; every ability also has its
   // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
   // Cap's Shield Charge / reflectable by Vibranium Block, except Nova
-  // which pierces both); 2/8 are "physical" (never blocked/reflected).
+  // which pierces both); 8 is "physical" (never blocked/reflected).
   const DOOM_ABILITIES = [
-    { name: "Plasma Bolt", cost: 8, cooldownFrames: 14 },
-    { name: "Force Pulse", cost: 14, cooldownFrames: 45 },
-    { name: "Disruptor Beam", cost: 30, cooldownFrames: 100 },
-    { name: "Doom Bolts", cost: 20, cooldownFrames: 55 },
-    { name: "Mystic Shield", cost: 25, cooldownFrames: 170 },
-    { name: "Teleport Slip", cost: 15, cooldownFrames: 75 },
-    { name: "Doombot Decoy", cost: 22, cooldownFrames: 220 },
-    { name: "Levitation Burst", cost: 22, cooldownFrames: 85 },
-    { name: "Hyperbolic Nova", cost: 55, cooldownFrames: 420 }
+    { name: "Plasma Bolt", cost: 8, cooldownFrames: 12, damage: 14 },
+    { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
+    { name: "Disruptor Beam", cost: 28, cooldownFrames: 90, damage: 50 },
+    { name: "Doom Bolts", cost: 18, cooldownFrames: 50, damage: 11 },
+    { name: "Mystic Shield", cost: 25, cooldownFrames: 130 },
+    { name: "Teleport Slip", cost: 15, cooldownFrames: 60 },
+    { name: "Molecular Barrier", cost: 18, cooldownFrames: 70, blockReduction: 0.75, blockDurationFrames: 50 },
+    { name: "Levitation Burst", cost: 20, cooldownFrames: 80, damage: 24 },
+    { name: "Hyperbolic Nova", cost: 50, cooldownFrames: 360, damage: 90 }
   ];
 
   let canvas, ctx, overlay, overlayInner;
-  let player, enemy, doomProjectiles, hazards, effects;
+  let player, enemy, doomProjectiles, enemyProjectiles, hazards, effects;
   let biomeIndex, travelDistance, worldXTotal, lastCharacterId;
   let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
   let score, frame, running, over, started, animId;
-  let lastSpaceTapFrame;
+  let lastSpaceTapFrame, selectedAbilityIndex;
   const keysDown = {};
 
   function resetState(){
@@ -215,11 +229,13 @@
       hp: PLAYER_MAX_HP,
       energy: ENERGY_MAX,
       invulnFrames: 0,
-      decoyFrames: 0,
+      blockFrames: 0,
+      blockReduction: 0,
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
     doomProjectiles = [];
+    enemyProjectiles = [];
     hazards = [];
     effects = [];
     biomeIndex = 0;
@@ -233,6 +249,7 @@
     score = 0;
     frame = 0;
     lastSpaceTapFrame = -9999;
+    selectedAbilityIndex = 0;
     running = false;
     over = false;
     for (const k in keysDown) delete keysDown[k];
@@ -257,11 +274,33 @@
   function rectOverlap(x1,y1,w1,h1,x2,y2,w2,h2){
     return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
   }
+  // Direction+speed from one point toward another — used so Doom's
+  // projectiles and beam always aim at wherever the enemy actually is
+  // (including its altitude), not just straight out at Doom's own y.
+  function aimAt(fromX, fromY, toX, toY, speed){
+    const dx = toX - fromX, dy = toY - fromY;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    return { vx: (dx / dist) * speed, vy: (dy / dist) * speed };
+  }
+  function enemyTargetPoint(fallbackX, fallbackY){
+    return enemy ? { x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2 } : { x: fallbackX, y: fallbackY };
+  }
   function playerHeight(){
     return (player.mode === "walking" && player.ducking) ? DUCK_H : PLAYER_H;
   }
+  // Ducking keeps Doom's feet on the ground and pulls his head down —
+  // the hitbox's TOP moves toward the ground, not the physics y used
+  // for jump/gravity. That's what makes ground vs. head-level attacks
+  // (see BAND below) an actual choice: duck dodges one, jumping/flying
+  // dodges the other.
+  function playerTop(){
+    return (player.mode === "walking" && player.ducking) ? (GROUND_Y - DUCK_H) : player.y;
+  }
+  function playerCenterY(){
+    return playerTop() + playerHeight()/2;
+  }
   function playerOverlapsBand(band){
-    const top = player.y, bot = player.y + playerHeight();
+    const top = playerTop(), bot = top + playerHeight();
     return top < band.max && bot > band.min;
   }
 
@@ -292,7 +331,8 @@
     }
 
     if (player.invulnFrames > 0) player.invulnFrames--;
-    if (player.decoyFrames > 0) player.decoyFrames--;
+    if (player.blockFrames > 0) player.blockFrames--;
+    else player.blockReduction = 0;
     player.energy = Math.min(ENERGY_MAX, player.energy + ENERGY_REGEN);
     for (let i = 0; i < 9; i++){
       if (player.abilityCooldowns[i] > 0) player.abilityCooldowns[i]--;
@@ -312,13 +352,9 @@
 
   function applyDamageToPlayer(amount){
     if (player.invulnFrames > 0) return;
-    if (player.decoyFrames > 0){
-      player.decoyFrames = 0;
-      effects.push({ type: "decoyPop", x: player.x, y: player.y, life: 20 });
-      return;
-    }
+    if (player.blockFrames > 0) amount *= (1 - player.blockReduction);
     player.hp = Math.max(0, player.hp - amount);
-    effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 14 });
+    effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 14 });
     if (player.hp <= 0) endGame();
   }
 
@@ -337,40 +373,47 @@
 
   const CAST_FNS = [
     function castPlasmaBolt(){
-      spawnDoomProjectile({ x: player.x + PLAYER_W, y: player.y + playerHeight()/2, vx: 10, dmg: 8, category: "energy", r: 6, color: COLORS.plasma });
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
+      const target = enemyTargetPoint(originX + 300, originY);
+      const v = aimAt(originX, originY, target.x, target.y, 10);
+      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: DOOM_ABILITIES[0].damage, category: "energy", r: 6, color: COLORS.plasma });
     },
-    function castForcePulse(){
-      const cx = player.x + PLAYER_W/2, cy = player.y + playerHeight()/2;
-      effects.push({ type: "burst", x: cx, y: cy, maxR: 140, life: 18, color: COLORS.forcePulse });
-      if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 140){
-        applyDamageToEnemy(14, "physical", false);
-      }
+    function castSelfRepair(){
+      const def = DOOM_ABILITIES[1];
+      player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.healAmount);
+      effects.push({ type: "heal", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
     },
     function castDisruptorBeam(){
-      const cy = player.y + playerHeight()/2;
-      effects.push({ type: "beam", y: cy, life: 14, color: COLORS.beam });
-      if (enemy) applyDamageToEnemy(34, "energy", false);
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
+      const target = enemyTargetPoint(originX + 300, originY);
+      effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam });
+      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[2].damage, "energy", false);
     },
     function castDoomBolts(){
-      const cy = player.y + playerHeight()/2;
-      [-30, 0, 30].forEach(offset => {
-        spawnDoomProjectile({ x: player.x + PLAYER_W, y: cy + offset, vx: 9, dmg: 7, category: "energy", r: 5, color: COLORS.bolt });
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
+      const target = enemyTargetPoint(originX + 300, originY);
+      const baseAngle = Math.atan2(target.y - originY, target.x - originX);
+      [-0.18, 0, 0.18].forEach(spread => {
+        const angle = baseAngle + spread;
+        spawnDoomProjectile({ x: originX, y: originY, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, dmg: DOOM_ABILITIES[3].damage, category: "energy", r: 5, color: COLORS.bolt });
       });
     },
     function castMysticShield(){
       player.invulnFrames = 55;
-      effects.push({ type: "shield", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 55 });
+      effects.push({ type: "shield", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 55 });
     },
     function castTeleportSlip(){
       const midpoint = (PLAYER_ARENA_MIN_X + PLAYER_ARENA_MAX_X) / 2;
       const dir = player.x > midpoint ? -1 : 1;
       player.x = clamp(player.x + dir * 90, PLAYER_ARENA_MIN_X, PLAYER_ARENA_MAX_X);
       player.invulnFrames = Math.max(player.invulnFrames, 20);
-      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 16 });
+      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 16 });
     },
-    function castDoombotDecoy(){
-      player.decoyFrames = 90;
-      effects.push({ type: "decoySpawn", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 30 });
+    function castMolecularBarrier(){
+      const def = DOOM_ABILITIES[6];
+      player.blockFrames = def.blockDurationFrames;
+      player.blockReduction = def.blockReduction;
+      effects.push({ type: "block", x: player.x + PLAYER_W/2, y: playerCenterY(), life: def.blockDurationFrames });
     },
     function castLevitationBurst(){
       if (player.mode === "walking"){
@@ -380,19 +423,19 @@
       const cx = player.x + PLAYER_W/2;
       effects.push({ type: "burst", x: cx, y: GROUND_Y, maxR: 170, life: 18, color: COLORS.levitation });
       if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 170 && (enemy.y + enemy.h) > GROUND_Y - 60){
-        applyDamageToEnemy(16, "physical", false);
+        applyDamageToEnemy(DOOM_ABILITIES[7].damage, "physical", false);
       }
     },
     function castHyperbolicNova(){
-      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
-      if (enemy) applyDamageToEnemy(60, "energy", true);
+      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
+      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[8].damage, "energy", true);
     }
   ];
 
   function updateProjectiles(){
-    doomProjectiles.forEach(p => { p.x += p.vx; });
+    doomProjectiles.forEach(p => { p.x += p.vx; p.y += p.vy; });
     doomProjectiles = doomProjectiles.filter(p => {
-      if (p.x > CANVAS_W + 20) return false;
+      if (p.x > CANVAS_W + 20 || p.y < -50 || p.y > CANVAS_H + 50) return false;
       if (enemy && rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, enemy.x, enemy.y, enemy.w, enemy.h)){
         applyDamageToEnemy(p.dmg, p.category, false);
         return false;
@@ -413,7 +456,7 @@
   }
 
   function scheduleReflect(amount){
-    const cy = player.y + playerHeight()/2;
+    const cy = playerCenterY();
     hazards.push({ min: cy - 25, max: cy + 25, life: 16, dmg: amount, armed: true });
   }
 
@@ -474,8 +517,8 @@
       st.phase = "telegraph";
       st.timer = def.telegraphFrames;
       st.hasHitPlayer = false;
-      if (def.trackPlayerY) st.trackedY = player.y + playerHeight()/2;
-      if (def.kind === "gapPick") st.safeBand = ["low","mid","high"][Math.floor(Math.random()*3)];
+      if (def.trackPlayerY) st.trackedY = playerCenterY();
+      if (def.kind === "gapPick") st.safeBand = ["ground","mid","high"][Math.floor(Math.random()*3)];
     } else if (st.phase === "telegraph"){
       st.timer--;
       if (st.timer <= 0){
@@ -484,9 +527,10 @@
         if (def.rangedImmuneWhileActive) enemy.rangedImmune = true;
         if (def.kind === "buff" && def.buffType === "damageReduction") enemy.damageReduction = def.buffAmount;
         if (def.kind === "reflectBuff") enemy.reflectPending = true;
+        if (def.kind === "projectile") spawnEnemyProjectile(def);
       }
     } else if (st.phase === "active"){
-      if (def.kind !== "buff" && def.kind !== "reflectBuff"){
+      if (def.kind !== "buff" && def.kind !== "reflectBuff" && def.kind !== "projectile"){
         dealAbilityDamageToPlayer(def, st);
       }
       st.timer--;
@@ -501,15 +545,46 @@
     }
   }
 
+  // "projectile" abilities fire a real traveling shot aimed at wherever
+  // Doom actually is the instant it launches (angle included) — exactly
+  // like Doom's own Plasma Bolt/Doom Bolts. It doesn't home in after
+  // that, so Doom dodges by no longer being there when it arrives:
+  // moving, changing altitude, or dropping out of the sky to duck under it.
+  function spawnEnemyProjectile(def){
+    const originX = enemy.x + enemy.w/2, originY = enemy.y + enemy.h/2;
+    const targetX = player.x + PLAYER_W/2, targetY = playerCenterY();
+    const v = aimAt(originX, originY, targetX, targetY, def.speed);
+    const p = { x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: def.damage, r: def.r || 6, color: def.color };
+    if (def.style === "shield"){
+      p.style = "shield";
+      p.rimColor = enemy.def.colors.shieldRim;
+      p.color = enemy.def.colors.shield;
+    }
+    enemyProjectiles.push(p);
+  }
+
+  function updateEnemyProjectiles(){
+    enemyProjectiles.forEach(p => { p.x += p.vx; p.y += p.vy; });
+    enemyProjectiles = enemyProjectiles.filter(p => {
+      if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return false;
+      const top = playerTop(), height = playerHeight();
+      if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
+        applyDamageToPlayer(p.dmg);
+        return false;
+      }
+      return true;
+    });
+  }
+
   function dealAbilityDamageToPlayer(def, st){
     if (st.hasHitPlayer) return;
     let bands = [];
     if (def.kind === "band"){
       bands = [ def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band] ];
     } else if (def.kind === "gapPick"){
-      bands = ["low","mid","high"].filter(b => b !== st.safeBand).map(b => BAND[b]);
+      bands = ["ground","mid","high"].filter(b => b !== st.safeBand).map(b => BAND[b]);
     } else if (def.kind === "pincer"){
-      bands = [ BAND.high, BAND.low ];
+      bands = [ BAND.high, BAND.ground ];
     }
     for (const b of bands){
       if (playerOverlapsBand(b)){
@@ -525,17 +600,17 @@
     if (!enemy) return out;
     enemy.def.abilities.forEach((def, i) => {
       const st = enemy.abilityStates[i];
-      if (def.kind === "buff" || def.kind === "reflectBuff") return;
+      if (def.kind === "buff" || def.kind === "reflectBuff" || def.kind === "projectile") return;
       if (st.phase === "telegraph" || st.phase === "active"){
         const danger = st.phase === "active";
         if (def.kind === "band"){
           const b = def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band];
           out.push({ band: b, danger });
         } else if (def.kind === "gapPick"){
-          ["low","mid","high"].filter(b => b !== st.safeBand).forEach(b => out.push({ band: BAND[b], danger }));
+          ["ground","mid","high"].filter(b => b !== st.safeBand).forEach(b => out.push({ band: BAND[b], danger }));
         } else if (def.kind === "pincer"){
           out.push({ band: BAND.high, danger });
-          out.push({ band: BAND.low, danger });
+          out.push({ band: BAND.ground, danger });
         }
       }
     });
@@ -619,6 +694,7 @@
 
     updateHazards();
     updateProjectiles();
+    updateEnemyProjectiles();
     updateEffects();
   }
 
@@ -712,8 +788,22 @@
 
   /* ---------------- draw: player ---------------- */
   function drawPlayer(){
-    const x = player.x, y = player.y, h = playerHeight();
+    const x = player.x, y = playerTop(), h = playerHeight();
     const legPhase = Math.floor(frame / 6) % 2;
+
+    if (player.mode === "flying"){
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
+      const cx = x + PLAYER_W/2, cy = y + h/2;
+      const r = Math.max(PLAYER_W, h) * (0.9 + pulse * 0.35);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(95,217,122,${0.55 + pulse * 0.25})`);
+      glow.addColorStop(0.6, `rgba(46,107,58,${0.28 + pulse * 0.15})`);
+      glow.addColorStop(1, "rgba(46,107,58,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = COLORS.doomCloakDark;
     ctx.beginPath();
@@ -743,16 +833,7 @@
     ctx.closePath();
     ctx.fill();
 
-    if (player.mode === "flying"){
-      ctx.fillStyle = COLORS.doomCloak;
-      const flap = 6 + Math.sin(frame * 0.3) * 4;
-      ctx.beginPath();
-      ctx.moveTo(x - 6, y + h * 0.3);
-      ctx.lineTo(x - 20, y + h * 0.5 + flap);
-      ctx.lineTo(x - 6, y + h * 0.75);
-      ctx.closePath();
-      ctx.fill();
-    } else if (!player.ducking){
+    if (player.mode !== "flying" && !player.ducking){
       ctx.fillStyle = COLORS.doomArmorDark;
       if (!player.onGround){
         ctx.fillRect(x + 4, y + h - 6, 8, 6);
@@ -773,20 +854,37 @@
       ctx.arc(x + PLAYER_W/2, y + h/2, Math.max(PLAYER_W, h) * 0.7, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (player.decoyFrames > 0){
-      ctx.strokeStyle = COLORS.decoyFx;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4,3]);
-      ctx.strokeRect(x - 4, y - 4, PLAYER_W + 8, h + 8);
-      ctx.setLineDash([]);
+    if (player.blockFrames > 0){
+      ctx.strokeStyle = COLORS.blockFx;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 6, y - 6, PLAYER_W + 12, h + 12);
     }
   }
 
   /* ---------------- draw: enemy ---------------- */
+  function enemyIsDucking(){
+    return enemy.def.abilities.some((def, i) => {
+      const st = enemy.abilityStates[i];
+      return def.kind === "band" && def.band === "ground" && (st.phase === "telegraph" || st.phase === "active");
+    });
+  }
+
   function drawEnemy(){
     if (!enemy) return;
     const { x, y, w, h } = enemy;
     const c = enemy.def.colors;
+
+    // No per-character crouch art — instead, squash the whole sprite
+    // vertically toward its feet whenever it's winding up or throwing a
+    // ground-level attack, so it visibly ducks down to aim low.
+    const ducking = enemyIsDucking();
+    ctx.save();
+    if (ducking){
+      const feetY = y + h;
+      ctx.translate(0, feetY);
+      ctx.scale(1, 0.6);
+      ctx.translate(0, -feetY);
+    }
 
     if (enemy.defId === "wolverine"){
       ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.25, w, h*0.75);
@@ -813,6 +911,8 @@
       ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 8, 0, Math.PI*2); ctx.fill();
     }
 
+    ctx.restore();
+
     enemy.def.abilities.forEach((def, i) => {
       const st = enemy.abilityStates[i];
       if (st.phase === "telegraph"){
@@ -833,6 +933,22 @@
     });
   }
 
+  function drawEnemyProjectiles(){
+    enemyProjectiles.forEach(p => {
+      if (p.style === "shield"){
+        ctx.fillStyle = p.rimColor;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.65, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
   function drawEffects(){
     effects.forEach(e => {
       if (e.type === "burst" || e.type === "nova"){
@@ -846,9 +962,29 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       } else if (e.type === "beam"){
-        ctx.fillStyle = e.color;
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 6;
         ctx.globalAlpha = e.life / 14;
-        ctx.fillRect(0, e.y - 4, CANVAS_W, 8);
+        ctx.beginPath();
+        ctx.moveTo(e.x1, e.y1);
+        ctx.lineTo(e.x2, e.y2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (e.type === "heal"){
+        ctx.strokeStyle = COLORS.healFx;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = e.life / 26;
+        const r = 10 + (1 - e.life/26) * 20;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = COLORS.healFx;
+        ctx.fillRect(e.x - 2, e.y - 10, 4, 20);
+        ctx.fillRect(e.x - 10, e.y - 2, 20, 4);
+        ctx.globalAlpha = 1;
+      } else if (e.type === "block"){
+        ctx.strokeStyle = COLORS.blockFx;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = Math.min(1, e.life / 20);
+        ctx.strokeRect(e.x - 22, e.y - 26, 44, 52);
         ctx.globalAlpha = 1;
       } else if (e.type === "shield"){
         ctx.strokeStyle = COLORS.shieldFx;
@@ -860,12 +996,6 @@
         ctx.fillStyle = COLORS.teleportFx;
         ctx.globalAlpha = e.life / 16;
         ctx.beginPath(); ctx.arc(e.x, e.y, 24 * (1 - e.life/16), 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-      } else if (e.type === "decoySpawn" || e.type === "decoyPop"){
-        ctx.strokeStyle = COLORS.decoyFx;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = e.life / 30;
-        ctx.strokeRect(e.x - 20, e.y - 20, 40, 40);
         ctx.globalAlpha = 1;
       } else if (e.type === "hit" || e.type === "spark" || e.type === "clang"){
         ctx.fillStyle = e.type === "clang" ? "#FFFFFF" : COLORS.hpBar;
@@ -893,6 +1023,9 @@
     ctx.fillText("SCORE " + Math.floor(score), CANVAS_W - 12, 24);
     ctx.font = "600 11px 'JetBrains Mono', monospace";
     ctx.fillText(BIOMES[biomeIndex].name, CANVAS_W - 12, 40);
+    ctx.fillStyle = COLORS.doomTrim;
+    ctx.font = "700 12px 'JetBrains Mono', monospace";
+    ctx.fillText(DOOM_ABILITIES[selectedAbilityIndex].name.toUpperCase(), CANVAS_W - 12, 56);
 
     if (phase === "encounter" && enemy){
       const barW = 220, barX = (CANVAS_W - barW)/2;
@@ -936,6 +1069,12 @@
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
 
+      if (i === selectedAbilityIndex){
+        ctx.strokeStyle = COLORS.doomTrim;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 1.5, y - 1.5, size + 3, size + 3);
+      }
+
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "700 13px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
@@ -949,6 +1088,7 @@
     if (phase === "encounter") drawDangerBands();
     drawEnemy();
     drawProjectiles();
+    drawEnemyProjectiles();
     drawPlayer();
     drawEffects();
     drawHud();
@@ -1065,6 +1205,7 @@
         const n = Number(e.code.slice(5));
         if (n >= 1 && n <= 9){
           e.preventDefault();
+          selectedAbilityIndex = n - 1;
           tryCastAbility(n - 1);
         }
       }
