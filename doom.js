@@ -53,6 +53,7 @@
   const ENERGY_REGEN = 0.18; // per frame
 
   const VICTORY_PAUSE_FRAMES = 90;
+  const DOUBLE_TAP_WINDOW_FRAMES = 18; // ~300ms at 60fps — how close together two Space taps must land to toggle flying
 
   const LOCAL_BEST_KEY = "midland-meetups-doom-best-score";
 
@@ -200,6 +201,7 @@
   let biomeIndex, travelDistance, worldXTotal, lastCharacterId;
   let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
   let score, frame, running, over, started, animId;
+  let lastSpaceTapFrame;
   const keysDown = {};
 
   function resetState(){
@@ -230,6 +232,7 @@
     lastScoreBonus = 0;
     score = 0;
     frame = 0;
+    lastSpaceTapFrame = -9999;
     running = false;
     over = false;
     for (const k in keysDown) delete keysDown[k];
@@ -994,8 +997,8 @@
       telegraphed attacks by flying, jumping, or ducking, and answer with
       whichever of Doom's nine abilities fits the moment.</p>
       <p>Left/Right to move, Up to jump (or ascend while flying), Down to
-      duck (or descend while flying), F to toggle flying, number keys 1–9
-      for Doom's abilities.</p>
+      duck (or descend while flying), double-tap Space to toggle flying,
+      number keys 1–9 for Doom's abilities.</p>
       ${localBest > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${localBest}</p>` : ""}
       <button type="button" class="btn" id="doom-play-btn">Play</button>
     `;
@@ -1037,7 +1040,7 @@
       if (document.activeElement !== canvas) return; // don't steal input meant for the other games on this page
 
       if (!started || over){
-        if (e.code.startsWith("Digit") || e.code === "ArrowUp" || e.code === "KeyF"){
+        if (e.code.startsWith("Digit") || e.code === "ArrowUp" || e.code === "Space"){
           e.preventDefault();
           startGame();
         }
@@ -1048,9 +1051,16 @@
         e.preventDefault();
         keysDown[e.code] = true;
         if (e.code === "ArrowUp" && player.mode === "walking") jump();
-      } else if (e.code === "KeyF"){
+      } else if (e.code === "Space"){
         e.preventDefault();
-        toggleFlight();
+        if (!e.repeat){
+          if (frame - lastSpaceTapFrame <= DOUBLE_TAP_WINDOW_FRAMES){
+            toggleFlight();
+            lastSpaceTapFrame = -9999;
+          } else {
+            lastSpaceTapFrame = frame;
+          }
+        }
       } else if (e.code.startsWith("Digit")){
         const n = Number(e.code.slice(5));
         if (n >= 1 && n <= 9){

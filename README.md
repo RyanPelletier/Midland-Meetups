@@ -333,8 +333,8 @@ from the character library at the top of `doom.js`) blocks your path,
 and the world stops scrolling until you defeat them.
 
 - **Move and dodge:** Left/Right to move, Up to jump (or ascend while
-  flying), Down to duck (or descend while flying), **F** to toggle
-  between walking and flying. Dodging in this game is a vertical
+  flying), Down to duck (or descend while flying), **double-tap Space**
+  to toggle between walking and flying. Dodging in this game is a vertical
   problem — every enemy attack is a telegraphed horizontal danger band
   (shown as a highlighted strip before it turns dangerous), so getting
   out of its height range (by flying up/down, jumping, or ducking) is
