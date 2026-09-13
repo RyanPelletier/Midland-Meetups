@@ -366,7 +366,20 @@ and the world stops scrolling until you defeat them.
   entry near the top of `doom.js`). Adding the next Marvel character
   later is just one more entry in that table — the fight engine itself
   (telegraph → active → cooldown, danger bands, gap-picks, pincers,
-  self-buffs, reflects) is generic and doesn't need touching.
+  self-buffs, reflects) is generic and doesn't need touching. Captain
+  America's shield is his signature move: **Shield Throw** is a real
+  projectile (drawn larger than the other characters' shots) that, if
+  it misses, curves back and returns to him rather than flying off;
+  his **Bounce Back** (previously "Vibranium Block") only reflects
+  Doom's projectile-based hits back at him 70% of the time — the
+  other 30% it just takes the hit — instead of blocking every time.
+
+If the canvas ever appears to freeze mid-game, it isn't silent: `loop()`
+wraps each frame's `update()`/`draw()` in a try/catch that logs any
+thrown error to the browser console (`[Doom Scroller] update() threw`
+or `draw() threw`) and keeps the animation loop alive rather than
+letting one bad frame kill it outright. If that ever fires, whatever's
+in the console names the exact line to fix.
 
 **Doom Scroller doesn't touch the Sheet or the Apps Script at all** —
 its best score lives in `localStorage` only, the same fallback Wizards
