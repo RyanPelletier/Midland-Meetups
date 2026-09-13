@@ -138,8 +138,8 @@
       colors: { body: "#5B4A9B", mask: "#F6C945", claws: "#E5E7EA" },
       movement: { type: "lunger" },
       abilities: [
-        { name: "Claw Flurry", kind: "band", band: "head", damage: 7, telegraphFrames: 16, activeFrames: 12, cdMin: 55, cdMax: 85 },
-        { name: "Berserker Lunge", kind: "band", band: "ground", damage: 13, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
+        { name: "Claw Flurry", kind: "band", band: "head", damage: 16, telegraphFrames: 16, activeFrames: 12, cdMin: 40, cdMax: 60 },
+        { name: "Berserker Lunge", kind: "band", band: "ground", damage: 28, telegraphFrames: 30, activeFrames: 13, cdMin: 120, cdMax: 160, chargeForward: true, chargeDistance: 220 },
         { name: "Adamantium Guard", kind: "buff", buffType: "damageReduction", buffAmount: 0.7, telegraphFrames: 10, activeFrames: 130, cdMin: 260, cdMax: 320 }
       ]
     },
@@ -162,9 +162,9 @@
       colors: { body: "#4C8C3A", pants: "#5B4A9B" },
       movement: { type: "stomper" },
       abilities: [
-        { name: "Ground Pound", kind: "band", band: "ground", damage: 14, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
+        { name: "Ground Pound", kind: "band", band: "ground", damage: 22, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
         { name: "Boulder Throw", kind: "projectile", damage: 10, speed: 7, r: 7, color: COLORS.boulderFx, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Rage Charge", kind: "band", band: "ground", damage: 13, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
+        { name: "Rage Charge", kind: "band", band: "ground", damage: 24, telegraphFrames: 34, activeFrames: 13, cdMin: 140, cdMax: 180, chargeForward: true, chargeDistance: 220 }
       ]
     },
     cyclops: {
@@ -187,7 +187,7 @@
       movement: { type: "charger" },
       abilities: [
         { name: "Shield Throw", kind: "projectile", damage: 9, speed: 11, r: 12, style: "shield", telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Shield Charge", kind: "band", band: "ground", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
+        { name: "Shield Charge", kind: "band", band: "ground", damage: 20, telegraphFrames: 24, activeFrames: 11, cdMin: 130, cdMax: 170, rangedImmuneWhileActive: true, chargeForward: true, chargeDistance: 220 },
         { name: "Bounce Back", kind: "reflectBuff", reflectChance: 0.7, telegraphFrames: 14, activeFrames: 70, cdMin: 170, cdMax: 220 }
       ]
     }
@@ -478,6 +478,7 @@
       reflectPending: false,
       reflectChance: 1,
       damageReduction: 0,
+      hasShield: true,
       abilityStates: def.abilities.map((a, i) => ({
         phase: "idle",
         timer: 0,
@@ -493,17 +494,17 @@
     const t = enemy.movementT;
     const type = enemy.def.movement.type;
     let x = enemy.baseX, y = enemy.baseY;
-    if (type === "lunger") x = enemy.baseX - 20 + 20 * Math.sin(t * 0.045);
+    if (type === "lunger") x = enemy.baseX - 35 + 35 * Math.sin(t * 0.09); // fast, restless — always closing and darting back
     else if (type === "hoverer"){ y = enemy.baseY - 30 + 20 * Math.sin(t * 0.04); x = enemy.baseX + 25 * Math.sin(t * 0.017); }
     else if (type === "strafer") x = enemy.baseX + 35 * Math.sin(t * 0.02);
-    else if (type === "charger") x = enemy.baseX + 15 * Math.sin(t * 0.025);
-    // "stomper" (Hulk) stays put between charges — all its flavor is in its abilities.
+    else if (type === "charger") x = enemy.baseX + 25 * Math.sin(t * 0.045);
+    else if (type === "stomper") x = enemy.baseX + 12 * Math.sin(t * 0.03); // a restless shuffle between charges, not a dead stop
 
     for (let i = 0; i < enemy.def.abilities.length; i++){
       const def = enemy.def.abilities[i], st = enemy.abilityStates[i];
       if (def.chargeForward && st.phase === "active"){
         const progress = 1 - (st.timer / def.activeFrames);
-        x = enemy.baseX - 150 * Math.sin(progress * Math.PI);
+        x = enemy.baseX - (def.chargeDistance || 150) * Math.sin(progress * Math.PI);
       }
     }
     enemy.x = x; enemy.y = y;
@@ -568,6 +569,7 @@
       p.boomerang = true;
       p.age = 0;
       p.turnAfter = 26; // frames outbound before it curves back to Cap, whether or not it connected
+      enemy.hasShield = false; // he's throwing it — his own static shield shouldn't also be drawn on him
     }
     enemyProjectiles.push(p);
   }
@@ -584,13 +586,17 @@
       p.x += p.vx; p.y += p.vy;
     });
     enemyProjectiles = enemyProjectiles.filter(p => {
-      if (p.returning && enemy && Math.hypot((enemy.x + enemy.w/2) - p.x, (enemy.y + enemy.h/2) - p.y) < 18) return false; // caught
-      if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return false;
+      // A shield-style projectile hands the shield back the moment it's
+      // removed, whatever the reason (caught, hit its target, or flew
+      // off-screen) — otherwise Cap could end up permanently shieldless.
+      const releaseShield = () => { if (p.style === "shield" && enemy) enemy.hasShield = true; return false; };
+      if (p.returning && enemy && Math.hypot((enemy.x + enemy.w/2) - p.x, (enemy.y + enemy.h/2) - p.y) < 18) return releaseShield(); // caught
+      if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return releaseShield();
       if (!p.returning){
         const top = playerTop(), height = playerHeight();
         if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
           applyDamageToPlayer(p.dmg);
-          return false;
+          return releaseShield();
         }
       }
       return true;
@@ -996,9 +1002,11 @@
       ctx.fillStyle = "#E5484D";
       ctx.beginPath(); ctx.moveTo(x+w*0.14, y-h*0.02); ctx.lineTo(x-w*0.02, y+h*0.08); ctx.lineTo(x+w*0.22, y+h*0.1); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(x+w*0.86, y-h*0.02); ctx.lineTo(x+w*1.02, y+h*0.08); ctx.lineTo(x+w*0.78, y+h*0.1); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = c.shieldRim; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 18, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 13, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#FFFFFF"; drawStar(x - 14, y + h*0.5, 6, 2.6);
+      if (enemy.hasShield){
+        ctx.fillStyle = c.shieldRim; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 18, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 14, y + h*0.5, 13, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#FFFFFF"; drawStar(x - 14, y + h*0.5, 6, 2.6);
+      }
     }
 
     ctx.restore();
