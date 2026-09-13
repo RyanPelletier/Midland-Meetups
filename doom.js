@@ -752,11 +752,11 @@
     ctx.fillStyle = biome.silhouette;
     for (let i = -1; i < count; i++){
       const tx = i * tileW - offset;
-      drawBiomeUnit(biome.kind, tx, i);
+      drawBiomeUnit(biome.kind, tx, i, tileW);
     }
   }
 
-  function drawBiomeUnit(kind, tx, i){
+  function drawBiomeUnit(kind, tx, i, tileW){
     const baseY = GROUND_Y;
     if (kind === "towers"){
       const h = 70 + ((i * 37) % 50);
@@ -1220,7 +1220,11 @@
     running = false;
     over = true;
     cancelAnimationFrame(animId);
-    draw();
+    // showGameOverOverlay() must run even if this final draw() throws —
+    // otherwise a rendering bug at the exact moment of death leaves the
+    // canvas stuck on its last frame with no game-over screen and no
+    // way to restart, which looks exactly like a freeze.
+    try{ draw(); }catch(err){ console.error("[Doom Scroller] final draw() threw:", err); }
     showGameOverOverlay();
   }
 
