@@ -101,6 +101,9 @@ and the site is deployed (see below), it should be pulling live data.
   their previous best. No approval step, same reasoning as Chat.
 - **WalterProgress tab:** columns are `name`, `password`, `progress`,
   `updatedAt` — powers Walter vs. Wizards' save system (see below).
+- **Doom Scroller** doesn't use the Sheet at all — its best score is kept
+  in `localStorage` only, same as Wizards &amp; Waffles' local-best fallback.
+  Nothing to set up here; see its own section below.
 - **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
   post immediately with no approval step (a review queue would defeat the
   point of a live chat). The page polls for new messages every 8 seconds.
@@ -319,12 +322,50 @@ You can read or hand-edit anyone's save directly in the Sheet if you
 ever need to (e.g. to grant someone a spell, or fix a mistake) — it's
 plain text, no encoding beyond what's shown above.
 
-**A technical note for future changes:** since two games now share one
-page, both `game.js` and `walter.js` check that their *own* canvas is
-the focused element before responding to a keypress (see
-`document.activeElement !== canvas` near the top of each file's keydown
-handler). If you add a third game to this page later, it'll need the
-same guard, or its controls will collide with the other two.
+## How Doom Scroller works
+
+A third game on the same page (`game.html`), built in its own file,
+`doom.js`. You play as Dr. Doom, scrolling right through a repeating
+sequence of five biomes — Latveria, the Manhattan skyline, the Canadian
+wilds, the Gamma Wastes, and Xavier's grounds — each purely a cosmetic
+backdrop. Every biome ends in a fight: a random Marvel character (drawn
+from the character library at the top of `doom.js`) blocks your path,
+and the world stops scrolling until you defeat them.
+
+- **Move and dodge:** Left/Right to move, Up to jump (or ascend while
+  flying), Down to duck (or descend while flying), **F** to toggle
+  between walking and flying. Dodging in this game is a vertical
+  problem — every enemy attack is a telegraphed horizontal danger band
+  (shown as a highlighted strip before it turns dangerous), so getting
+  out of its height range (by flying up/down, jumping, or ducking) is
+  what keeps you alive.
+- **Fight back:** number keys 1–9 fire whichever of Doom's nine
+  abilities you need — quick pokes (Plasma Bolt, Doom Bolts), bigger
+  hits (Disruptor Beam, Force Pulse), defensive options (Mystic Shield,
+  Teleport Slip, Doombot Decoy), a hybrid movement/attack (Levitation
+  Burst), and an ultimate (Hyperbolic Nova). Every ability draws from a
+  shared energy bar and has its own cooldown, shown on the hotbar at
+  the bottom of the canvas.
+- **The character library:** Wolverine, Iron Man, Hulk, Cyclops, and
+  Captain America to start, each with a unique movement style and
+  exactly three fight abilities (defined together as one `CHARACTERS`
+  entry near the top of `doom.js`). Adding the next Marvel character
+  later is just one more entry in that table — the fight engine itself
+  (telegraph → active → cooldown, danger bands, gap-picks, pincers,
+  self-buffs, reflects) is generic and doesn't need touching.
+
+**Doom Scroller doesn't touch the Sheet or the Apps Script at all** —
+its best score lives in `localStorage` only, the same fallback Wizards
+&amp; Waffles uses before a Sheet is connected. There's no shared
+leaderboard for it yet (same "later" status Walter's leaderboard has).
+
+**A technical note for future changes:** since three games now share
+one page, `game.js`, `walter.js`, and `doom.js` each check that their
+*own* canvas is the focused element before responding to a keypress
+(see `document.activeElement !== canvas` near the top of each file's
+keydown handler). If you add a fourth game to this page later, it'll
+need the same guard, or its controls will collide with the other
+three.
 
 ## Adding a new page (or renaming/reordering nav links)
 
@@ -369,10 +410,10 @@ that instead).
 1. Create a new repository on GitHub (public repos get free Pages hosting).
 2. Upload the website files — `index.html`, `rsvps.html`, `lore.html`,
    `submit.html`, `squad.html`, `chat.html`, `game.html`, `nav.html`,
-   `style.css`, `app.js`, `game.js`, `walter.js`, `config.js` (with your
-   URL already pasted in). You don't need to upload the `apps-script`
-   folder; that code lives in the Sheet's Apps Script editor, not on
-   GitHub.
+   `style.css`, `app.js`, `game.js`, `walter.js`, `doom.js`, `config.js`
+   (with your URL already pasted in). You don't need to upload the
+   `apps-script` folder; that code lives in the Sheet's Apps Script
+   editor, not on GitHub.
 3. In the repo, go to **Settings → Pages**.
 4. Under "Build and deployment," set **Source** to "Deploy from a branch,"
    pick the `main` branch and the `/ (root)` folder, then **Save**.
