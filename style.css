@@ -912,7 +912,8 @@ textarea{ resize: vertical; min-height: 110px; }
   box-shadow: var(--shadow-sm);
 }
 #game-canvas,
-#walter-canvas{
+#walter-canvas,
+#doom-canvas{
   display: block;
   width: 100%;
   height: auto;
@@ -921,7 +922,8 @@ textarea{ resize: vertical; min-height: 110px; }
   cursor: pointer;
 }
 #game-canvas:focus-visible,
-#walter-canvas:focus-visible{
+#walter-canvas:focus-visible,
+#doom-canvas:focus-visible{
   outline: 2.5px solid var(--blue);
   outline-offset: -2px;
 }
@@ -1067,6 +1069,52 @@ textarea{ resize: vertical; min-height: 110px; }
    of visibly shifting a landmass out of position on hover. */
 .wvw-landmass{ transition: opacity 0.15s ease; }
 .wvw-landmass:hover{ opacity: 0.72; }
+
+/* =========================================================
+   DOOM SCROLLER'S LATVERIAN THRONE-ROOM THEME
+   Scoped entirely to #doom-overlay-inner (ID, not the shared
+   .game-overlay-inner class), same isolation approach as Walter's
+   scroll skin just above — so this can never affect the other two
+   games' menus on this same page.
+   ========================================================= */
+#doom-overlay{
+  background: rgba(14,20,16,0.78); /* cold gunmetal-green, distinct from the other two games' backdrops */
+}
+#doom-overlay-inner{
+  max-width: 380px;
+  padding: 26px 26px 22px;
+  border-radius: 4px;
+  color: #DDE6E0;
+  text-align: center;
+  background: linear-gradient(180deg, #1F2A22 0%, #14201A 60%, #0E1712 100%);
+  box-shadow:
+    inset 0 0 0 2px #C9A227,
+    inset 0 0 0 4px #14201A,
+    0 18px 46px -12px rgba(0,0,0,0.6);
+}
+#doom-overlay-inner h3{
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 1.3rem;
+  color: #C9A227;
+  text-transform: uppercase;
+  margin: 4px 0 10px;
+}
+#doom-overlay-inner p{
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #BFCBC4;
+}
+#doom-overlay-inner .btn{
+  background: linear-gradient(180deg, #3A5A42, #223B28);
+  border: 1px solid #C9A227;
+  color: #EDE6D6;
+}
+#doom-overlay-inner .btn:hover, #doom-overlay-inner .btn:focus-visible{
+  background: linear-gradient(180deg, #46693F, #2C4A32);
+  outline: none;
+}
 
 @media (max-height: 480px){
   .game-overlay-inner h3{ font-size: 1.1rem; margin-bottom: 4px; }

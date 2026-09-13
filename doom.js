@@ -1,0 +1,1082 @@
+/* =====================================================================
+   DOOM SCROLLER
+   A 2D right-scrolling brawler starring Dr. Doom. Same mid-century
+   modern visual language as the other two games on this page (bold
+   primary colors, simple flat shapes), but its own genre: you travel
+   right through a repeating sequence of biomes, and each biome ends in
+   a stationary fight against a randomly-picked Marvel character.
+
+   Shares this page with Wizards & Waffles and And So I Wander, so this
+   file only reacts to input when its OWN canvas is focused — see
+   initGame() at the bottom (same guard those two files use).
+
+   THE CHARACTER LIBRARY (CHARACTERS below) is deliberately structured
+   as one self-contained entry per fighter — movement type + exactly
+   three abilities each — so adding the next Marvel character later is
+   just one more entry, no engine changes. The five abilities that ARE
+   engine-level (updateAbilityState/dealAbilityDamageToPlayer) are
+   generic: every enemy ability is one of a handful of "kinds" (a
+   telegraphed danger band, a pick-the-safe-gap barrage, a top+bottom
+   pincer, a self-buff, or a reflect) rather than bespoke code per
+   character.
+
+   TUNING: every number worth playing with lives in CONFIG below.
+   ===================================================================== */
+
+(function(){
+
+  /* ==================== CONFIG ==================== */
+  const CANVAS_W = 640;
+  const CANVAS_H = 360;
+  const GROUND_Y = 300;
+
+  const PLAYER_W = 32;
+  const PLAYER_H = 46;
+  const DUCK_H = 26;
+
+  const PLAYER_ARENA_MIN_X = 40;
+  const PLAYER_ARENA_MAX_X = 340;
+  const ENEMY_X = 480;
+
+  const STRAFE_SPEED = 4.5;
+  const FLY_VERT_SPEED = 4.2;
+  const FLY_MIN_Y = 40;
+
+  const GRAVITY = 0.8;
+  const JUMP_VELOCITY = -13;
+
+  const SCROLL_SPEED = 3.2;
+  const BIOME_TRAVEL_DISTANCE = 900; // world-distance per biome before its resident fighter appears
+
+  const PLAYER_MAX_HP = 100;
+  const ENERGY_MAX = 100;
+  const ENERGY_REGEN = 0.18; // per frame
+
+  const VICTORY_PAUSE_FRAMES = 90;
+  const DOUBLE_TAP_WINDOW_FRAMES = 18; // ~300ms at 60fps — how close together two Space taps must land to toggle flying
+
+  const LOCAL_BEST_KEY = "midland-meetups-doom-best-score";
+
+  const DEBUG = false;
+
+  // Danger bands (canvas y-ranges). "wide" and the two "trackPlayerY"
+  // half-heights below are how enemy abilities threaten the player —
+  // dodging is a vertical problem (fly up/down, jump, or duck), never
+  // a horizontal one, so every hazard spans the full arena width.
+  const BAND = {
+    low:  { min: 230, max: 300 },
+    mid:  { min: 150, max: 230 },
+    high: { min: 60,  max: 150 },
+    wide: { min: 110, max: 300 }
+  };
+
+  const COLORS = {
+    hud: "#1F2430",
+    hpBar: "#E14B3C",
+    hpBarBack: "#3A2A2A",
+    energyBar: "#3E7ADB",
+    energyBarBack: "#22304A",
+    enemyHpBar: "#F6C945",
+    telegraph: "rgba(225,72,60,0.28)",
+    danger: "rgba(225,72,60,0.55)",
+    safeGapHint: "rgba(60,180,120,0.20)",
+
+    doomCloak: "#2E6B3A",
+    doomCloakDark: "#204D29",
+    doomArmor: "#7A7E86",
+    doomArmorDark: "#4F5359",
+    doomMask: "#4A4E55",
+    doomTrim: "#C9A227",
+
+    plasma: "#7FE0C4",
+    forcePulse: "#C9A227",
+    beam: "#3EDB8F",
+    bolt: "#7FE0C4",
+    levitation: "#8FD9FF",
+    nova: "#F6C945",
+    shieldFx: "#3E7ADB",
+    teleportFx: "#B98FE0",
+    decoyFx: "#9CA3AF"
+  };
+
+  const BIOMES = [
+    { name: "Latveria — The Ruined Approach", skyTop: "#2A1F33", skyBottom: "#4A3A55", ground: "#3B2E3F", silhouette: "#1C1420", tileW: 140, kind: "towers" },
+    { name: "Manhattan Skyline", skyTop: "#3A4A6B", skyBottom: "#6B85A8", ground: "#4B4B55", silhouette: "#26314A", tileW: 90, kind: "buildings" },
+    { name: "Canadian Wilds", skyTop: "#BFE3D0", skyBottom: "#DCEFC4", ground: "#5A7A46", silhouette: "#2F5233", tileW: 70, kind: "pines" },
+    { name: "The Gamma Wastes", skyTop: "#B7C24A", skyBottom: "#DCE38A", ground: "#8A7A3E", silhouette: "#5C5426", tileW: 110, kind: "spires" },
+    { name: "Xavier's Grounds", skyTop: "#AEE2FF", skyBottom: "#EAF6FF", ground: "#8FBF5A", silhouette: "#3F7A3A", tileW: 160, kind: "hills" }
+  ];
+
+  /* ==================== character library ==================== */
+  // Each fighter: displayName, size, hp, a movement type (purely how
+  // they drift around their spot), and exactly three abilities. Every
+  // ability is one of: "band" (a telegraphed y-range that turns
+  // dangerous), "gapPick" (three candidate bands, one picked safe),
+  // "pincer" (top+bottom bands active, middle is the safe gap),
+  // "buff" (a self-effect, no player-facing zone), or "reflectBuff"
+  // (blocks + bounces the next ranged hit back at the player).
+  const CHARACTERS = {
+    wolverine: {
+      displayName: "Wolverine",
+      w: 40, h: 50,
+      hp: 220,
+      colors: { body: "#5B4A9B", mask: "#F6C945", claws: "#E5E7EA" },
+      movement: { type: "lunger" },
+      abilities: [
+        { name: "Claw Flurry", kind: "band", band: "low", damage: 10, telegraphFrames: 16, activeFrames: 12, cdMin: 40, cdMax: 65 },
+        { name: "Berserker Lunge", kind: "band", band: "low", damage: 18, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
+        { name: "Adamantium Guard", kind: "buff", buffType: "damageReduction", buffAmount: 0.7, telegraphFrames: 10, activeFrames: 130, cdMin: 260, cdMax: 320 }
+      ]
+    },
+    ironman: {
+      displayName: "Iron Man",
+      w: 42, h: 54,
+      hp: 260,
+      colors: { body: "#B02E2E", gold: "#D9A93B" },
+      movement: { type: "hoverer" },
+      abilities: [
+        { name: "Repulsor Blast", kind: "band", band: "mid", damage: 8, telegraphFrames: 10, activeFrames: 8, cdMin: 30, cdMax: 55 },
+        { name: "Unibeam Charge", kind: "band", band: "wide", damage: 24, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
+        { name: "Missile Barrage", kind: "gapPick", damage: 7, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
+      ]
+    },
+    hulk: {
+      displayName: "Hulk",
+      w: 54, h: 64,
+      hp: 340,
+      colors: { body: "#4C8C3A", pants: "#5B4A9B" },
+      movement: { type: "stomper" },
+      abilities: [
+        { name: "Ground Pound", kind: "band", band: "low", damage: 20, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
+        { name: "Boulder Throw", kind: "band", band: "mid", damage: 14, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Rage Charge", kind: "band", band: "low", damage: 18, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
+      ]
+    },
+    cyclops: {
+      displayName: "Cyclops",
+      w: 40, h: 52,
+      hp: 230,
+      colors: { body: "#2E5AA8", visor: "#E5484D" },
+      movement: { type: "strafer" },
+      abilities: [
+        { name: "Optic Blast", kind: "band", trackPlayerY: true, trackHalf: 35, damage: 10, telegraphFrames: 14, activeFrames: 10, cdMin: 35, cdMax: 60 },
+        { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 26, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
+        { name: "Ricochet Blast", kind: "pincer", damage: 12, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
+      ]
+    },
+    capamerica: {
+      displayName: "Captain America",
+      w: 42, h: 54,
+      hp: 270,
+      colors: { body: "#2851E3", shield: "#E5484D", shieldRim: "#9CA3AF" },
+      movement: { type: "charger" },
+      abilities: [
+        { name: "Shield Throw", kind: "band", band: "mid", damage: 12, telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Shield Charge", kind: "band", band: "low", damage: 16, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
+        { name: "Vibranium Block", kind: "reflectBuff", telegraphFrames: 14, activeFrames: 70, cdMin: 200, cdMax: 260 }
+      ]
+    }
+  };
+  const CHARACTER_IDS = Object.keys(CHARACTERS);
+
+  /* ==================== Doom's own kit (keys 1-9) ==================== */
+  // Costs draw from a shared energy bar; every ability also has its
+  // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
+  // Cap's Shield Charge / reflectable by Vibranium Block, except Nova
+  // which pierces both); 2/8 are "physical" (never blocked/reflected).
+  const DOOM_ABILITIES = [
+    { name: "Plasma Bolt", cost: 8, cooldownFrames: 14 },
+    { name: "Force Pulse", cost: 14, cooldownFrames: 45 },
+    { name: "Disruptor Beam", cost: 30, cooldownFrames: 100 },
+    { name: "Doom Bolts", cost: 20, cooldownFrames: 55 },
+    { name: "Mystic Shield", cost: 25, cooldownFrames: 170 },
+    { name: "Teleport Slip", cost: 15, cooldownFrames: 75 },
+    { name: "Doombot Decoy", cost: 22, cooldownFrames: 220 },
+    { name: "Levitation Burst", cost: 22, cooldownFrames: 85 },
+    { name: "Hyperbolic Nova", cost: 55, cooldownFrames: 420 }
+  ];
+
+  let canvas, ctx, overlay, overlayInner;
+  let player, enemy, doomProjectiles, hazards, effects;
+  let biomeIndex, travelDistance, worldXTotal, lastCharacterId;
+  let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
+  let score, frame, running, over, started, animId;
+  let lastSpaceTapFrame;
+  const keysDown = {};
+
+  function resetState(){
+    player = {
+      x: PLAYER_ARENA_MIN_X + 40,
+      y: GROUND_Y - PLAYER_H,
+      vy: 0,
+      onGround: true,
+      ducking: false,
+      mode: "walking",
+      hp: PLAYER_MAX_HP,
+      energy: ENERGY_MAX,
+      invulnFrames: 0,
+      decoyFrames: 0,
+      abilityCooldowns: new Array(9).fill(0)
+    };
+    enemy = null;
+    doomProjectiles = [];
+    hazards = [];
+    effects = [];
+    biomeIndex = 0;
+    travelDistance = 0;
+    worldXTotal = 0;
+    lastCharacterId = null;
+    phase = "traveling";
+    victoryTimer = 0;
+    lastDefeatedName = "";
+    lastScoreBonus = 0;
+    score = 0;
+    frame = 0;
+    lastSpaceTapFrame = -9999;
+    running = false;
+    over = false;
+    for (const k in keysDown) delete keysDown[k];
+  }
+
+  /* ---------------- local best score ---------------- */
+  function getLocalBest(){
+    return Number(localStorage.getItem(LOCAL_BEST_KEY)) || 0;
+  }
+  function setLocalBestIfHigher(candidateScore){
+    const current = getLocalBest();
+    if (candidateScore > current){
+      localStorage.setItem(LOCAL_BEST_KEY, String(candidateScore));
+      return true;
+    }
+    return false;
+  }
+
+  /* ---------------- helpers ---------------- */
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+  function randBetween(lo, hi){ return lo + Math.random() * (hi - lo); }
+  function rectOverlap(x1,y1,w1,h1,x2,y2,w2,h2){
+    return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
+  }
+  function playerHeight(){
+    return (player.mode === "walking" && player.ducking) ? DUCK_H : PLAYER_H;
+  }
+  function playerOverlapsBand(band){
+    const top = player.y, bot = player.y + playerHeight();
+    return top < band.max && bot > band.min;
+  }
+
+  /* ---------------- player ---------------- */
+  function updatePlayer(){
+    if (keysDown.ArrowLeft) player.x -= STRAFE_SPEED;
+    if (keysDown.ArrowRight) player.x += STRAFE_SPEED;
+    player.x = clamp(player.x, PLAYER_ARENA_MIN_X, PLAYER_ARENA_MAX_X);
+
+    if (player.mode === "flying"){
+      if (keysDown.ArrowUp) player.y -= FLY_VERT_SPEED;
+      if (keysDown.ArrowDown) player.y += FLY_VERT_SPEED;
+      player.y = clamp(player.y, FLY_MIN_Y, GROUND_Y - PLAYER_H);
+      player.vy = 0;
+      player.onGround = false;
+      player.ducking = false;
+    } else {
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      if (player.y >= GROUND_Y - PLAYER_H){
+        player.y = GROUND_Y - PLAYER_H;
+        player.vy = 0;
+        player.onGround = true;
+      } else {
+        player.onGround = false;
+      }
+      player.ducking = !!(keysDown.ArrowDown && player.onGround);
+    }
+
+    if (player.invulnFrames > 0) player.invulnFrames--;
+    if (player.decoyFrames > 0) player.decoyFrames--;
+    player.energy = Math.min(ENERGY_MAX, player.energy + ENERGY_REGEN);
+    for (let i = 0; i < 9; i++){
+      if (player.abilityCooldowns[i] > 0) player.abilityCooldowns[i]--;
+    }
+  }
+
+  function jump(){
+    if (player.mode === "walking" && player.onGround && !player.ducking){
+      player.vy = JUMP_VELOCITY;
+      player.onGround = false;
+    }
+  }
+
+  function toggleFlight(){
+    player.mode = (player.mode === "walking") ? "flying" : "walking";
+  }
+
+  function applyDamageToPlayer(amount){
+    if (player.invulnFrames > 0) return;
+    if (player.decoyFrames > 0){
+      player.decoyFrames = 0;
+      effects.push({ type: "decoyPop", x: player.x, y: player.y, life: 20 });
+      return;
+    }
+    player.hp = Math.max(0, player.hp - amount);
+    effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 14 });
+    if (player.hp <= 0) endGame();
+  }
+
+  /* ---------------- Doom's abilities ---------------- */
+  function tryCastAbility(idx){
+    const def = DOOM_ABILITIES[idx];
+    if (player.abilityCooldowns[idx] > 0) return;
+    if (player.energy < def.cost) return;
+    player.energy -= def.cost;
+    player.abilityCooldowns[idx] = def.cooldownFrames;
+    CAST_FNS[idx]();
+    if (DEBUG) console.log("[Doom Scroller] cast " + def.name);
+  }
+
+  function spawnDoomProjectile(p){ doomProjectiles.push(p); }
+
+  const CAST_FNS = [
+    function castPlasmaBolt(){
+      spawnDoomProjectile({ x: player.x + PLAYER_W, y: player.y + playerHeight()/2, vx: 10, dmg: 8, category: "energy", r: 6, color: COLORS.plasma });
+    },
+    function castForcePulse(){
+      const cx = player.x + PLAYER_W/2, cy = player.y + playerHeight()/2;
+      effects.push({ type: "burst", x: cx, y: cy, maxR: 140, life: 18, color: COLORS.forcePulse });
+      if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 140){
+        applyDamageToEnemy(14, "physical", false);
+      }
+    },
+    function castDisruptorBeam(){
+      const cy = player.y + playerHeight()/2;
+      effects.push({ type: "beam", y: cy, life: 14, color: COLORS.beam });
+      if (enemy) applyDamageToEnemy(34, "energy", false);
+    },
+    function castDoomBolts(){
+      const cy = player.y + playerHeight()/2;
+      [-30, 0, 30].forEach(offset => {
+        spawnDoomProjectile({ x: player.x + PLAYER_W, y: cy + offset, vx: 9, dmg: 7, category: "energy", r: 5, color: COLORS.bolt });
+      });
+    },
+    function castMysticShield(){
+      player.invulnFrames = 55;
+      effects.push({ type: "shield", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 55 });
+    },
+    function castTeleportSlip(){
+      const midpoint = (PLAYER_ARENA_MIN_X + PLAYER_ARENA_MAX_X) / 2;
+      const dir = player.x > midpoint ? -1 : 1;
+      player.x = clamp(player.x + dir * 90, PLAYER_ARENA_MIN_X, PLAYER_ARENA_MAX_X);
+      player.invulnFrames = Math.max(player.invulnFrames, 20);
+      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 16 });
+    },
+    function castDoombotDecoy(){
+      player.decoyFrames = 90;
+      effects.push({ type: "decoySpawn", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 30 });
+    },
+    function castLevitationBurst(){
+      if (player.mode === "walking"){
+        player.mode = "flying";
+        player.y -= 10;
+      }
+      const cx = player.x + PLAYER_W/2;
+      effects.push({ type: "burst", x: cx, y: GROUND_Y, maxR: 170, life: 18, color: COLORS.levitation });
+      if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 170 && (enemy.y + enemy.h) > GROUND_Y - 60){
+        applyDamageToEnemy(16, "physical", false);
+      }
+    },
+    function castHyperbolicNova(){
+      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
+      if (enemy) applyDamageToEnemy(60, "energy", true);
+    }
+  ];
+
+  function updateProjectiles(){
+    doomProjectiles.forEach(p => { p.x += p.vx; });
+    doomProjectiles = doomProjectiles.filter(p => {
+      if (p.x > CANVAS_W + 20) return false;
+      if (enemy && rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, enemy.x, enemy.y, enemy.w, enemy.h)){
+        applyDamageToEnemy(p.dmg, p.category, false);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function updateHazards(){
+    hazards.forEach(h => {
+      if (h.armed && playerOverlapsBand({ min: h.min, max: h.max })){
+        applyDamageToPlayer(h.dmg);
+        h.armed = false;
+      }
+      h.life--;
+    });
+    hazards = hazards.filter(h => h.life > 0);
+  }
+
+  function scheduleReflect(amount){
+    const cy = player.y + playerHeight()/2;
+    hazards.push({ min: cy - 25, max: cy + 25, life: 16, dmg: amount, armed: true });
+  }
+
+  /* ---------------- enemy ---------------- */
+  function spawnEnemy(defId){
+    const def = CHARACTERS[defId];
+    const baseY = def.movement.type === "hoverer" ? (GROUND_Y - def.h - 40) : (GROUND_Y - def.h);
+    enemy = {
+      defId, def,
+      x: ENEMY_X, y: baseY,
+      w: def.w, h: def.h,
+      baseX: ENEMY_X, baseY,
+      hp: def.hp, maxHp: def.hp,
+      movementT: 0,
+      busy: false,
+      rangedImmune: false,
+      reflectPending: false,
+      damageReduction: 0,
+      abilityStates: def.abilities.map((a, i) => ({
+        phase: "idle",
+        timer: 0,
+        cooldownRemaining: 20 + i * 25 + Math.random() * 30,
+        safeBand: null,
+        trackedY: null,
+        hasHitPlayer: false
+      }))
+    };
+  }
+
+  function runMovement(){
+    const t = enemy.movementT;
+    const type = enemy.def.movement.type;
+    let x = enemy.baseX, y = enemy.baseY;
+    if (type === "lunger") x = enemy.baseX - 20 + 20 * Math.sin(t * 0.045);
+    else if (type === "hoverer"){ y = enemy.baseY - 30 + 20 * Math.sin(t * 0.04); x = enemy.baseX + 25 * Math.sin(t * 0.017); }
+    else if (type === "strafer") x = enemy.baseX + 35 * Math.sin(t * 0.02);
+    else if (type === "charger") x = enemy.baseX + 15 * Math.sin(t * 0.025);
+    // "stomper" (Hulk) stays put between charges — all its flavor is in its abilities.
+
+    for (let i = 0; i < enemy.def.abilities.length; i++){
+      const def = enemy.def.abilities[i], st = enemy.abilityStates[i];
+      if (def.chargeForward && st.phase === "active"){
+        const progress = 1 - (st.timer / def.activeFrames);
+        x = enemy.baseX - 150 * Math.sin(progress * Math.PI);
+      }
+    }
+    enemy.x = x; enemy.y = y;
+  }
+
+  function updateAbilityState(i){
+    const def = enemy.def.abilities[i];
+    const st = enemy.abilityStates[i];
+
+    if (st.phase === "idle"){
+      if (st.cooldownRemaining > 0){ st.cooldownRemaining--; return; }
+      if (enemy.busy) return;
+      enemy.busy = true;
+      st.phase = "telegraph";
+      st.timer = def.telegraphFrames;
+      st.hasHitPlayer = false;
+      if (def.trackPlayerY) st.trackedY = player.y + playerHeight()/2;
+      if (def.kind === "gapPick") st.safeBand = ["low","mid","high"][Math.floor(Math.random()*3)];
+    } else if (st.phase === "telegraph"){
+      st.timer--;
+      if (st.timer <= 0){
+        st.phase = "active";
+        st.timer = def.activeFrames;
+        if (def.rangedImmuneWhileActive) enemy.rangedImmune = true;
+        if (def.kind === "buff" && def.buffType === "damageReduction") enemy.damageReduction = def.buffAmount;
+        if (def.kind === "reflectBuff") enemy.reflectPending = true;
+      }
+    } else if (st.phase === "active"){
+      if (def.kind !== "buff" && def.kind !== "reflectBuff"){
+        dealAbilityDamageToPlayer(def, st);
+      }
+      st.timer--;
+      if (st.timer <= 0){
+        if (def.rangedImmuneWhileActive) enemy.rangedImmune = false;
+        if (def.kind === "buff") enemy.damageReduction = 0;
+        if (def.kind === "reflectBuff") enemy.reflectPending = false;
+        st.phase = "idle";
+        st.cooldownRemaining = randBetween(def.cdMin, def.cdMax);
+        enemy.busy = false;
+      }
+    }
+  }
+
+  function dealAbilityDamageToPlayer(def, st){
+    if (st.hasHitPlayer) return;
+    let bands = [];
+    if (def.kind === "band"){
+      bands = [ def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band] ];
+    } else if (def.kind === "gapPick"){
+      bands = ["low","mid","high"].filter(b => b !== st.safeBand).map(b => BAND[b]);
+    } else if (def.kind === "pincer"){
+      bands = [ BAND.high, BAND.low ];
+    }
+    for (const b of bands){
+      if (playerOverlapsBand(b)){
+        applyDamageToPlayer(def.damage);
+        st.hasHitPlayer = true;
+        break;
+      }
+    }
+  }
+
+  function activeDangerBands(){
+    const out = [];
+    if (!enemy) return out;
+    enemy.def.abilities.forEach((def, i) => {
+      const st = enemy.abilityStates[i];
+      if (def.kind === "buff" || def.kind === "reflectBuff") return;
+      if (st.phase === "telegraph" || st.phase === "active"){
+        const danger = st.phase === "active";
+        if (def.kind === "band"){
+          const b = def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band];
+          out.push({ band: b, danger });
+        } else if (def.kind === "gapPick"){
+          ["low","mid","high"].filter(b => b !== st.safeBand).forEach(b => out.push({ band: BAND[b], danger }));
+        } else if (def.kind === "pincer"){
+          out.push({ band: BAND.high, danger });
+          out.push({ band: BAND.low, danger });
+        }
+      }
+    });
+    return out;
+  }
+
+  function applyDamageToEnemy(amount, category, piercing){
+    if (!enemy || enemy.hp <= 0) return false;
+    if (category === "energy" && !piercing){
+      if (enemy.rangedImmune){
+        effects.push({ type: "clang", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 12 });
+        return false;
+      }
+      if (enemy.reflectPending){
+        enemy.reflectPending = false;
+        scheduleReflect(amount);
+        effects.push({ type: "clang", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 12 });
+        return false;
+      }
+    }
+    const mult = 1 - (enemy.damageReduction || 0);
+    enemy.hp = Math.max(0, enemy.hp - amount * mult);
+    effects.push({ type: "spark", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 10 });
+    if (enemy.hp <= 0) triggerEnemyDefeat();
+    return true;
+  }
+
+  function triggerEnemyDefeat(){
+    lastDefeatedName = enemy.def.displayName;
+    lastScoreBonus = 150 + Math.floor(player.hp);
+    score += lastScoreBonus;
+    lastCharacterId = enemy.defId;
+    enemy = null;
+    hazards = [];
+    phase = "victory";
+    victoryTimer = VICTORY_PAUSE_FRAMES;
+  }
+
+  function updateEnemy(){
+    enemy.movementT++;
+    runMovement();
+    for (let i = 0; i < enemy.def.abilities.length; i++) updateAbilityState(i);
+  }
+
+  function startEncounter(){
+    let pool = CHARACTER_IDS;
+    if (pool.length > 1) pool = pool.filter(id => id !== lastCharacterId);
+    const defId = pool[Math.floor(Math.random() * pool.length)];
+    spawnEnemy(defId);
+    phase = "encounter";
+  }
+
+  function nextBiome(){
+    biomeIndex = (biomeIndex + 1) % BIOMES.length;
+    travelDistance = 0;
+    phase = "traveling";
+  }
+
+  /* ---------------- effects ---------------- */
+  function updateEffects(){
+    effects.forEach(e => { e.life--; });
+    effects = effects.filter(e => e.life > 0);
+  }
+
+  /* ---------------- update ---------------- */
+  function update(){
+    frame++;
+    updatePlayer();
+
+    if (phase === "traveling"){
+      travelDistance += SCROLL_SPEED;
+      worldXTotal += SCROLL_SPEED;
+      score += SCROLL_SPEED * 0.05;
+      if (travelDistance >= BIOME_TRAVEL_DISTANCE) startEncounter();
+    } else if (phase === "encounter"){
+      updateEnemy();
+    } else if (phase === "victory"){
+      victoryTimer--;
+      if (victoryTimer <= 0) nextBiome();
+    }
+
+    updateHazards();
+    updateProjectiles();
+    updateEffects();
+  }
+
+  /* ---------------- draw: background ---------------- */
+  function drawBackground(){
+    const biome = BIOMES[biomeIndex];
+    const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    grad.addColorStop(0, biome.skyTop);
+    grad.addColorStop(1, biome.skyBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
+
+    drawSilhouetteRow(biome);
+
+    ctx.fillStyle = biome.ground;
+    ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
+    ctx.strokeStyle = biome.silhouette;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(CANVAS_W, GROUND_Y);
+    ctx.stroke();
+  }
+
+  function drawSilhouetteRow(biome){
+    const tileW = biome.tileW;
+    const offset = worldXTotal % tileW;
+    const count = Math.ceil(CANVAS_W / tileW) + 2;
+    ctx.fillStyle = biome.silhouette;
+    for (let i = -1; i < count; i++){
+      const tx = i * tileW - offset;
+      drawBiomeUnit(biome.kind, tx, i);
+    }
+  }
+
+  function drawBiomeUnit(kind, tx, i){
+    const baseY = GROUND_Y;
+    if (kind === "towers"){
+      const h = 70 + ((i * 37) % 50);
+      ctx.fillRect(tx + 20, baseY - h, 34, h);
+      ctx.beginPath();
+      ctx.moveTo(tx + 20, baseY - h);
+      ctx.lineTo(tx + 37, baseY - h - 18);
+      ctx.lineTo(tx + 54, baseY - h);
+      ctx.closePath();
+      ctx.fill();
+      if (i % 2 === 0) ctx.clearRect(tx + 30, baseY - h + 10, 8, 10);
+    } else if (kind === "buildings"){
+      const h = 40 + ((i * 53) % 90);
+      ctx.fillRect(tx + 6, baseY - h, tileW - 20, h);
+    } else if (kind === "pines"){
+      const h = 46 + ((i * 29) % 26);
+      ctx.beginPath();
+      ctx.moveTo(tx + tileW/2, baseY - h);
+      ctx.lineTo(tx + 6, baseY);
+      ctx.lineTo(tx + tileW - 6, baseY);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === "spires"){
+      const h = 30 + ((i * 41) % 70);
+      ctx.beginPath();
+      ctx.moveTo(tx + 10, baseY);
+      ctx.lineTo(tx + tileW/2 - 6, baseY - h);
+      ctx.lineTo(tx + tileW/2 + 8, baseY - h * 0.6);
+      ctx.lineTo(tx + tileW - 10, baseY);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === "hills"){
+      ctx.beginPath();
+      ctx.arc(tx + tileW/2, baseY + 30, 60, Math.PI, 0);
+      ctx.fill();
+      if (i % 3 === 0){
+        ctx.fillRect(tx + tileW/2 - 22, baseY - 40, 44, 40);
+        ctx.beginPath();
+        ctx.moveTo(tx + tileW/2 - 26, baseY - 40);
+        ctx.lineTo(tx + tileW/2, baseY - 58);
+        ctx.lineTo(tx + tileW/2 + 26, baseY - 40);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------------- draw: hazards ---------------- */
+  function drawDangerBands(){
+    activeDangerBands().forEach(({ band, danger }) => {
+      ctx.fillStyle = danger ? COLORS.danger : COLORS.telegraph;
+      ctx.fillRect(0, band.min, CANVAS_W, band.max - band.min);
+    });
+  }
+
+  /* ---------------- draw: player ---------------- */
+  function drawPlayer(){
+    const x = player.x, y = player.y, h = playerHeight();
+    const legPhase = Math.floor(frame / 6) % 2;
+
+    ctx.fillStyle = COLORS.doomCloakDark;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + h);
+    ctx.lineTo(x - 2, y + h * 0.15);
+    ctx.lineTo(x + PLAYER_W * 0.4, y);
+    ctx.lineTo(x + 4, y + h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.doomArmor;
+    ctx.fillRect(x, y + h * 0.18, PLAYER_W, h * 0.6);
+
+    ctx.fillStyle = COLORS.doomTrim;
+    ctx.fillRect(x + PLAYER_W * 0.3, y + h * 0.28, PLAYER_W * 0.4, 6);
+
+    ctx.fillStyle = COLORS.doomMask;
+    ctx.beginPath();
+    ctx.arc(x + PLAYER_W/2, y + h * 0.14, PLAYER_W * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.doomCloak;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y - 4);
+    ctx.lineTo(x + PLAYER_W + 4, y - 4);
+    ctx.lineTo(x + PLAYER_W * 0.5, y - 16);
+    ctx.closePath();
+    ctx.fill();
+
+    if (player.mode === "flying"){
+      ctx.fillStyle = COLORS.doomCloak;
+      const flap = 6 + Math.sin(frame * 0.3) * 4;
+      ctx.beginPath();
+      ctx.moveTo(x - 6, y + h * 0.3);
+      ctx.lineTo(x - 20, y + h * 0.5 + flap);
+      ctx.lineTo(x - 6, y + h * 0.75);
+      ctx.closePath();
+      ctx.fill();
+    } else if (!player.ducking){
+      ctx.fillStyle = COLORS.doomArmorDark;
+      if (!player.onGround){
+        ctx.fillRect(x + 4, y + h - 6, 8, 6);
+        ctx.fillRect(x + PLAYER_W - 12, y + h - 6, 8, 6);
+      } else if (legPhase === 0){
+        ctx.fillRect(x + 4, y + h - 6, 8, 6);
+        ctx.fillRect(x + PLAYER_W - 12, y + h - 6, 8, 4);
+      } else {
+        ctx.fillRect(x + 4, y + h - 6, 8, 4);
+        ctx.fillRect(x + PLAYER_W - 12, y + h - 6, 8, 6);
+      }
+    }
+
+    if (player.invulnFrames > 0){
+      ctx.strokeStyle = COLORS.shieldFx;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + PLAYER_W/2, y + h/2, Math.max(PLAYER_W, h) * 0.7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (player.decoyFrames > 0){
+      ctx.strokeStyle = COLORS.decoyFx;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4,3]);
+      ctx.strokeRect(x - 4, y - 4, PLAYER_W + 8, h + 8);
+      ctx.setLineDash([]);
+    }
+  }
+
+  /* ---------------- draw: enemy ---------------- */
+  function drawEnemy(){
+    if (!enemy) return;
+    const { x, y, w, h } = enemy;
+    const c = enemy.def.colors;
+
+    if (enemy.defId === "wolverine"){
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.25, w, h*0.75);
+      ctx.fillStyle = c.mask; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.16, w*0.4, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.claws;
+      ctx.fillRect(x - 6, y + h*0.4, 6, 16);
+      ctx.fillRect(x + w, y + h*0.4, 6, 16);
+    } else if (enemy.defId === "ironman"){
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.2, w, h*0.8);
+      ctx.fillStyle = c.gold; ctx.fillRect(x + w*0.25, y + h*0.3, w*0.5, h*0.3);
+      ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.38, 0, Math.PI*2); ctx.fill();
+    } else if (enemy.defId === "hulk"){
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.18, w, h*0.62);
+      ctx.fillStyle = c.pants; ctx.fillRect(x + w*0.1, y + h*0.75, w*0.8, h*0.25);
+      ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.34, 0, Math.PI*2); ctx.fill();
+    } else if (enemy.defId === "cyclops"){
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.22, w, h*0.78);
+      ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.36, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.visor; ctx.fillRect(x + w*0.18, y + h*0.1, w*0.64, h*0.1);
+    } else if (enemy.defId === "capamerica"){
+      ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.2, w, h*0.8);
+      ctx.fillStyle = c.body; ctx.beginPath(); ctx.arc(x+w/2, y+h*0.14, w*0.34, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.shieldRim; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 12, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 8, 0, Math.PI*2); ctx.fill();
+    }
+
+    enemy.def.abilities.forEach((def, i) => {
+      const st = enemy.abilityStates[i];
+      if (st.phase === "telegraph"){
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 4, y - 4, w + 8, h + 8);
+      }
+    });
+  }
+
+  /* ---------------- draw: effects & projectiles ---------------- */
+  function drawProjectiles(){
+    doomProjectiles.forEach(p => {
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function drawEffects(){
+    effects.forEach(e => {
+      if (e.type === "burst" || e.type === "nova"){
+        const progress = 1 - (e.life / (e.type === "nova" ? 26 : 18));
+        const r = (e.maxR || 90) * progress;
+        ctx.strokeStyle = e.color || COLORS.nova;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = Math.max(0, 1 - progress);
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (e.type === "beam"){
+        ctx.fillStyle = e.color;
+        ctx.globalAlpha = e.life / 14;
+        ctx.fillRect(0, e.y - 4, CANVAS_W, 8);
+        ctx.globalAlpha = 1;
+      } else if (e.type === "shield"){
+        ctx.strokeStyle = COLORS.shieldFx;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = e.life / 55;
+        ctx.beginPath(); ctx.arc(e.x, e.y, 30, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (e.type === "teleport"){
+        ctx.fillStyle = COLORS.teleportFx;
+        ctx.globalAlpha = e.life / 16;
+        ctx.beginPath(); ctx.arc(e.x, e.y, 24 * (1 - e.life/16), 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      } else if (e.type === "decoySpawn" || e.type === "decoyPop"){
+        ctx.strokeStyle = COLORS.decoyFx;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = e.life / 30;
+        ctx.strokeRect(e.x - 20, e.y - 20, 40, 40);
+        ctx.globalAlpha = 1;
+      } else if (e.type === "hit" || e.type === "spark" || e.type === "clang"){
+        ctx.fillStyle = e.type === "clang" ? "#FFFFFF" : COLORS.hpBar;
+        ctx.globalAlpha = e.life / 12;
+        ctx.beginPath(); ctx.arc(e.x, e.y, 10 * (1 - e.life/12) + 3, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    });
+  }
+
+  /* ---------------- draw: HUD ---------------- */
+  function drawHud(){
+    ctx.fillStyle = COLORS.hpBarBack;
+    ctx.fillRect(14, 12, 150, 12);
+    ctx.fillStyle = COLORS.hpBar;
+    ctx.fillRect(14, 12, 150 * (player.hp / PLAYER_MAX_HP), 12);
+    ctx.fillStyle = COLORS.energyBarBack;
+    ctx.fillRect(14, 28, 150, 8);
+    ctx.fillStyle = COLORS.energyBar;
+    ctx.fillRect(14, 28, 150 * (player.energy / ENERGY_MAX), 8);
+
+    ctx.fillStyle = COLORS.hud;
+    ctx.font = "700 15px 'JetBrains Mono', monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("SCORE " + Math.floor(score), CANVAS_W - 12, 24);
+    ctx.font = "600 11px 'JetBrains Mono', monospace";
+    ctx.fillText(BIOMES[biomeIndex].name, CANVAS_W - 12, 40);
+
+    if (phase === "encounter" && enemy){
+      const barW = 220, barX = (CANVAS_W - barW)/2;
+      ctx.textAlign = "center";
+      ctx.font = "700 13px 'JetBrains Mono', monospace";
+      ctx.fillText(enemy.def.displayName, CANVAS_W/2, 20);
+      ctx.fillStyle = COLORS.hpBarBack;
+      ctx.fillRect(barX, 24, barW, 10);
+      ctx.fillStyle = COLORS.enemyHpBar;
+      ctx.fillRect(barX, 24, barW * (enemy.hp / enemy.maxHp), 10);
+    }
+    if (phase === "victory"){
+      ctx.textAlign = "center";
+      ctx.fillStyle = COLORS.hud;
+      ctx.font = "700 16px 'JetBrains Mono', monospace";
+      ctx.fillText(lastDefeatedName + " defeated! +" + lastScoreBonus, CANVAS_W/2, 60);
+    }
+
+    drawHotbar();
+  }
+
+  function drawHotbar(){
+    const size = 30, gap = 4, total = 9 * size + 8 * gap;
+    const startX = (CANVAS_W - total) / 2, y = CANVAS_H - 38;
+    for (let i = 0; i < 9; i++){
+      const x = startX + i * (size + gap);
+      const def = DOOM_ABILITIES[i];
+      const cd = player.abilityCooldowns[i];
+      const affordable = player.energy >= def.cost;
+
+      ctx.fillStyle = "rgba(31,36,48,0.85)";
+      ctx.fillRect(x, y, size, size);
+
+      if (cd > 0){
+        const frac = cd / def.cooldownFrames;
+        ctx.fillStyle = "rgba(255,255,255,0.18)";
+        ctx.fillRect(x, y, size, size * frac);
+      }
+
+      ctx.strokeStyle = affordable ? "rgba(255,255,255,0.5)" : "rgba(225,72,60,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "700 13px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i + 1), x + size/2, y + size/2 + 4);
+    }
+  }
+
+  /* ---------------- draw ---------------- */
+  function draw(){
+    drawBackground();
+    if (phase === "encounter") drawDangerBands();
+    drawEnemy();
+    drawProjectiles();
+    drawPlayer();
+    drawEffects();
+    drawHud();
+  }
+
+  /* ---------------- loop / lifecycle ---------------- */
+  function loop(){
+    if (!running) return;
+    update();
+    if (running){
+      draw();
+      animId = requestAnimationFrame(loop);
+    }
+  }
+
+  function startGame(){
+    resetState();
+    started = true;
+    running = true;
+    hideOverlay();
+    canvas.focus();
+    loop();
+  }
+
+  function endGame(){
+    running = false;
+    over = true;
+    cancelAnimationFrame(animId);
+    draw();
+    showGameOverOverlay();
+  }
+
+  /* ---------------- overlay UI ---------------- */
+  function hideOverlay(){
+    overlay.style.display = "none";
+  }
+
+  function showStartOverlay(){
+    overlay.style.display = "flex";
+    const localBest = getLocalBest();
+    overlayInner.innerHTML = `
+      <h3>Doom Scroller</h3>
+      <p>Play as Dr. Doom, scrolling right through Latveria, Manhattan, the
+      Canadian wilds, the Gamma Wastes, and Xavier's grounds. Each stretch
+      ends in a fight against a random Marvel fighter — dodge their
+      telegraphed attacks by flying, jumping, or ducking, and answer with
+      whichever of Doom's nine abilities fits the moment.</p>
+      <p>Left/Right to move, Up to jump (or ascend while flying), Down to
+      duck (or descend while flying), double-tap Space to toggle flying,
+      number keys 1–9 for Doom's abilities.</p>
+      ${localBest > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${localBest}</p>` : ""}
+      <button type="button" class="btn" id="doom-play-btn">Play</button>
+    `;
+    document.getElementById("doom-play-btn").addEventListener("click", startGame);
+  }
+
+  function showGameOverOverlay(){
+    const finalScore = Math.floor(score);
+    const isNewLocalBest = setLocalBestIfHigher(finalScore);
+    const localBest = getLocalBest();
+
+    overlay.style.display = "flex";
+    overlayInner.innerHTML = `
+      <h3>Doom Falls</h3>
+      <p>Score: ${finalScore}${isNewLocalBest ? " — new personal best!" : ""}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-10px;">Your best: ${localBest}</p>
+      <button type="button" class="btn" id="doom-again-btn">Play Again</button>
+    `;
+    document.getElementById("doom-again-btn").addEventListener("click", startGame);
+  }
+
+  /* ---------------- input ---------------- */
+  function initGame(){
+    if (DEBUG) console.log("[Doom Scroller] doom.js loaded");
+    canvas = document.getElementById("doom-canvas");
+    overlay = document.getElementById("doom-overlay");
+    overlayInner = document.getElementById("doom-overlay-inner");
+    if (!canvas || !overlay) return;
+
+    ctx = canvas.getContext("2d");
+    resetState();
+    draw();
+    showStartOverlay();
+
+    canvas.addEventListener("click", () => canvas.focus());
+    canvas.addEventListener("blur", () => { for (const k in keysDown) delete keysDown[k]; });
+
+    document.addEventListener("keydown", (e) => {
+      if (document.activeElement !== canvas) return; // don't steal input meant for the other games on this page
+
+      if (!started || over){
+        if (e.code.startsWith("Digit") || e.code === "ArrowUp" || e.code === "Space"){
+          e.preventDefault();
+          startGame();
+        }
+        return;
+      }
+
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown"){
+        e.preventDefault();
+        keysDown[e.code] = true;
+        if (e.code === "ArrowUp" && player.mode === "walking") jump();
+      } else if (e.code === "Space"){
+        e.preventDefault();
+        if (!e.repeat){
+          if (frame - lastSpaceTapFrame <= DOUBLE_TAP_WINDOW_FRAMES){
+            toggleFlight();
+            lastSpaceTapFrame = -9999;
+          } else {
+            lastSpaceTapFrame = frame;
+          }
+        }
+      } else if (e.code.startsWith("Digit")){
+        const n = Number(e.code.slice(5));
+        if (n >= 1 && n <= 9){
+          e.preventDefault();
+          tryCastAbility(n - 1);
+        }
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (document.activeElement !== canvas) return;
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown"){
+        keysDown[e.code] = false;
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", initGame);
+})();
