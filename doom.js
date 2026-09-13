@@ -13,11 +13,12 @@
    THE CHARACTER LIBRARY (CHARACTERS below) is deliberately structured
    as one self-contained entry per fighter — movement type + exactly
    three abilities each — so adding the next Marvel character later is
-   just one more entry, no engine changes. The five abilities that ARE
+   just one more entry, no engine changes. The parts that ARE
    engine-level (updateAbilityState/dealAbilityDamageToPlayer) are
    generic: every enemy ability is one of a handful of "kinds" (a
-   telegraphed danger band, a pick-the-safe-gap barrage, a top+bottom
-   pincer, a self-buff, or a reflect) rather than bespoke code per
+   telegraphed danger band — ground-level or head-level or wider —, a
+   pick-the-safe-gap barrage, a top+bottom pincer, a real aimed
+   projectile, a self-buff, or a reflect) rather than bespoke code per
    character.
 
    TUNING: every number worth playing with lives in CONFIG below.
@@ -63,11 +64,17 @@
   // half-heights below are how enemy abilities threaten the player —
   // dodging is a vertical problem (fly up/down, jump, or duck), never
   // a horizontal one, so every hazard spans the full arena width.
+  // "ground" (a floor-level sweep/charge) catches Doom whether he's
+  // standing OR ducking — only jumping/flying clears it. "head" (a
+  // swing at standing head/torso height) only threatens a STANDING
+  // Doom — ducking drops him clean under it. That split is what makes
+  // duck a real choice instead of a no-op.
   const BAND = {
-    low:  { min: 230, max: 300 },
-    mid:  { min: 150, max: 230 },
-    high: { min: 60,  max: 150 },
-    wide: { min: 110, max: 300 }
+    ground: { min: 270, max: 300 },
+    head:   { min: 254, max: 274 },
+    mid:    { min: 150, max: 230 },
+    high:   { min: 60,  max: 150 },
+    wide:   { min: 110, max: 300 }
   };
 
   const COLORS = {
@@ -96,7 +103,11 @@
     shieldFx: "#3E7ADB",
     teleportFx: "#B98FE0",
     healFx: "#5FD97A",
-    blockFx: "#C9A227"
+    blockFx: "#C9A227",
+
+    repulsorFx: "#E5484D",
+    boulderFx: "#8B6B4A",
+    opticFx: "#E14B3C"
   };
 
   const BIOMES = [
@@ -111,7 +122,10 @@
   // Each fighter: displayName, size, hp, a movement type (purely how
   // they drift around their spot), and exactly three abilities. Every
   // ability is one of: "band" (a telegraphed y-range that turns
-  // dangerous), "gapPick" (three candidate bands, one picked safe),
+  // dangerous — "ground" and "head" hit a standing Doom differently,
+  // see BAND above), "projectile" (a real shot aimed at wherever Doom
+  // actually is the instant it fires — dodge by not being there when
+  // it arrives), "gapPick" (three candidate bands, one picked safe),
   // "pincer" (top+bottom bands active, middle is the safe gap),
   // "buff" (a self-effect, no player-facing zone), or "reflectBuff"
   // (blocks + bounces the next ranged hit back at the player).
@@ -123,8 +137,8 @@
       colors: { body: "#5B4A9B", mask: "#F6C945", claws: "#E5E7EA" },
       movement: { type: "lunger" },
       abilities: [
-        { name: "Claw Flurry", kind: "band", band: "low", damage: 7, telegraphFrames: 16, activeFrames: 12, cdMin: 55, cdMax: 85 },
-        { name: "Berserker Lunge", kind: "band", band: "low", damage: 13, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
+        { name: "Claw Flurry", kind: "band", band: "head", damage: 7, telegraphFrames: 16, activeFrames: 12, cdMin: 55, cdMax: 85 },
+        { name: "Berserker Lunge", kind: "band", band: "ground", damage: 13, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
         { name: "Adamantium Guard", kind: "buff", buffType: "damageReduction", buffAmount: 0.7, telegraphFrames: 10, activeFrames: 130, cdMin: 260, cdMax: 320 }
       ]
     },
@@ -135,7 +149,7 @@
       colors: { body: "#B02E2E", gold: "#D9A93B" },
       movement: { type: "hoverer" },
       abilities: [
-        { name: "Repulsor Blast", kind: "band", band: "mid", damage: 6, telegraphFrames: 10, activeFrames: 8, cdMin: 40, cdMax: 65 },
+        { name: "Repulsor Blast", kind: "projectile", damage: 6, speed: 9, r: 5, color: COLORS.repulsorFx, telegraphFrames: 10, activeFrames: 8, cdMin: 40, cdMax: 65 },
         { name: "Unibeam Charge", kind: "band", band: "wide", damage: 17, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
         { name: "Missile Barrage", kind: "gapPick", damage: 5, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
       ]
@@ -147,9 +161,9 @@
       colors: { body: "#4C8C3A", pants: "#5B4A9B" },
       movement: { type: "stomper" },
       abilities: [
-        { name: "Ground Pound", kind: "band", band: "low", damage: 14, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
-        { name: "Boulder Throw", kind: "band", band: "mid", damage: 10, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Rage Charge", kind: "band", band: "low", damage: 13, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
+        { name: "Ground Pound", kind: "band", band: "ground", damage: 14, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
+        { name: "Boulder Throw", kind: "projectile", damage: 10, speed: 7, r: 7, color: COLORS.boulderFx, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Rage Charge", kind: "band", band: "ground", damage: 13, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
       ]
     },
     cyclops: {
@@ -159,7 +173,7 @@
       colors: { body: "#2E5AA8", visor: "#E5484D" },
       movement: { type: "strafer" },
       abilities: [
-        { name: "Optic Blast", kind: "band", trackPlayerY: true, trackHalf: 35, damage: 7, telegraphFrames: 14, activeFrames: 10, cdMin: 45, cdMax: 70 },
+        { name: "Optic Blast", kind: "projectile", damage: 7, speed: 10, r: 5, color: COLORS.opticFx, telegraphFrames: 14, activeFrames: 10, cdMin: 45, cdMax: 70 },
         { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 18, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
         { name: "Ricochet Blast", kind: "pincer", damage: 8, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
       ]
@@ -171,8 +185,8 @@
       colors: { body: "#2851E3", shield: "#E5484D", shieldRim: "#9CA3AF" },
       movement: { type: "charger" },
       abilities: [
-        { name: "Shield Throw", kind: "band", band: "mid", damage: 9, telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Shield Charge", kind: "band", band: "low", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
+        { name: "Shield Throw", kind: "projectile", damage: 9, speed: 11, r: 8, style: "shield", telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Shield Charge", kind: "band", band: "ground", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
         { name: "Vibranium Block", kind: "reflectBuff", telegraphFrames: 14, activeFrames: 70, cdMin: 200, cdMax: 260 }
       ]
     }
@@ -197,7 +211,7 @@
   ];
 
   let canvas, ctx, overlay, overlayInner;
-  let player, enemy, doomProjectiles, hazards, effects;
+  let player, enemy, doomProjectiles, enemyProjectiles, hazards, effects;
   let biomeIndex, travelDistance, worldXTotal, lastCharacterId;
   let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
   let score, frame, running, over, started, animId;
@@ -221,6 +235,7 @@
     };
     enemy = null;
     doomProjectiles = [];
+    enemyProjectiles = [];
     hazards = [];
     effects = [];
     biomeIndex = 0;
@@ -273,8 +288,19 @@
   function playerHeight(){
     return (player.mode === "walking" && player.ducking) ? DUCK_H : PLAYER_H;
   }
+  // Ducking keeps Doom's feet on the ground and pulls his head down —
+  // the hitbox's TOP moves toward the ground, not the physics y used
+  // for jump/gravity. That's what makes ground vs. head-level attacks
+  // (see BAND below) an actual choice: duck dodges one, jumping/flying
+  // dodges the other.
+  function playerTop(){
+    return (player.mode === "walking" && player.ducking) ? (GROUND_Y - DUCK_H) : player.y;
+  }
+  function playerCenterY(){
+    return playerTop() + playerHeight()/2;
+  }
   function playerOverlapsBand(band){
-    const top = player.y, bot = player.y + playerHeight();
+    const top = playerTop(), bot = top + playerHeight();
     return top < band.max && bot > band.min;
   }
 
@@ -328,7 +354,7 @@
     if (player.invulnFrames > 0) return;
     if (player.blockFrames > 0) amount *= (1 - player.blockReduction);
     player.hp = Math.max(0, player.hp - amount);
-    effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 14 });
+    effects.push({ type: "hit", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 14 });
     if (player.hp <= 0) endGame();
   }
 
@@ -347,7 +373,7 @@
 
   const CAST_FNS = [
     function castPlasmaBolt(){
-      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
       const target = enemyTargetPoint(originX + 300, originY);
       const v = aimAt(originX, originY, target.x, target.y, 10);
       spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: DOOM_ABILITIES[0].damage, category: "energy", r: 6, color: COLORS.plasma });
@@ -355,16 +381,16 @@
     function castSelfRepair(){
       const def = DOOM_ABILITIES[1];
       player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.healAmount);
-      effects.push({ type: "heal", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
+      effects.push({ type: "heal", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
     },
     function castDisruptorBeam(){
-      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
       const target = enemyTargetPoint(originX + 300, originY);
       effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam });
       if (enemy) applyDamageToEnemy(DOOM_ABILITIES[2].damage, "energy", false);
     },
     function castDoomBolts(){
-      const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
+      const originX = player.x + PLAYER_W, originY = playerCenterY();
       const target = enemyTargetPoint(originX + 300, originY);
       const baseAngle = Math.atan2(target.y - originY, target.x - originX);
       [-0.18, 0, 0.18].forEach(spread => {
@@ -374,20 +400,20 @@
     },
     function castMysticShield(){
       player.invulnFrames = 55;
-      effects.push({ type: "shield", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 55 });
+      effects.push({ type: "shield", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 55 });
     },
     function castTeleportSlip(){
       const midpoint = (PLAYER_ARENA_MIN_X + PLAYER_ARENA_MAX_X) / 2;
       const dir = player.x > midpoint ? -1 : 1;
       player.x = clamp(player.x + dir * 90, PLAYER_ARENA_MIN_X, PLAYER_ARENA_MAX_X);
       player.invulnFrames = Math.max(player.invulnFrames, 20);
-      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 16 });
+      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 16 });
     },
     function castMolecularBarrier(){
       const def = DOOM_ABILITIES[6];
       player.blockFrames = def.blockDurationFrames;
       player.blockReduction = def.blockReduction;
-      effects.push({ type: "block", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: def.blockDurationFrames });
+      effects.push({ type: "block", x: player.x + PLAYER_W/2, y: playerCenterY(), life: def.blockDurationFrames });
     },
     function castLevitationBurst(){
       if (player.mode === "walking"){
@@ -401,7 +427,7 @@
       }
     },
     function castHyperbolicNova(){
-      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
+      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
       if (enemy) applyDamageToEnemy(DOOM_ABILITIES[8].damage, "energy", true);
     }
   ];
@@ -430,7 +456,7 @@
   }
 
   function scheduleReflect(amount){
-    const cy = player.y + playerHeight()/2;
+    const cy = playerCenterY();
     hazards.push({ min: cy - 25, max: cy + 25, life: 16, dmg: amount, armed: true });
   }
 
@@ -491,8 +517,8 @@
       st.phase = "telegraph";
       st.timer = def.telegraphFrames;
       st.hasHitPlayer = false;
-      if (def.trackPlayerY) st.trackedY = player.y + playerHeight()/2;
-      if (def.kind === "gapPick") st.safeBand = ["low","mid","high"][Math.floor(Math.random()*3)];
+      if (def.trackPlayerY) st.trackedY = playerCenterY();
+      if (def.kind === "gapPick") st.safeBand = ["ground","mid","high"][Math.floor(Math.random()*3)];
     } else if (st.phase === "telegraph"){
       st.timer--;
       if (st.timer <= 0){
@@ -501,9 +527,10 @@
         if (def.rangedImmuneWhileActive) enemy.rangedImmune = true;
         if (def.kind === "buff" && def.buffType === "damageReduction") enemy.damageReduction = def.buffAmount;
         if (def.kind === "reflectBuff") enemy.reflectPending = true;
+        if (def.kind === "projectile") spawnEnemyProjectile(def);
       }
     } else if (st.phase === "active"){
-      if (def.kind !== "buff" && def.kind !== "reflectBuff"){
+      if (def.kind !== "buff" && def.kind !== "reflectBuff" && def.kind !== "projectile"){
         dealAbilityDamageToPlayer(def, st);
       }
       st.timer--;
@@ -518,15 +545,46 @@
     }
   }
 
+  // "projectile" abilities fire a real traveling shot aimed at wherever
+  // Doom actually is the instant it launches (angle included) — exactly
+  // like Doom's own Plasma Bolt/Doom Bolts. It doesn't home in after
+  // that, so Doom dodges by no longer being there when it arrives:
+  // moving, changing altitude, or dropping out of the sky to duck under it.
+  function spawnEnemyProjectile(def){
+    const originX = enemy.x + enemy.w/2, originY = enemy.y + enemy.h/2;
+    const targetX = player.x + PLAYER_W/2, targetY = playerCenterY();
+    const v = aimAt(originX, originY, targetX, targetY, def.speed);
+    const p = { x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: def.damage, r: def.r || 6, color: def.color };
+    if (def.style === "shield"){
+      p.style = "shield";
+      p.rimColor = enemy.def.colors.shieldRim;
+      p.color = enemy.def.colors.shield;
+    }
+    enemyProjectiles.push(p);
+  }
+
+  function updateEnemyProjectiles(){
+    enemyProjectiles.forEach(p => { p.x += p.vx; p.y += p.vy; });
+    enemyProjectiles = enemyProjectiles.filter(p => {
+      if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return false;
+      const top = playerTop(), height = playerHeight();
+      if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
+        applyDamageToPlayer(p.dmg);
+        return false;
+      }
+      return true;
+    });
+  }
+
   function dealAbilityDamageToPlayer(def, st){
     if (st.hasHitPlayer) return;
     let bands = [];
     if (def.kind === "band"){
       bands = [ def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band] ];
     } else if (def.kind === "gapPick"){
-      bands = ["low","mid","high"].filter(b => b !== st.safeBand).map(b => BAND[b]);
+      bands = ["ground","mid","high"].filter(b => b !== st.safeBand).map(b => BAND[b]);
     } else if (def.kind === "pincer"){
-      bands = [ BAND.high, BAND.low ];
+      bands = [ BAND.high, BAND.ground ];
     }
     for (const b of bands){
       if (playerOverlapsBand(b)){
@@ -542,17 +600,17 @@
     if (!enemy) return out;
     enemy.def.abilities.forEach((def, i) => {
       const st = enemy.abilityStates[i];
-      if (def.kind === "buff" || def.kind === "reflectBuff") return;
+      if (def.kind === "buff" || def.kind === "reflectBuff" || def.kind === "projectile") return;
       if (st.phase === "telegraph" || st.phase === "active"){
         const danger = st.phase === "active";
         if (def.kind === "band"){
           const b = def.trackPlayerY ? { min: st.trackedY - def.trackHalf, max: st.trackedY + def.trackHalf } : BAND[def.band];
           out.push({ band: b, danger });
         } else if (def.kind === "gapPick"){
-          ["low","mid","high"].filter(b => b !== st.safeBand).forEach(b => out.push({ band: BAND[b], danger }));
+          ["ground","mid","high"].filter(b => b !== st.safeBand).forEach(b => out.push({ band: BAND[b], danger }));
         } else if (def.kind === "pincer"){
           out.push({ band: BAND.high, danger });
-          out.push({ band: BAND.low, danger });
+          out.push({ band: BAND.ground, danger });
         }
       }
     });
@@ -636,6 +694,7 @@
 
     updateHazards();
     updateProjectiles();
+    updateEnemyProjectiles();
     updateEffects();
   }
 
@@ -729,8 +788,22 @@
 
   /* ---------------- draw: player ---------------- */
   function drawPlayer(){
-    const x = player.x, y = player.y, h = playerHeight();
+    const x = player.x, y = playerTop(), h = playerHeight();
     const legPhase = Math.floor(frame / 6) % 2;
+
+    if (player.mode === "flying"){
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
+      const cx = x + PLAYER_W/2, cy = y + h/2;
+      const r = Math.max(PLAYER_W, h) * (0.9 + pulse * 0.35);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(95,217,122,${0.55 + pulse * 0.25})`);
+      glow.addColorStop(0.6, `rgba(46,107,58,${0.28 + pulse * 0.15})`);
+      glow.addColorStop(1, "rgba(46,107,58,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = COLORS.doomCloakDark;
     ctx.beginPath();
@@ -760,16 +833,7 @@
     ctx.closePath();
     ctx.fill();
 
-    if (player.mode === "flying"){
-      ctx.fillStyle = COLORS.doomCloak;
-      const flap = 6 + Math.sin(frame * 0.3) * 4;
-      ctx.beginPath();
-      ctx.moveTo(x - 6, y + h * 0.3);
-      ctx.lineTo(x - 20, y + h * 0.5 + flap);
-      ctx.lineTo(x - 6, y + h * 0.75);
-      ctx.closePath();
-      ctx.fill();
-    } else if (!player.ducking){
+    if (player.mode !== "flying" && !player.ducking){
       ctx.fillStyle = COLORS.doomArmorDark;
       if (!player.onGround){
         ctx.fillRect(x + 4, y + h - 6, 8, 6);
@@ -798,10 +862,29 @@
   }
 
   /* ---------------- draw: enemy ---------------- */
+  function enemyIsDucking(){
+    return enemy.def.abilities.some((def, i) => {
+      const st = enemy.abilityStates[i];
+      return def.kind === "band" && def.band === "ground" && (st.phase === "telegraph" || st.phase === "active");
+    });
+  }
+
   function drawEnemy(){
     if (!enemy) return;
     const { x, y, w, h } = enemy;
     const c = enemy.def.colors;
+
+    // No per-character crouch art — instead, squash the whole sprite
+    // vertically toward its feet whenever it's winding up or throwing a
+    // ground-level attack, so it visibly ducks down to aim low.
+    const ducking = enemyIsDucking();
+    ctx.save();
+    if (ducking){
+      const feetY = y + h;
+      ctx.translate(0, feetY);
+      ctx.scale(1, 0.6);
+      ctx.translate(0, -feetY);
+    }
 
     if (enemy.defId === "wolverine"){
       ctx.fillStyle = c.body; ctx.fillRect(x, y + h*0.25, w, h*0.75);
@@ -828,6 +911,8 @@
       ctx.fillStyle = c.shield; ctx.beginPath(); ctx.arc(x - 10, y + h*0.5, 8, 0, Math.PI*2); ctx.fill();
     }
 
+    ctx.restore();
+
     enemy.def.abilities.forEach((def, i) => {
       const st = enemy.abilityStates[i];
       if (st.phase === "telegraph"){
@@ -845,6 +930,22 @@
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
+    });
+  }
+
+  function drawEnemyProjectiles(){
+    enemyProjectiles.forEach(p => {
+      if (p.style === "shield"){
+        ctx.fillStyle = p.rimColor;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.65, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
     });
   }
 
@@ -987,6 +1088,7 @@
     if (phase === "encounter") drawDangerBands();
     drawEnemy();
     drawProjectiles();
+    drawEnemyProjectiles();
     drawPlayer();
     drawEffects();
     drawHud();

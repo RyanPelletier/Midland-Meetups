@@ -334,11 +334,19 @@ and the world stops scrolling until you defeat them.
 
 - **Move and dodge:** Left/Right to move, Up to jump (or ascend while
   flying), Down to duck (or descend while flying), **double-tap Space**
-  to toggle between walking and flying. Dodging in this game is a vertical
-  problem — every enemy attack is a telegraphed horizontal danger band
-  (shown as a highlighted strip before it turns dangerous), so getting
-  out of its height range (by flying up/down, jumping, or ducking) is
-  what keeps you alive.
+  to toggle between walking and flying. Dodging is a vertical problem.
+  Melee-range enemy attacks are telegraphed horizontal danger bands
+  (a highlighted strip before it turns dangerous) at one of two
+  heights: **ground-level** (a sweep or charge — only jumping or
+  flying clears it, ducking doesn't help since your feet are still on
+  the floor) or **head-level** (a swing at standing height — ducking
+  drops you clean under it). Ranged enemy attacks (Iron Man's
+  Repulsor Blast, Hulk's Boulder Throw, Cyclops' Optic Blast, Cap's
+  thrown shield) are real traveling shots aimed at wherever Doom
+  actually is — including his altitude — the instant they fire; since
+  they don't home in after that, Doom dodges by no longer being there
+  when the shot arrives (drop out of the sky, change altitude, move).
+  While flying, a pulsing green glow replaces Doom's usual cape.
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
   abilities you need — quick pokes (Plasma Bolt, Doom Bolts), a heavy
   beam (Disruptor Beam), defensive options (Mystic Shield, Teleport
