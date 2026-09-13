@@ -48,9 +48,9 @@
   const SCROLL_SPEED = 3.2;
   const BIOME_TRAVEL_DISTANCE = 900; // world-distance per biome before its resident fighter appears
 
-  const PLAYER_MAX_HP = 100;
+  const PLAYER_MAX_HP = 150;
   const ENERGY_MAX = 100;
-  const ENERGY_REGEN = 0.18; // per frame
+  const ENERGY_REGEN = 0.24; // per frame
 
   const VICTORY_PAUSE_FRAMES = 90;
   const DOUBLE_TAP_WINDOW_FRAMES = 18; // ~300ms at 60fps — how close together two Space taps must land to toggle flying
@@ -119,60 +119,60 @@
     wolverine: {
       displayName: "Wolverine",
       w: 40, h: 50,
-      hp: 220,
+      hp: 180,
       colors: { body: "#5B4A9B", mask: "#F6C945", claws: "#E5E7EA" },
       movement: { type: "lunger" },
       abilities: [
-        { name: "Claw Flurry", kind: "band", band: "low", damage: 10, telegraphFrames: 16, activeFrames: 12, cdMin: 40, cdMax: 65 },
-        { name: "Berserker Lunge", kind: "band", band: "low", damage: 18, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
+        { name: "Claw Flurry", kind: "band", band: "low", damage: 7, telegraphFrames: 16, activeFrames: 12, cdMin: 55, cdMax: 85 },
+        { name: "Berserker Lunge", kind: "band", band: "low", damage: 13, telegraphFrames: 30, activeFrames: 16, cdMin: 150, cdMax: 200, chargeForward: true },
         { name: "Adamantium Guard", kind: "buff", buffType: "damageReduction", buffAmount: 0.7, telegraphFrames: 10, activeFrames: 130, cdMin: 260, cdMax: 320 }
       ]
     },
     ironman: {
       displayName: "Iron Man",
       w: 42, h: 54,
-      hp: 260,
+      hp: 210,
       colors: { body: "#B02E2E", gold: "#D9A93B" },
       movement: { type: "hoverer" },
       abilities: [
-        { name: "Repulsor Blast", kind: "band", band: "mid", damage: 8, telegraphFrames: 10, activeFrames: 8, cdMin: 30, cdMax: 55 },
-        { name: "Unibeam Charge", kind: "band", band: "wide", damage: 24, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
-        { name: "Missile Barrage", kind: "gapPick", damage: 7, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
+        { name: "Repulsor Blast", kind: "band", band: "mid", damage: 6, telegraphFrames: 10, activeFrames: 8, cdMin: 40, cdMax: 65 },
+        { name: "Unibeam Charge", kind: "band", band: "wide", damage: 17, telegraphFrames: 55, activeFrames: 16, cdMin: 210, cdMax: 260 },
+        { name: "Missile Barrage", kind: "gapPick", damage: 5, telegraphFrames: 26, activeFrames: 14, cdMin: 150, cdMax: 190 }
       ]
     },
     hulk: {
       displayName: "Hulk",
       w: 54, h: 64,
-      hp: 340,
+      hp: 280,
       colors: { body: "#4C8C3A", pants: "#5B4A9B" },
       movement: { type: "stomper" },
       abilities: [
-        { name: "Ground Pound", kind: "band", band: "low", damage: 20, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
-        { name: "Boulder Throw", kind: "band", band: "mid", damage: 14, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Rage Charge", kind: "band", band: "low", damage: 18, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
+        { name: "Ground Pound", kind: "band", band: "low", damage: 14, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
+        { name: "Boulder Throw", kind: "band", band: "mid", damage: 10, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Rage Charge", kind: "band", band: "low", damage: 13, telegraphFrames: 34, activeFrames: 16, cdMin: 170, cdMax: 220, chargeForward: true }
       ]
     },
     cyclops: {
       displayName: "Cyclops",
       w: 40, h: 52,
-      hp: 230,
+      hp: 190,
       colors: { body: "#2E5AA8", visor: "#E5484D" },
       movement: { type: "strafer" },
       abilities: [
-        { name: "Optic Blast", kind: "band", trackPlayerY: true, trackHalf: 35, damage: 10, telegraphFrames: 14, activeFrames: 10, cdMin: 35, cdMax: 60 },
-        { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 26, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
-        { name: "Ricochet Blast", kind: "pincer", damage: 12, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
+        { name: "Optic Blast", kind: "band", trackPlayerY: true, trackHalf: 35, damage: 7, telegraphFrames: 14, activeFrames: 10, cdMin: 45, cdMax: 70 },
+        { name: "Focused Beam", kind: "band", trackPlayerY: true, trackHalf: 70, damage: 18, telegraphFrames: 45, activeFrames: 16, cdMin: 180, cdMax: 230 },
+        { name: "Ricochet Blast", kind: "pincer", damage: 8, telegraphFrames: 22, activeFrames: 12, cdMin: 110, cdMax: 150 }
       ]
     },
     capamerica: {
       displayName: "Captain America",
       w: 42, h: 54,
-      hp: 270,
+      hp: 220,
       colors: { body: "#2851E3", shield: "#E5484D", shieldRim: "#9CA3AF" },
       movement: { type: "charger" },
       abilities: [
-        { name: "Shield Throw", kind: "band", band: "mid", damage: 12, telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
-        { name: "Shield Charge", kind: "band", band: "low", damage: 16, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
+        { name: "Shield Throw", kind: "band", band: "mid", damage: 9, telegraphFrames: 14, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Shield Charge", kind: "band", band: "low", damage: 11, telegraphFrames: 24, activeFrames: 14, cdMin: 160, cdMax: 200, rangedImmuneWhileActive: true, chargeForward: true },
         { name: "Vibranium Block", kind: "reflectBuff", telegraphFrames: 14, activeFrames: 70, cdMin: 200, cdMax: 260 }
       ]
     }
@@ -185,15 +185,15 @@
   // Cap's Shield Charge / reflectable by Vibranium Block, except Nova
   // which pierces both); 8 is "physical" (never blocked/reflected).
   const DOOM_ABILITIES = [
-    { name: "Plasma Bolt", cost: 8, cooldownFrames: 14 },
-    { name: "Self Repair", cost: 35, cooldownFrames: 260, healAmount: 30 },
-    { name: "Disruptor Beam", cost: 30, cooldownFrames: 100 },
-    { name: "Doom Bolts", cost: 20, cooldownFrames: 55 },
-    { name: "Mystic Shield", cost: 25, cooldownFrames: 170 },
-    { name: "Teleport Slip", cost: 15, cooldownFrames: 75 },
-    { name: "Molecular Barrier", cost: 18, cooldownFrames: 90, blockReduction: 0.75, blockDurationFrames: 50 },
-    { name: "Levitation Burst", cost: 22, cooldownFrames: 85 },
-    { name: "Hyperbolic Nova", cost: 55, cooldownFrames: 420 }
+    { name: "Plasma Bolt", cost: 8, cooldownFrames: 12, damage: 14 },
+    { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
+    { name: "Disruptor Beam", cost: 28, cooldownFrames: 90, damage: 50 },
+    { name: "Doom Bolts", cost: 18, cooldownFrames: 50, damage: 11 },
+    { name: "Mystic Shield", cost: 25, cooldownFrames: 130 },
+    { name: "Teleport Slip", cost: 15, cooldownFrames: 60 },
+    { name: "Molecular Barrier", cost: 18, cooldownFrames: 70, blockReduction: 0.75, blockDurationFrames: 50 },
+    { name: "Levitation Burst", cost: 20, cooldownFrames: 80, damage: 24 },
+    { name: "Hyperbolic Nova", cost: 50, cooldownFrames: 360, damage: 90 }
   ];
 
   let canvas, ctx, overlay, overlayInner;
@@ -350,7 +350,7 @@
       const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
       const target = enemyTargetPoint(originX + 300, originY);
       const v = aimAt(originX, originY, target.x, target.y, 10);
-      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: 8, category: "energy", r: 6, color: COLORS.plasma });
+      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: DOOM_ABILITIES[0].damage, category: "energy", r: 6, color: COLORS.plasma });
     },
     function castSelfRepair(){
       const def = DOOM_ABILITIES[1];
@@ -361,7 +361,7 @@
       const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
       const target = enemyTargetPoint(originX + 300, originY);
       effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam });
-      if (enemy) applyDamageToEnemy(34, "energy", false);
+      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[2].damage, "energy", false);
     },
     function castDoomBolts(){
       const originX = player.x + PLAYER_W, originY = player.y + playerHeight()/2;
@@ -369,7 +369,7 @@
       const baseAngle = Math.atan2(target.y - originY, target.x - originX);
       [-0.18, 0, 0.18].forEach(spread => {
         const angle = baseAngle + spread;
-        spawnDoomProjectile({ x: originX, y: originY, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, dmg: 7, category: "energy", r: 5, color: COLORS.bolt });
+        spawnDoomProjectile({ x: originX, y: originY, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, dmg: DOOM_ABILITIES[3].damage, category: "energy", r: 5, color: COLORS.bolt });
       });
     },
     function castMysticShield(){
@@ -397,12 +397,12 @@
       const cx = player.x + PLAYER_W/2;
       effects.push({ type: "burst", x: cx, y: GROUND_Y, maxR: 170, life: 18, color: COLORS.levitation });
       if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 170 && (enemy.y + enemy.h) > GROUND_Y - 60){
-        applyDamageToEnemy(16, "physical", false);
+        applyDamageToEnemy(DOOM_ABILITIES[7].damage, "physical", false);
       }
     },
     function castHyperbolicNova(){
       effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: player.y + playerHeight()/2, life: 26 });
-      if (enemy) applyDamageToEnemy(60, "energy", true);
+      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[8].damage, "energy", true);
     }
   ];
 
