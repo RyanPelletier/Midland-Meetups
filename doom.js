@@ -116,12 +116,13 @@
     novaGlow: "95,217,122", // rgb triplet — green ring/star charge-up for Hyperbolic Nova
     novaMeteor: "#5FD97A",
     nova: "#F6C945",
-    shieldFx: "#3E7ADB",
+    mysticGlow: "200,224,70", // rgb triplet — pulsing yellow-green radial for Mystic Shield
     teleportFx: "#B98FE0", // also doubles as Projectile Reversal's grab/throw color
     healFx: "#5FD97A",
     barrierGlow: "201,162,39", // rgb triplet — pulsating yellow radial for Molecular Barrier
 
-    repulsorFx: "#E5484D",
+    repulsorFx: "#F6E24D",
+    barrageFx: "#1A1A1A",
     sonicFx: "#9FD8A0",
     opticFx: "#E14B3C"
   };
@@ -838,6 +839,12 @@
   // instant it connects, which applyDamageToPlayer already checks.
   function dealUnblockableDamage(def, st){
     if (st.hasHitPlayer) return;
+    if (def.visual === "barrage"){
+      // The rockets detonate on arrival regardless of whether a shield
+      // actually stopped the damage — they still physically reach Doom
+      // and go off, he just isn't hurt by it that time.
+      effects.push({ type: "explosion", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 20 });
+    }
     applyDamageToPlayer(def.damage);
     st.hasHitPlayer = true;
   }
@@ -1079,7 +1086,7 @@
       ctx.moveTo(rx, ry);
       ctx.lineTo(rx - Math.cos(backAngle) * 9, ry - Math.sin(backAngle) * 9);
       ctx.stroke();
-      ctx.fillStyle = active ? "#FFFFFF" : COLORS.repulsorFx;
+      ctx.fillStyle = active ? "#FFFFFF" : COLORS.barrageFx;
       ctx.beginPath();
       ctx.arc(rx, ry, active ? 6 : 4, 0, Math.PI * 2);
       ctx.fill();
@@ -1176,11 +1183,17 @@
     }
 
     if (player.invulnFrames > 0){
-      ctx.strokeStyle = COLORS.shieldFx;
-      ctx.lineWidth = 2;
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.4);
+      const cx = x + PLAYER_W/2, cy = y + h/2;
+      const r = Math.max(PLAYER_W, h) * (0.65 + pulse * 0.25);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(${COLORS.mysticGlow},${(0.55 + pulse * 0.3).toFixed(3)})`);
+      glow.addColorStop(0.65, `rgba(${COLORS.mysticGlow},${(0.28 + pulse * 0.15).toFixed(3)})`);
+      glow.addColorStop(1, `rgba(${COLORS.mysticGlow},0)`);
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x + PLAYER_W/2, y + h/2, Math.max(PLAYER_W, h) * 0.7, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
     }
     if (player.blockFrames > 0){
       const pulse = 0.5 + 0.5 * Math.sin(frame * 0.35);
@@ -1492,6 +1505,20 @@
         ctx.globalAlpha = e.life / 12;
         ctx.beginPath(); ctx.arc(e.x, e.y, 10 * (1 - e.life/12) + 3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+      } else if (e.type === "explosion"){
+        // A bright core fading through orange into red as it expands —
+        // Iron Man's Missile Barrage detonating on arrival.
+        const progress = 1 - e.life / 20;
+        const r = 8 + progress * 34;
+        const grad = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, r);
+        grad.addColorStop(0, `rgba(255,241,168,${Math.max(0, 1 - progress * 1.3).toFixed(3)})`);
+        grad.addColorStop(0.35, `rgba(255,140,40,${Math.max(0, 0.9 - progress).toFixed(3)})`);
+        grad.addColorStop(0.7, `rgba(200,40,20,${Math.max(0, 0.6 - progress * 0.6).toFixed(3)})`);
+        grad.addColorStop(1, "rgba(120,20,10,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.fill();
       }
     });
   }
@@ -1551,7 +1578,7 @@
 
       if (i === 4 && keysDown.Digit5){
         const pulse = 0.5 + 0.5 * Math.sin(frame * 0.5);
-        ctx.fillStyle = `rgba(62,122,219,${(0.35 + pulse * 0.25).toFixed(3)})`;
+        ctx.fillStyle = `rgba(${COLORS.mysticGlow},${(0.35 + pulse * 0.25).toFixed(3)})`;
         ctx.fillRect(x, y, size, size);
       }
 

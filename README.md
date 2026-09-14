@@ -349,20 +349,23 @@ and the world stops scrolling until you defeat them.
   help, your feet are still on the floor) or rear back for a
   head-level swing (duck drops you clean under it; ground and head are
   the two melee heights in the game). Ranged shots (Iron Man's
-  Repulsor Blast, Hulk's **Sonic Clap** — a semicircular shockwave that
-  expands outward from him toward Doom, drawn as grey-green rings
-  instead of a thrown rock — Cyclops' Optic Blast, Cap's thrown shield)
-  are real traveling projectiles aimed at wherever Doom
-  actually is — including his altitude — the instant they fire; since
-  they don't home in after that, Doom dodges by no longer being there
-  when the shot arrives. A handful of signature attacks are
+  **Repulsor Blast** — now yellow — Hulk's **Sonic Clap** — a
+  semicircular shockwave that expands outward from him toward Doom,
+  drawn as grey-green rings instead of a thrown rock — Cyclops' Optic
+  Blast, Cap's thrown shield) are real traveling projectiles aimed at
+  wherever Doom actually is — including his altitude — the instant they
+  fire; since they don't home in after that, Doom dodges by no longer
+  being there when the shot arrives. A handful of signature attacks are
   **unblockable** instead of dodgeable by position at all — Cyclops's
   twin-beam **Crossfire** (two beams sweep in from ±70° and converge
   exactly on Doom) and Iron Man's **Missile Barrage** (a swarm of tiny
-  rockets spreads out, then homes in on him) always connect unless
-  Doom is actively shielded the instant they land — no amount of
-  flying or ducking avoids these, only timing a block does. While
-  flying, a pulsing green glow replaces Doom's usual cape, and every
+  black rockets spreads out, then homes in on him, each one detonating
+  in a fiery orange-red explosion the instant it arrives — whether or
+  not Doom was shielded, since they still physically reach him and go
+  off either way) always connect unless Doom is actively shielded the
+  instant they land — no amount of flying or ducking avoids these, only
+  timing a block does. While flying, a pulsing green glow replaces
+  Doom's usual cape, and every
   character now casts a ground shadow that shrinks and fades with
   altitude for a cheap sense of depth (along with a second, fainter,
   slower-scrolling silhouette layer behind the existing one in each
@@ -390,7 +393,8 @@ and the world stops scrolling until you defeat them.
   straight back to Cap rather than leaving him without one.
   **Four abilities are held, not cast.** Mystic Shield (key 5): holding
   it down drains energy every frame and keeps Doom invulnerable the
-  whole time (the hotbar slot glows blue while active); a quick tap
+  whole time, shown as a pulsing yellow-green radial glow around him
+  (the hotbar slot pulses the same color while active); a quick tap
   still grants a brief flicker of invulnerability since the same
   per-frame check just runs for that one frame — this is the only way
   to survive an unblockable attack. Disruptor Beam (key 3): holding it
