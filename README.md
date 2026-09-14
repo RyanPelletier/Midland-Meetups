@@ -369,10 +369,17 @@ and the world stops scrolling until you defeat them.
   self-buffs, reflects) is generic and doesn't need touching. Captain
   America's shield is his signature move: **Shield Throw** is a real
   projectile (drawn larger than the other characters' shots) that, if
-  it misses, curves back and returns to him rather than flying off;
-  his **Bounce Back** (previously "Vibranium Block") only reflects
-  Doom's projectile-based hits back at him 70% of the time — the
-  other 30% it just takes the hit — instead of blocking every time.
+  it misses, curves back and returns to him rather than flying off —
+  the shield on his own sprite disappears the instant he throws it and
+  reappears only once it's back in hand, so there's never two visible
+  at once; his **Bounce Back** (previously "Vibranium Block") only
+  reflects Doom's projectile-based hits back at him 70% of the time —
+  the other 30% it just takes the hit — instead of blocking every
+  time. The close-range fighters (Wolverine's claws and lunge, Hulk's
+  ground pound and rage charge, Cap's shield charge) hit noticeably
+  harder than the ranged pokes and dash a real distance when they
+  charge — melee is meant to feel dangerous up close, not just
+  attrition-y at range.
 
 If the canvas ever appears to freeze mid-game, it isn't silent: `loop()`
 wraps each frame's `update()`/`draw()` in a try/catch that logs any
