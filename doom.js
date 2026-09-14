@@ -53,6 +53,19 @@
   const SIPHON_LIFT_HEIGHT = 90;
   const SIPHON_LIFT_EASE = 0.06;
 
+  // How far out a shield (Mystic Shield or Molecular Barrier) stops an
+  // incoming projectile — roughly the middle of the two glows' actual
+  // render radii, so a blocked shot reads as hitting the glow's edge
+  // rather than punching through to Doom's body. See playerShieldRadius().
+  const SHIELD_HIT_RADIUS_MULT = 0.85;
+
+  // Hyperbolic Nova (held) charge timing/visuals — see updateNovaCharge().
+  const NOVA_CHARGE_FRAMES = 100; // ~1.7s held to fully charge
+  const NOVA_CHARGE_DECAY = 0.035; // per-frame charge lost once released early
+  const NOVA_CIRCLE_PHASE = 0.6; // fraction of the charge spent drawing the ring before the star starts revealing
+  const NOVA_METEOR_COUNT = 8;
+  const NOVA_RING_RADIUS_MULT = 1.1; // ring radius relative to max(PLAYER_W, playerHeight())
+
   const GRAVITY = 0.8;
   const JUMP_VELOCITY = -13;
 
@@ -106,13 +119,16 @@
     beam: "#3EDB8F",
     bolt: "#7FE0C4",
     siphonGlow: "95,217,122", // rgb triplet — same green as Doom's own flying glow
+    novaGlow: "95,217,122", // rgb triplet — green ring/star charge-up for Hyperbolic Nova
+    novaMeteor: "#5FD97A",
     nova: "#F6C945",
-    shieldFx: "#3E7ADB",
-    teleportFx: "#B98FE0",
+    mysticGlow: "200,224,70", // rgb triplet — pulsing yellow-green radial for Mystic Shield
+    teleportFx: "#B98FE0", // also doubles as Projectile Reversal's grab/throw color
     healFx: "#5FD97A",
     barrierGlow: "201,162,39", // rgb triplet — pulsating yellow radial for Molecular Barrier
 
-    repulsorFx: "#E5484D",
+    repulsorFx: "#F6E24D",
+    barrageFx: "#1A1A1A",
     sonicFx: "#9FD8A0",
     opticFx: "#E14B3C"
   };
@@ -205,13 +221,15 @@
 
   /* ==================== Doom's own kit (keys 1-9) ==================== */
   // Costs draw from a shared energy bar; every ability also has its
-  // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
+  // own independent cooldown. 1/3/4 are "energy" damage (blockable by
   // Cap's Shield Charge / reflectable — 70% of the time — by his
-  // Bounce Back, except Nova which pierces both); 8 is "physical"
-  // (never blocked/reflected). Mystic Shield (index 4), Disruptor Beam
-  // (index 2), and Levitation Siphon (index 7) are all special,
-  // held-not-cast abilities — see updateShieldHold()/updateBeamCharge()/
-  // updateSiphonHold() and the Digit3/Digit5/Digit8 handling in
+  // Bounce Back); 6/8/9 are "physical" (never blocked/reflected — 6 and
+  // 8 because they're not really Doom's own energy blast, 9 because an
+  // ultimate should pierce both). Mystic Shield (index 4), Disruptor
+  // Beam (index 2), Levitation Siphon (index 7), and Hyperbolic Nova
+  // (index 8) are all special, held-not-cast abilities — see
+  // updateShieldHold()/updateBeamCharge()/updateSiphonHold()/
+  // updateNovaCharge() and the Digit3/Digit5/Digit8/Digit9 handling in
   // initGame(). Their `cost` is energy drained per frame held, not a
   // one-time price, and none uses `cooldownFrames` as a post-cast
   // lockout the normal way: holding Mystic Shield just costs energy the
@@ -223,13 +241,19 @@
   // the current enemy into the air for as long as it's held, draining
   // `damagePerFrame` straight from its HP into Doom's every frame (a
   // real life-steal grapple) while pausing the enemy's own attacks.
+  // Hyperbolic Nova instead spends its whole `cost`/`damage` gradually
+  // over a fixed charge time — a ring draws in around Doom, then a star
+  // fills in at its center, then (fully charged, no release needed) it
+  // auto-fires a barrage of meteors and starts its cooldown; letting go
+  // early just lets the charge (and whatever energy was already spent)
+  // drain back down for nothing.
   const DOOM_ABILITIES = [
     { name: "Plasma Bolt", cost: 10, cooldownFrames: 18, damage: 9 },
     { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
     { name: "Disruptor Beam", cost: 0, cooldownFrames: 20, chargeRatePerSec: 10, damagePerEnergy: 1.8 },
     { name: "Doom Bolts", cost: 18, cooldownFrames: 50, damage: 11 },
     { name: "Mystic Shield", cost: 1.4, cooldownFrames: 0 },
-    { name: "Teleport Slip", cost: 15, cooldownFrames: 60 },
+    { name: "Projectile Reversal", cost: 15, cooldownFrames: 60 },
     { name: "Molecular Barrier", cost: 18, cooldownFrames: 70, blockReduction: 1, blockDurationFrames: 50 },
     { name: "Levitation Siphon", cost: 1.0, cooldownFrames: 0, damagePerFrame: 0.8 },
     { name: "Hyperbolic Nova", cost: 50, cooldownFrames: 360, damage: 90 }
@@ -263,6 +287,8 @@
       blockReduction: 0,
       beamCharge: 0,
       siphoning: false,
+      novaCharge: 0,
+      novaFlashFrames: 0,
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
@@ -335,6 +361,15 @@
     const top = playerTop(), bot = top + playerHeight();
     return top < band.max && bot > band.min;
   }
+  // Non-zero whenever Mystic Shield or Molecular Barrier is currently up
+  // — used by updateEnemyProjectiles() to stop a shot at the shield's
+  // edge instead of letting it travel in to overlap Doom's actual body.
+  function playerShieldRadius(){
+    if (player.invulnFrames > 0 || player.blockFrames > 0){
+      return Math.max(PLAYER_W, playerHeight()) * SHIELD_HIT_RADIUS_MULT;
+    }
+    return 0;
+  }
 
   /* ---------------- player ---------------- */
   function updatePlayer(){
@@ -372,6 +407,7 @@
     updateShieldHold();
     updateBeamCharge();
     updateSiphonHold();
+    updateNovaCharge();
   }
 
   // Mystic Shield (key 5) is held, not cast: as long as it's down and
@@ -434,6 +470,59 @@
     applyDamageToEnemy(def.damagePerFrame, "physical", false);
     player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.damagePerFrame);
     effects.push({ type: "spark", x: cx, y: cy, life: 8 });
+  }
+
+  // Hyperbolic Nova (key 9) is held, not cast: while held and a fight is
+  // live, novaCharge (0..1) rises over NOVA_CHARGE_FRAMES, spending
+  // def.cost/def.damage gradually rather than all at once — the ring
+  // draws in around Doom for the first NOVA_CIRCLE_PHASE of the charge
+  // (drawn in drawPlayer()), then the star fills in for the rest. The
+  // instant charge hits 1, it fires on its own (no release needed) and
+  // starts the real post-fire cooldown; letting go before that just lets
+  // novaCharge (and whatever was already spent) ease back down to
+  // nothing, same risk as walking away from a Disruptor Beam charge.
+  function updateNovaCharge(){
+    const def = DOOM_ABILITIES[8];
+    const canCharge = phase === "encounter" && enemy && enemy.hp > 0 && player.abilityCooldowns[8] <= 0;
+    const costPerFrame = def.cost / NOVA_CHARGE_FRAMES;
+    const holding = !!(keysDown.Digit9 && canCharge && player.energy >= costPerFrame);
+
+    if (player.novaFlashFrames > 0) player.novaFlashFrames--;
+
+    if (holding){
+      player.energy -= costPerFrame;
+      player.novaCharge = Math.min(1, player.novaCharge + 1 / NOVA_CHARGE_FRAMES);
+      if (player.novaCharge >= 1){
+        fireHyperbolicNova();
+        player.novaCharge = 0;
+        player.novaFlashFrames = 14;
+        player.abilityCooldowns[8] = def.cooldownFrames;
+        keysDown.Digit9 = false; // don't auto-restart the charge the instant it fires
+      }
+    } else {
+      player.novaCharge = Math.max(0, player.novaCharge - NOVA_CHARGE_DECAY);
+    }
+  }
+
+  // Meteors erupt from points spread evenly around the charge ring,
+  // all aimed at wherever the enemy actually is — reuses the ordinary
+  // doomProjectiles pipeline (so they travel and can be seen arriving)
+  // but tagged piercing so the ultimate still bypasses rangedImmune and
+  // Bounce Back like the old instant-hit version did.
+  function fireHyperbolicNova(){
+    const def = DOOM_ABILITIES[8];
+    const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+    effects.push({ type: "nova", x: cx, y: cy, life: 26, color: `rgb(${COLORS.novaGlow})` });
+    if (!enemy) return;
+    const ringR = Math.max(PLAYER_W, playerHeight()) * NOVA_RING_RADIUS_MULT;
+    const target = enemyTargetPoint(cx + 300, cy);
+    const dmgEach = def.damage / NOVA_METEOR_COUNT;
+    for (let i = 0; i < NOVA_METEOR_COUNT; i++){
+      const angle = (Math.PI * 2 * i) / NOVA_METEOR_COUNT;
+      const originX = cx + Math.cos(angle) * ringR, originY = cy + Math.sin(angle) * ringR;
+      const v = aimAt(originX, originY, target.x, target.y, 8 + Math.random() * 2);
+      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: dmgEach, category: "energy", piercing: true, r: 6, color: COLORS.novaMeteor });
+    }
   }
 
   function fireDisruptorBeam(){
@@ -511,12 +600,26 @@
       // invoked. It stays as a no-op purely to keep CAST_FNS positionally
       // aligned with DOOM_ABILITIES by index.
     },
-    function castTeleportSlip(){
-      const midpoint = (PLAYER_ARENA_MIN_X + PLAYER_ARENA_MAX_X) / 2;
-      const dir = player.x > midpoint ? -1 : 1;
-      player.x = clamp(player.x + dir * 90, PLAYER_ARENA_MIN_X, PLAYER_ARENA_MAX_X);
-      player.invulnFrames = Math.max(player.invulnFrames, 20);
-      effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 16 });
+    // Grabs every enemy projectile currently in the air and relaunches
+    // each one at the enemy from wherever it currently is, carrying its
+    // original damage. Reuses the doomProjectiles pipeline (so they fly
+    // and can be seen arriving, and correctly only ever damage the
+    // enemy) rather than teaching enemyProjectiles a second hit-target —
+    // "physical" so a reflected shield throw can't loop back through
+    // Cap's own Bounce Back a second time.
+    function castProjectileReversal(){
+      const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+      const target = enemyTargetPoint(cx + 300, cy);
+      const grabbed = enemyProjectiles.length;
+      enemyProjectiles.forEach(p => {
+        if (p.style === "shield" && enemy) enemy.hasShield = true; // hand Cap's shield back rather than leaving him permanently without one
+        const speed = Math.max(6, Math.hypot(p.vx, p.vy));
+        const v = aimAt(p.x, p.y, target.x, target.y, speed);
+        spawnDoomProjectile({ x: p.x, y: p.y, vx: v.vx, vy: v.vy, dmg: p.dmg, category: "physical", r: p.r, color: COLORS.teleportFx });
+      });
+      enemyProjectiles = [];
+      if (grabbed > 0) effects.push({ type: "teleport", x: cx, y: cy, life: 16 });
+      player.invulnFrames = Math.max(player.invulnFrames, 10);
     },
     function castMolecularBarrier(){
       // Visual is a persistent pulsating radial glow drawn every frame in
@@ -533,9 +636,11 @@
       // invoked. It stays as a no-op purely to keep CAST_FNS positionally
       // aligned with DOOM_ABILITIES by index.
     },
-    function castHyperbolicNova(){
-      effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
-      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[8].damage, "energy", true);
+    function hyperbolicNovaSlotUnused(){
+      // Hyperbolic Nova is now a held charge-up handled every frame by
+      // updateNovaCharge() and fired by fireHyperbolicNova() once fully
+      // charged — this slot is never invoked. It stays as a no-op purely
+      // to keep CAST_FNS positionally aligned with DOOM_ABILITIES by index.
     }
   ];
 
@@ -544,7 +649,7 @@
     doomProjectiles = doomProjectiles.filter(p => {
       if (p.x > CANVAS_W + 20 || p.y < -50 || p.y > CANVAS_H + 50) return false;
       if (enemy && rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, enemy.x, enemy.y, enemy.w, enemy.h)){
-        applyDamageToEnemy(p.dmg, p.category, false);
+        applyDamageToEnemy(p.dmg, p.category, !!p.piercing);
         return false;
       }
       return true;
@@ -723,10 +828,24 @@
       if (p.returning && enemy && Math.hypot((enemy.x + enemy.w/2) - p.x, (enemy.y + enemy.h/2) - p.y) < 18) return releaseShield(); // caught
       if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return releaseShield();
       if (!p.returning){
-        const top = playerTop(), height = playerHeight();
-        if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
-          applyDamageToPlayer(p.dmg);
-          return releaseShield();
+        const shieldR = playerShieldRadius();
+        if (shieldR > 0){
+          // Shielded: stop at the glow's edge rather than letting it fly
+          // in to visually overlap Doom's body — applyDamageToPlayer
+          // still runs so the exact same block/invuln rules apply, it's
+          // only the travel distance that changes.
+          const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+          if (Math.hypot(p.x - cx, p.y - cy) <= shieldR + p.r){
+            effects.push({ type: "clang", x: p.x, y: p.y, life: 10 });
+            applyDamageToPlayer(p.dmg);
+            return releaseShield();
+          }
+        } else {
+          const top = playerTop(), height = playerHeight();
+          if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
+            applyDamageToPlayer(p.dmg);
+            return releaseShield();
+          }
         }
       }
       return true;
@@ -749,6 +868,12 @@
   // instant it connects, which applyDamageToPlayer already checks.
   function dealUnblockableDamage(def, st){
     if (st.hasHitPlayer) return;
+    if (def.visual === "barrage"){
+      // The rockets detonate on arrival regardless of whether a shield
+      // actually stopped the damage — they still physically reach Doom
+      // and go off, he just isn't hurt by it that time.
+      effects.push({ type: "explosion", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 20 });
+    }
     applyDamageToPlayer(def.damage);
     st.hasHitPlayer = true;
   }
@@ -990,7 +1115,7 @@
       ctx.moveTo(rx, ry);
       ctx.lineTo(rx - Math.cos(backAngle) * 9, ry - Math.sin(backAngle) * 9);
       ctx.stroke();
-      ctx.fillStyle = active ? "#FFFFFF" : COLORS.repulsorFx;
+      ctx.fillStyle = active ? "#FFFFFF" : COLORS.barrageFx;
       ctx.beginPath();
       ctx.arc(rx, ry, active ? 6 : 4, 0, Math.PI * 2);
       ctx.fill();
@@ -1087,11 +1212,17 @@
     }
 
     if (player.invulnFrames > 0){
-      ctx.strokeStyle = COLORS.shieldFx;
-      ctx.lineWidth = 2;
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.4);
+      const cx = x + PLAYER_W/2, cy = y + h/2;
+      const r = Math.max(PLAYER_W, h) * (0.65 + pulse * 0.25);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(${COLORS.mysticGlow},${(0.55 + pulse * 0.3).toFixed(3)})`);
+      glow.addColorStop(0.65, `rgba(${COLORS.mysticGlow},${(0.28 + pulse * 0.15).toFixed(3)})`);
+      glow.addColorStop(1, `rgba(${COLORS.mysticGlow},0)`);
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x + PLAYER_W/2, y + h/2, Math.max(PLAYER_W, h) * 0.7, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
     }
     if (player.blockFrames > 0){
       const pulse = 0.5 + 0.5 * Math.sin(frame * 0.35);
@@ -1105,6 +1236,37 @@
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // Hyperbolic Nova charging: a green ring sweeps in first (0 through
+    // NOVA_CIRCLE_PHASE of the charge), then a star fills in at its
+    // center for the rest — once full, novaFlashFrames keeps both pinned
+    // at 100% and pulsing for a few frames right as the meteors launch.
+    if (player.novaCharge > 0.001 || player.novaFlashFrames > 0){
+      const charge = player.novaFlashFrames > 0 ? 1 : player.novaCharge;
+      const ncx = x + PLAYER_W/2, ncy = y + h/2;
+      const R = Math.max(PLAYER_W, h) * NOVA_RING_RADIUS_MULT;
+      const circleProgress = Math.min(1, charge / NOVA_CIRCLE_PHASE);
+      const starProgress = Math.max(0, Math.min(1, (charge - NOVA_CIRCLE_PHASE) / (1 - NOVA_CIRCLE_PHASE)));
+
+      if (player.novaFlashFrames > 0){
+        const flashPulse = 0.5 + 0.5 * Math.sin(frame * 1.3);
+        ctx.strokeStyle = `rgba(${COLORS.novaGlow},${(0.6 + flashPulse * 0.4).toFixed(3)})`;
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = `rgba(${COLORS.novaGlow},0.9)`;
+        ctx.lineWidth = 2.5;
+      }
+      ctx.beginPath();
+      ctx.arc(ncx, ncy, R, -Math.PI/2, -Math.PI/2 + circleProgress * Math.PI * 2);
+      ctx.stroke();
+
+      if (starProgress > 0.02){
+        ctx.globalAlpha = starProgress;
+        ctx.fillStyle = `rgba(${COLORS.novaGlow},1)`;
+        drawStar(ncx, ncy, R * (0.25 + starProgress * 0.4), R * (0.1 + starProgress * 0.16));
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
@@ -1372,6 +1534,20 @@
         ctx.globalAlpha = e.life / 12;
         ctx.beginPath(); ctx.arc(e.x, e.y, 10 * (1 - e.life/12) + 3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+      } else if (e.type === "explosion"){
+        // A bright core fading through orange into red as it expands —
+        // Iron Man's Missile Barrage detonating on arrival.
+        const progress = 1 - e.life / 20;
+        const r = 8 + progress * 34;
+        const grad = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, r);
+        grad.addColorStop(0, `rgba(255,241,168,${Math.max(0, 1 - progress * 1.3).toFixed(3)})`);
+        grad.addColorStop(0.35, `rgba(255,140,40,${Math.max(0, 0.9 - progress).toFixed(3)})`);
+        grad.addColorStop(0.7, `rgba(200,40,20,${Math.max(0, 0.6 - progress * 0.6).toFixed(3)})`);
+        grad.addColorStop(1, "rgba(120,20,10,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.fill();
       }
     });
   }
@@ -1431,7 +1607,7 @@
 
       if (i === 4 && keysDown.Digit5){
         const pulse = 0.5 + 0.5 * Math.sin(frame * 0.5);
-        ctx.fillStyle = `rgba(62,122,219,${(0.35 + pulse * 0.25).toFixed(3)})`;
+        ctx.fillStyle = `rgba(${COLORS.mysticGlow},${(0.35 + pulse * 0.25).toFixed(3)})`;
         ctx.fillRect(x, y, size, size);
       }
 
@@ -1548,7 +1724,10 @@
       number keys 1–9 for Doom's abilities — hold 5 for Mystic Shield,
       hold 3 to charge Disruptor Beam (release to fire), hold 8 for
       Levitation Siphon (lifts the enemy and drains its health into
-      yours the longer you hold it).</p>
+      yours the longer you hold it), hold 9 for Hyperbolic Nova (a ring
+      and star draw in as it charges, then it auto-fires a meteor
+      barrage). Key 6 is Projectile Reversal — grabs every enemy shot
+      currently in the air and throws them all back.</p>
       ${whoLine}
       ${best > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${best}</p>` : ""}
       <button type="button" class="btn" id="doom-play-btn">Play</button>
@@ -1750,11 +1929,11 @@
         if (n >= 1 && n <= 9){
           e.preventDefault();
           selectedAbilityIndex = n - 1;
-          if (n === 5 || n === 3 || n === 8){
+          if (n === 5 || n === 3 || n === 8 || n === 9){
             // Held, not cast — updateShieldHold()/updateBeamCharge()/
-            // updateSiphonHold() do the actual work every frame these
-            // stay true. Not marked !e.repeat since a held key's repeated
-            // keydowns are exactly what keeps this true.
+            // updateSiphonHold()/updateNovaCharge() do the actual work
+            // every frame these stay true. Not marked !e.repeat since a
+            // held key's repeated keydowns are exactly what keeps this true.
             keysDown[e.code] = true;
           } else {
             tryCastAbility(n - 1);
@@ -1765,7 +1944,7 @@
 
     document.addEventListener("keyup", (e) => {
       if (document.activeElement !== canvas) return;
-      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Digit5" || e.code === "Digit8"){
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Digit5" || e.code === "Digit8" || e.code === "Digit9"){
         keysDown[e.code] = false;
       } else if (e.code === "Digit3"){
         keysDown.Digit3 = false;
