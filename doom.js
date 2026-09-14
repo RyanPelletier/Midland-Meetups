@@ -198,16 +198,21 @@
   // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
   // Cap's Shield Charge / reflectable — 70% of the time — by his
   // Bounce Back, except Nova which pierces both); 8 is "physical"
-  // (never blocked/reflected). Mystic Shield (index 4) is special: it's
-  // a HELD stance, not a discrete cast — see updateShieldHold() and the
-  // Digit5 handling in initGame(). Its `cost` is energy drained per
-  // frame held, not a one-time price, and it has no cooldown (holding
-  // it just costs energy the whole time; a quick tap gives a brief
-  // window, matching "click to use" still technically working).
+  // (never blocked/reflected). Mystic Shield (index 4) and Disruptor
+  // Beam (index 2) are both special, held-not-cast abilities — see
+  // updateShieldHold()/updateBeamCharge() and the Digit3/Digit5
+  // handling in initGame(). Their `cost` is energy drained per frame
+  // held, not a one-time price, and neither uses `cooldownFrames` as a
+  // post-cast lockout the normal way: holding Mystic Shield just costs
+  // energy the whole time (a quick tap gives a brief invuln window,
+  // "click to use" still technically working); Disruptor Beam instead
+  // diverts held energy into `beamCharge` and fires a `damagePerEnergy`
+  // scaled beam on release — hold longer (up to your whole bar) for a
+  // bigger blast, at the cost of standing still and exposed.
   const DOOM_ABILITIES = [
-    { name: "Plasma Bolt", cost: 8, cooldownFrames: 12, damage: 14 },
+    { name: "Plasma Bolt", cost: 10, cooldownFrames: 18, damage: 9 },
     { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
-    { name: "Disruptor Beam", cost: 28, cooldownFrames: 90, damage: 50 },
+    { name: "Disruptor Beam", cost: 0, cooldownFrames: 20, chargeRatePerSec: 10, damagePerEnergy: 1.8 },
     { name: "Doom Bolts", cost: 18, cooldownFrames: 50, damage: 11 },
     { name: "Mystic Shield", cost: 1.4, cooldownFrames: 0 },
     { name: "Teleport Slip", cost: 15, cooldownFrames: 60 },
@@ -237,6 +242,7 @@
       invulnFrames: 0,
       blockFrames: 0,
       blockReduction: 0,
+      beamCharge: 0,
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
@@ -344,6 +350,7 @@
       if (player.abilityCooldowns[i] > 0) player.abilityCooldowns[i]--;
     }
     updateShieldHold();
+    updateBeamCharge();
   }
 
   // Mystic Shield (key 5) is held, not cast: as long as it's down and
@@ -363,6 +370,31 @@
       player.energy -= DOOM_ABILITIES[4].cost;
       player.invulnFrames = Math.max(player.invulnFrames, 3);
     }
+  }
+
+  // Disruptor Beam (key 3) is held to charge, not cast outright: every
+  // frame it's down, energy is diverted into beamCharge at a fixed
+  // rate (10/sec) rather than spent all at once — hold longer (up to
+  // your entire bar, a "full charge") for a proportionally bigger
+  // release. Gated on the post-fire cooldown so you can't immediately
+  // start a new charge the instant the last beam's recovery ends.
+  function updateBeamCharge(){
+    if (keysDown.Digit3 && player.abilityCooldowns[2] <= 0 && player.energy > 0){
+      const rate = DOOM_ABILITIES[2].chargeRatePerSec / 60;
+      const drain = Math.min(rate, player.energy);
+      player.energy -= drain;
+      player.beamCharge += drain;
+    }
+  }
+
+  function fireDisruptorBeam(){
+    const originX = player.x + PLAYER_W, originY = playerCenterY();
+    const target = enemyTargetPoint(originX + 300, originY);
+    const chargeRatio = Math.min(1, player.beamCharge / ENERGY_MAX);
+    effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam, chargeRatio });
+    if (enemy) applyDamageToEnemy(player.beamCharge * DOOM_ABILITIES[2].damagePerEnergy, "energy", false);
+    player.abilityCooldowns[2] = DOOM_ABILITIES[2].cooldownFrames;
+    player.beamCharge = 0;
   }
 
   function jump(){
@@ -409,11 +441,11 @@
       player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.healAmount);
       effects.push({ type: "heal", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
     },
-    function castDisruptorBeam(){
-      const originX = player.x + PLAYER_W, originY = playerCenterY();
-      const target = enemyTargetPoint(originX + 300, originY);
-      effects.push({ type: "beam", x1: originX, y1: originY, x2: target.x, y2: target.y, life: 14, color: COLORS.beam });
-      if (enemy) applyDamageToEnemy(DOOM_ABILITIES[2].damage, "energy", false);
+    function disruptorBeamSlotUnused(){
+      // Disruptor Beam is now hold-to-charge, handled every frame by
+      // updateBeamCharge() and fired by fireDisruptorBeam() on release —
+      // this slot is never invoked. It stays as a no-op purely to keep
+      // CAST_FNS positionally aligned with DOOM_ABILITIES by index.
     },
     function castDoomBolts(){
       const originX = player.x + PLAYER_W, originY = playerCenterY();
@@ -917,6 +949,19 @@
       ctx.fill();
     }
 
+    if (player.beamCharge > 0){
+      const chargeRatio = Math.min(1, player.beamCharge / ENERGY_MAX);
+      const pulse = 0.6 + 0.4 * Math.sin(frame * 0.5);
+      const cx = x + PLAYER_W, cy = y + h * 0.5;
+      const r = (4 + chargeRatio * 14) * pulse;
+      ctx.fillStyle = COLORS.beam;
+      ctx.globalAlpha = 0.5 + chargeRatio * 0.4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     ctx.fillStyle = COLORS.doomCloakDark;
     ctx.beginPath();
     ctx.moveTo(x - 6, y + h);
@@ -1192,7 +1237,7 @@
         ctx.globalAlpha = 1;
       } else if (e.type === "beam"){
         ctx.strokeStyle = e.color;
-        ctx.lineWidth = 6;
+        ctx.lineWidth = 4 + (e.chargeRatio || 0) * 12;
         ctx.globalAlpha = e.life / 14;
         ctx.beginPath();
         ctx.moveTo(e.x1, e.y1);
@@ -1286,6 +1331,12 @@
         const pulse = 0.5 + 0.5 * Math.sin(frame * 0.5);
         ctx.fillStyle = `rgba(62,122,219,${(0.35 + pulse * 0.25).toFixed(3)})`;
         ctx.fillRect(x, y, size, size);
+      }
+
+      if (i === 2 && player.beamCharge > 0){
+        const fillH = size * Math.min(1, player.beamCharge / ENERGY_MAX);
+        ctx.fillStyle = "rgba(62,219,143,0.5)";
+        ctx.fillRect(x, y + size - fillH, size, fillH);
       }
 
       if (cd > 0){
@@ -1385,7 +1436,8 @@
       can't dodge your way out of.</p>
       <p>Left/Right to move, Up to jump (or ascend while flying), Down to
       duck (or descend while flying), double-tap Space to toggle flying,
-      number keys 1–9 for Doom's abilities — hold 5 for Mystic Shield.</p>
+      number keys 1–9 for Doom's abilities — hold 5 for Mystic Shield,
+      hold 3 to charge Disruptor Beam (release to fire).</p>
       ${localBest > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${localBest}</p>` : ""}
       <button type="button" class="btn" id="doom-play-btn">Play</button>
     `;
@@ -1453,11 +1505,12 @@
         if (n >= 1 && n <= 9){
           e.preventDefault();
           selectedAbilityIndex = n - 1;
-          if (n === 5){
-            // Held, not cast — updateShieldHold() does the actual work
-            // every frame this stays true. Not marked !e.repeat since a
-            // held key's repeated keydowns are exactly what keeps this true.
-            keysDown.Digit5 = true;
+          if (n === 5 || n === 3){
+            // Held, not cast — updateShieldHold()/updateBeamCharge() do
+            // the actual work every frame these stay true. Not marked
+            // !e.repeat since a held key's repeated keydowns are exactly
+            // what keeps this true.
+            keysDown[e.code] = true;
           } else {
             tryCastAbility(n - 1);
           }
@@ -1469,6 +1522,9 @@
       if (document.activeElement !== canvas) return;
       if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Digit5"){
         keysDown[e.code] = false;
+      } else if (e.code === "Digit3"){
+        keysDown.Digit3 = false;
+        if (player.beamCharge > 0) fireDisruptorBeam();
       }
     });
   }

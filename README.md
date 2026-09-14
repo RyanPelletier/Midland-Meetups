@@ -360,24 +360,34 @@ and the world stops scrolling until you defeat them.
   slower-scrolling silhouette layer behind the existing one in each
   biome's background).
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
-  abilities you need — quick pokes (Plasma Bolt, Doom Bolts), a heavy
-  beam (Disruptor Beam), defensive options (Mystic Shield, Teleport
-  Slip, Molecular Barrier), a self-heal (Self Repair), a hybrid
+  abilities you need — a quick poke (Plasma Bolt), a triple-shot
+  (Doom Bolts), defensive options (Mystic Shield, Teleport Slip,
+  Molecular Barrier), a self-heal (Self Repair), a hybrid
   movement/attack (Levitation Burst), and an ultimate (Hyperbolic
   Nova). Every ability draws from a shared energy bar and has its own
   cooldown, shown on the hotbar at the bottom of the canvas — the
   currently-selected ability (whichever number you pressed last) is
   also called out in the top-right corner and outlined on the hotbar.
-  **Mystic Shield (key 5) works differently from the rest: it's held,
-  not cast.** Holding it down drains energy every frame it's held and
-  keeps Doom invulnerable the whole time (the hotbar slot glows blue
-  while active); a quick tap still grants a brief flicker of
-  invulnerability since the same per-frame check just runs for that
-  one frame — this is the only way to survive an unblockable attack.
-  Plasma Bolt, Doom Bolts, and Disruptor Beam all aim at wherever the
-  current fighter actually is (including their altitude), and
-  Disruptor Beam only ever draws as a line from Doom to that fighter —
-  never as a beam spanning the whole screen behind him.
+  Plasma Bolt is deliberately the weakest hit per energy spent (it was
+  cheap enough to win fights by itself just mashing 1) — it's there
+  for quick chip damage between other abilities, not as a whole
+  strategy on its own.
+  **Two abilities are held, not cast.** Mystic Shield (key 5): holding
+  it down drains energy every frame and keeps Doom invulnerable the
+  whole time (the hotbar slot glows blue while active); a quick tap
+  still grants a brief flicker of invulnerability since the same
+  per-frame check just runs for that one frame — this is the only way
+  to survive an unblockable attack. Disruptor Beam (key 3): holding it
+  diverts energy into the shot at 10/sec (the hotbar slot fills green
+  from the bottom as it charges) instead of spending a flat cost —
+  release to fire a beam whose damage scales with however much you
+  charged, up to your entire bar for a devastating full-charge blast;
+  standing still charging for that long is genuinely risky, so it's a
+  real trade-off against just poking with Plasma Bolt. Plasma Bolt,
+  Doom Bolts, and Disruptor Beam all aim at wherever the current
+  fighter actually is (including their altitude), and Disruptor Beam
+  only ever draws as a line from Doom to that fighter — never as a
+  beam spanning the whole screen behind him.
 - **The character library:** Wolverine, Iron Man, Hulk, Cyclops, and
   Captain America to start, each with a unique movement style and
   exactly three fight abilities (defined together as one `CHARACTERS`
