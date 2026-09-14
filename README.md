@@ -349,8 +349,10 @@ and the world stops scrolling until you defeat them.
   help, your feet are still on the floor) or rear back for a
   head-level swing (duck drops you clean under it; ground and head are
   the two melee heights in the game). Ranged shots (Iron Man's
-  Repulsor Blast, Hulk's Boulder Throw, Cyclops' Optic Blast, Cap's
-  thrown shield) are real traveling projectiles aimed at wherever Doom
+  Repulsor Blast, Hulk's **Sonic Clap** — a semicircular shockwave that
+  expands outward from him toward Doom, drawn as grey-green rings
+  instead of a thrown rock — Cyclops' Optic Blast, Cap's thrown shield)
+  are real traveling projectiles aimed at wherever Doom
   actually is — including his altitude — the instant they fire; since
   they don't home in after that, Doom dodges by no longer being there
   when the shot arrives. A handful of signature attacks are
@@ -368,17 +370,19 @@ and the world stops scrolling until you defeat them.
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
   abilities you need — a quick poke (Plasma Bolt), a triple-shot
   (Doom Bolts), defensive options (Mystic Shield, Teleport Slip,
-  Molecular Barrier), a self-heal (Self Repair), a hybrid
-  movement/attack (Levitation Burst), and an ultimate (Hyperbolic
-  Nova). Every ability draws from a shared energy bar and has its own
-  cooldown, shown on the hotbar at the bottom of the canvas — the
-  currently-selected ability (whichever number you pressed last) is
-  also called out in the top-right corner and outlined on the hotbar.
-  Plasma Bolt is deliberately the weakest hit per energy spent (it was
-  cheap enough to win fights by itself just mashing 1) — it's there
-  for quick chip damage between other abilities, not as a whole
-  strategy on its own.
-  **Two abilities are held, not cast.** Mystic Shield (key 5): holding
+  Molecular Barrier), a self-heal (Self Repair), a life-steal grapple
+  (Levitation Siphon), and an ultimate (Hyperbolic Nova). Every ability
+  draws from a shared energy bar and has its own cooldown, shown on the
+  hotbar at the bottom of the canvas — the currently-selected ability
+  (whichever number you pressed last) is also called out in the
+  top-right corner and outlined on the hotbar. Plasma Bolt is
+  deliberately the weakest hit per energy spent (it was cheap enough to
+  win fights by itself just mashing 1) — it's there for quick chip
+  damage between other abilities, not as a whole strategy on its own.
+  Molecular Barrier now **fully blocks all incoming damage** for its
+  duration (previously a partial 75% reduction), shown as a pulsating
+  yellow radial glow around Doom instead of a static dotted outline.
+  **Three abilities are held, not cast.** Mystic Shield (key 5): holding
   it down drains energy every frame and keeps Doom invulnerable the
   whole time (the hotbar slot glows blue while active); a quick tap
   still grants a brief flicker of invulnerability since the same
@@ -389,11 +393,19 @@ and the world stops scrolling until you defeat them.
   release to fire a beam whose damage scales with however much you
   charged, up to your entire bar for a devastating full-charge blast;
   standing still charging for that long is genuinely risky, so it's a
-  real trade-off against just poking with Plasma Bolt. Plasma Bolt,
-  Doom Bolts, and Disruptor Beam all aim at wherever the current
-  fighter actually is (including their altitude), and Disruptor Beam
-  only ever draws as a line from Doom to that fighter — never as a
-  beam spanning the whole screen behind him.
+  real trade-off against just poking with Plasma Bolt. Levitation
+  Siphon (key 8): holding it lifts the current enemy into the air —
+  the same pulsing green glow Doom's own flight uses, now wrapped
+  around whoever's being drained — and pulls damage straight out of its
+  HP into Doom's every frame the hold lasts, at a steady energy cost;
+  the enemy's own attacks are paused the whole time it's lifted, so a
+  long, committed hold both swings the fight's damage race and buys
+  Doom a breather, at the cost of standing there channeling it instead
+  of attacking with anything else. Plasma Bolt, Doom Bolts, and
+  Disruptor Beam all aim at wherever the current fighter actually is
+  (including their altitude), and Disruptor Beam only ever draws as a
+  line from Doom to that fighter — never as a beam spanning the whole
+  screen behind him.
 - **The character library:** Wolverine, Iron Man, Hulk, Cyclops, and
   Captain America to start, each with a unique movement style and
   exactly three fight abilities (defined together as one `CHARACTERS`
@@ -413,7 +425,12 @@ and the world stops scrolling until you defeat them.
   pound and rage charge, Cap's shield charge) hit noticeably harder
   than the ranged pokes, move faster between attacks, and dash a real
   distance when they charge — melee is meant to feel dangerous up
-  close, not just attrition-y at range.
+  close, not just attrition-y at range. Their movement now actively
+  closes the gap toward wherever Doom currently is, too — Wolverine,
+  Hulk, and Cap all ease toward a spot just in front of him (fastest for
+  Wolverine, since a "restless lunger" standing still never made sense)
+  instead of orbiting a fixed spot far off to the right the whole fight,
+  which used to leave them looking like they never actually reached him.
 
 If the canvas ever appears to freeze mid-game, it isn't silent: `loop()`
 wraps each frame's `update()`/`draw()` in a try/catch that logs any

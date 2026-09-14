@@ -43,6 +43,16 @@
   const FLY_VERT_SPEED = 4.2;
   const FLY_MIN_Y = 40;
 
+  // Melee fighters (lunger/stomper/charger) actively close the gap toward
+  // Doom's current x instead of orbiting a fixed spot near ENEMY_X — see
+  // the "approachX" handling in runMovement().
+  const MELEE_CHASE_SPEED = { lunger: 2.4, stomper: 1.7, charger: 2.0 };
+  const MELEE_FOLLOW_GAP = 70;
+
+  // Levitation Siphon (held) lift height/easing — see updateSiphonHold().
+  const SIPHON_LIFT_HEIGHT = 90;
+  const SIPHON_LIFT_EASE = 0.06;
+
   const GRAVITY = 0.8;
   const JUMP_VELOCITY = -13;
 
@@ -95,15 +105,15 @@
     plasma: "#7FE0C4",
     beam: "#3EDB8F",
     bolt: "#7FE0C4",
-    levitation: "#8FD9FF",
+    siphonGlow: "95,217,122", // rgb triplet — same green as Doom's own flying glow
     nova: "#F6C945",
     shieldFx: "#3E7ADB",
     teleportFx: "#B98FE0",
     healFx: "#5FD97A",
-    blockFx: "#C9A227",
+    barrierGlow: "201,162,39", // rgb triplet — pulsating yellow radial for Molecular Barrier
 
     repulsorFx: "#E5484D",
-    boulderFx: "#8B6B4A",
+    sonicFx: "#9FD8A0",
     opticFx: "#E14B3C"
   };
 
@@ -162,7 +172,7 @@
       movement: { type: "stomper" },
       abilities: [
         { name: "Ground Pound", kind: "band", band: "ground", damage: 22, telegraphFrames: 26, activeFrames: 12, cdMin: 150, cdMax: 190 },
-        { name: "Boulder Throw", kind: "projectile", damage: 10, speed: 7, r: 7, color: COLORS.boulderFx, telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
+        { name: "Sonic Clap", kind: "projectile", damage: 10, speed: 7, r: 7, color: COLORS.sonicFx, style: "sonicClap", telegraphFrames: 20, activeFrames: 10, cdMin: 90, cdMax: 130 },
         { name: "Rage Charge", kind: "band", band: "ground", damage: 24, telegraphFrames: 34, activeFrames: 13, cdMin: 140, cdMax: 180, chargeForward: true, chargeDistance: 220 }
       ]
     },
@@ -198,17 +208,21 @@
   // own independent cooldown. 1/3/4/9 are "energy" damage (blockable by
   // Cap's Shield Charge / reflectable — 70% of the time — by his
   // Bounce Back, except Nova which pierces both); 8 is "physical"
-  // (never blocked/reflected). Mystic Shield (index 4) and Disruptor
-  // Beam (index 2) are both special, held-not-cast abilities — see
-  // updateShieldHold()/updateBeamCharge() and the Digit3/Digit5
-  // handling in initGame(). Their `cost` is energy drained per frame
-  // held, not a one-time price, and neither uses `cooldownFrames` as a
-  // post-cast lockout the normal way: holding Mystic Shield just costs
-  // energy the whole time (a quick tap gives a brief invuln window,
-  // "click to use" still technically working); Disruptor Beam instead
-  // diverts held energy into `beamCharge` and fires a `damagePerEnergy`
-  // scaled beam on release — hold longer (up to your whole bar) for a
-  // bigger blast, at the cost of standing still and exposed.
+  // (never blocked/reflected). Mystic Shield (index 4), Disruptor Beam
+  // (index 2), and Levitation Siphon (index 7) are all special,
+  // held-not-cast abilities — see updateShieldHold()/updateBeamCharge()/
+  // updateSiphonHold() and the Digit3/Digit5/Digit8 handling in
+  // initGame(). Their `cost` is energy drained per frame held, not a
+  // one-time price, and none uses `cooldownFrames` as a post-cast
+  // lockout the normal way: holding Mystic Shield just costs energy the
+  // whole time (a quick tap gives a brief invuln window, "click to use"
+  // still technically working); Disruptor Beam instead diverts held
+  // energy into `beamCharge` and fires a `damagePerEnergy` scaled beam
+  // on release — hold longer (up to your whole bar) for a bigger blast,
+  // at the cost of standing still and exposed. Levitation Siphon lifts
+  // the current enemy into the air for as long as it's held, draining
+  // `damagePerFrame` straight from its HP into Doom's every frame (a
+  // real life-steal grapple) while pausing the enemy's own attacks.
   const DOOM_ABILITIES = [
     { name: "Plasma Bolt", cost: 10, cooldownFrames: 18, damage: 9 },
     { name: "Self Repair", cost: 35, cooldownFrames: 200, healAmount: 45 },
@@ -216,8 +230,8 @@
     { name: "Doom Bolts", cost: 18, cooldownFrames: 50, damage: 11 },
     { name: "Mystic Shield", cost: 1.4, cooldownFrames: 0 },
     { name: "Teleport Slip", cost: 15, cooldownFrames: 60 },
-    { name: "Molecular Barrier", cost: 18, cooldownFrames: 70, blockReduction: 0.75, blockDurationFrames: 50 },
-    { name: "Levitation Burst", cost: 20, cooldownFrames: 80, damage: 24 },
+    { name: "Molecular Barrier", cost: 18, cooldownFrames: 70, blockReduction: 1, blockDurationFrames: 50 },
+    { name: "Levitation Siphon", cost: 1.0, cooldownFrames: 0, damagePerFrame: 0.8 },
     { name: "Hyperbolic Nova", cost: 50, cooldownFrames: 360, damage: 90 }
   ];
 
@@ -248,6 +262,7 @@
       blockFrames: 0,
       blockReduction: 0,
       beamCharge: 0,
+      siphoning: false,
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
@@ -356,6 +371,7 @@
     }
     updateShieldHold();
     updateBeamCharge();
+    updateSiphonHold();
   }
 
   // Mystic Shield (key 5) is held, not cast: as long as it's down and
@@ -390,6 +406,34 @@
       player.energy -= drain;
       player.beamCharge += drain;
     }
+  }
+
+  // Levitation Siphon (key 8) is held, not cast: while held and a fight
+  // is live, it eases the current enemy up into the air (siphonLift,
+  // applied in runMovement()) and drains damagePerFrame straight from
+  // its HP into Doom's every frame, at a per-frame energy cost — a real
+  // life-steal grapple rather than the old one-shot burst. Letting go
+  // (or running out of energy) eases the enemy back down where it left
+  // off; updateEnemy() pauses the enemy's own ability progression the
+  // whole time it's actively being drained, via player.siphoning.
+  function updateSiphonHold(){
+    const canSiphon = phase === "encounter" && enemy && enemy.hp > 0;
+    const def = DOOM_ABILITIES[7];
+    const holding = !!(keysDown.Digit8 && canSiphon && player.energy >= def.cost);
+    player.siphoning = holding;
+
+    if (enemy){
+      const target = holding ? 1 : 0;
+      enemy.siphonLift += (target - enemy.siphonLift) * SIPHON_LIFT_EASE;
+      if (Math.abs(enemy.siphonLift - target) < 0.01) enemy.siphonLift = target;
+    }
+
+    if (!holding) return;
+    player.energy -= def.cost;
+    const cx = enemy.x + enemy.w/2, cy = enemy.y + enemy.h/2;
+    applyDamageToEnemy(def.damagePerFrame, "physical", false);
+    player.hp = Math.min(PLAYER_MAX_HP, player.hp + def.damagePerFrame);
+    effects.push({ type: "spark", x: cx, y: cy, life: 8 });
   }
 
   function fireDisruptorBeam(){
@@ -475,21 +519,19 @@
       effects.push({ type: "teleport", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 16 });
     },
     function castMolecularBarrier(){
+      // Visual is a persistent pulsating radial glow drawn every frame in
+      // drawPlayer() (gated on player.blockFrames), not a one-shot effect,
+      // since it needs to follow Doom and keep pulsing for the whole
+      // duration rather than fade from a single fixed spot.
       const def = DOOM_ABILITIES[6];
       player.blockFrames = def.blockDurationFrames;
       player.blockReduction = def.blockReduction;
-      effects.push({ type: "block", x: player.x + PLAYER_W/2, y: playerCenterY(), life: def.blockDurationFrames });
     },
-    function castLevitationBurst(){
-      if (player.mode === "walking"){
-        player.mode = "flying";
-        player.y -= 10;
-      }
-      const cx = player.x + PLAYER_W/2;
-      effects.push({ type: "burst", x: cx, y: GROUND_Y, maxR: 170, life: 18, color: COLORS.levitation });
-      if (enemy && Math.abs((enemy.x + enemy.w/2) - cx) <= 170 && (enemy.y + enemy.h) > GROUND_Y - 60){
-        applyDamageToEnemy(DOOM_ABILITIES[7].damage, "physical", false);
-      }
+    function levitationSiphonSlotUnused(){
+      // Levitation Siphon is now a held grapple handled every frame by
+      // updateSiphonHold(), not a discrete cast — this slot is never
+      // invoked. It stays as a no-op purely to keep CAST_FNS positionally
+      // aligned with DOOM_ABILITIES by index.
     },
     function castHyperbolicNova(){
       effects.push({ type: "nova", x: player.x + PLAYER_W/2, y: playerCenterY(), life: 26 });
@@ -534,6 +576,8 @@
       x: ENEMY_X, y: baseY,
       w: def.w, h: def.h,
       baseX: ENEMY_X, baseY,
+      approachX: ENEMY_X, // melee fighters ease this toward Doom's x each frame — see runMovement()
+      siphonLift: 0, // 0..1, eased toward 1 while Levitation Siphon holds this enemy aloft
       hp: def.hp, maxHp: def.hp,
       movementT: 0,
       busy: false,
@@ -557,19 +601,35 @@
     const t = enemy.movementT;
     const type = enemy.def.movement.type;
     let x = enemy.baseX, y = enemy.baseY;
-    if (type === "lunger") x = enemy.baseX - 35 + 35 * Math.sin(t * 0.09); // fast, restless — always closing and darting back
+
+    if (type === "lunger" || type === "stomper" || type === "charger"){
+      // Melee fighters actively close the gap toward Doom's current
+      // position instead of orbiting a fixed spot near ENEMY_X, far to
+      // the right of the whole playable arena — otherwise their "melee"
+      // attacks fire from off in the distance and never read as a real
+      // threat up close. approachX eases toward a spot just in front of
+      // Doom; the existing sine wobble still rides on top for restlessness.
+      const desiredX = clamp(player.x + MELEE_FOLLOW_GAP, PLAYER_ARENA_MIN_X + 40, ENEMY_X);
+      const speed = MELEE_CHASE_SPEED[type];
+      if (enemy.approachX > desiredX) enemy.approachX = Math.max(desiredX, enemy.approachX - speed);
+      else if (enemy.approachX < desiredX) enemy.approachX = Math.min(desiredX, enemy.approachX + speed);
+
+      if (type === "lunger") x = enemy.approachX - 35 + 35 * Math.sin(t * 0.09);
+      else if (type === "stomper") x = enemy.approachX + 12 * Math.sin(t * 0.03); // a restless shuffle between charges, not a dead stop
+      else if (type === "charger") x = enemy.approachX + 25 * Math.sin(t * 0.045);
+    }
     else if (type === "hoverer"){ y = enemy.baseY - 30 + 20 * Math.sin(t * 0.04); x = enemy.baseX + 25 * Math.sin(t * 0.017); }
     else if (type === "strafer") x = enemy.baseX + 35 * Math.sin(t * 0.02);
-    else if (type === "charger") x = enemy.baseX + 25 * Math.sin(t * 0.045);
-    else if (type === "stomper") x = enemy.baseX + 12 * Math.sin(t * 0.03); // a restless shuffle between charges, not a dead stop
 
     for (let i = 0; i < enemy.def.abilities.length; i++){
       const def = enemy.def.abilities[i], st = enemy.abilityStates[i];
       if (def.chargeForward && st.phase === "active"){
         const progress = 1 - (st.timer / def.activeFrames);
-        x = enemy.baseX - (def.chargeDistance || 150) * Math.sin(progress * Math.PI);
+        x = enemy.approachX - (def.chargeDistance || 150) * Math.sin(progress * Math.PI);
       }
     }
+
+    y -= enemy.siphonLift * SIPHON_LIFT_HEIGHT;
     enemy.x = x; enemy.y = y;
   }
 
@@ -632,8 +692,8 @@
     const targetX = player.x + PLAYER_W/2, targetY = playerCenterY();
     const v = aimAt(originX, originY, targetX, targetY, def.speed);
     const p = { x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: def.damage, r: def.r || 6, color: def.color };
+    if (def.style) p.style = def.style;
     if (def.style === "shield"){
-      p.style = "shield";
       p.rimColor = enemy.def.colors.shieldRim;
       p.color = enemy.def.colors.shield;
       p.boomerang = true;
@@ -733,7 +793,11 @@
   function updateEnemy(){
     enemy.movementT++;
     runMovement();
-    for (let i = 0; i < enemy.def.abilities.length; i++) updateAbilityState(i);
+    // Paused mid-air while Levitation Siphon actively holds this enemy —
+    // helpless in the grip, not still attacking while dangling.
+    if (!player.siphoning){
+      for (let i = 0; i < enemy.def.abilities.length; i++) updateAbilityState(i);
+    }
   }
 
   function startEncounter(){
@@ -1030,9 +1094,17 @@
       ctx.stroke();
     }
     if (player.blockFrames > 0){
-      ctx.strokeStyle = COLORS.blockFx;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x - 6, y - 6, PLAYER_W + 12, h + 12);
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.35);
+      const cx = x + PLAYER_W/2, cy = y + h/2;
+      const r = Math.max(PLAYER_W, h) * (0.75 + pulse * 0.3);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(${COLORS.barrierGlow},${(0.5 + pulse * 0.3).toFixed(3)})`);
+      glow.addColorStop(0.65, `rgba(${COLORS.barrierGlow},${(0.25 + pulse * 0.15).toFixed(3)})`);
+      glow.addColorStop(1, `rgba(${COLORS.barrierGlow},0)`);
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -1191,6 +1263,23 @@
 
     ctx.restore();
 
+    // Same green radial glow Doom's own flight uses, applied to whichever
+    // enemy Levitation Siphon currently has lifted — grows in with siphonLift
+    // as it's eased up, rather than snapping on the instant the key is held.
+    if (enemy.siphonLift > 0.05){
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
+      const cx = x + w/2, cy = y + h/2;
+      const r = Math.max(4, Math.max(w, h) * (0.9 + pulse * 0.35) * enemy.siphonLift);
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+      glow.addColorStop(0, `rgba(${COLORS.siphonGlow},${(0.55 + pulse * 0.25) * enemy.siphonLift})`);
+      glow.addColorStop(0.6, `rgba(${COLORS.siphonGlow},${(0.28 + pulse * 0.15) * enemy.siphonLift})`);
+      glow.addColorStop(1, `rgba(${COLORS.siphonGlow},0)`);
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     const glowAlpha = enemyThreatGlowAlpha();
     if (glowAlpha > 0){
       const pulse = 0.6 + 0.4 * Math.sin(frame * 0.4);
@@ -1219,6 +1308,20 @@
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.65, 0, Math.PI * 2); ctx.fill();
+      } else if (p.style === "sonicClap"){
+        // A semicircular shockwave bulging in the direction of travel —
+        // a leading edge plus two fainter trailing rings — instead of a
+        // solid rock sprite, replacing Hulk's old Boulder Throw visual.
+        const angle = Math.atan2(p.vy, p.vx);
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2.5;
+        [0, 8, 16].forEach((offset, i) => {
+          ctx.globalAlpha = 0.6 - i * 0.18;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r + offset, angle - Math.PI/2, angle + Math.PI/2);
+          ctx.stroke();
+        });
+        ctx.globalAlpha = 1;
       } else {
         ctx.fillStyle = p.color;
         ctx.beginPath();
@@ -1230,8 +1333,8 @@
 
   function drawEffects(){
     effects.forEach(e => {
-      if (e.type === "burst" || e.type === "nova"){
-        const progress = 1 - (e.life / (e.type === "nova" ? 26 : 18));
+      if (e.type === "nova"){
+        const progress = 1 - (e.life / 26);
         const r = (e.maxR || 90) * progress;
         ctx.strokeStyle = e.color || COLORS.nova;
         ctx.lineWidth = 3;
@@ -1258,12 +1361,6 @@
         ctx.fillStyle = COLORS.healFx;
         ctx.fillRect(e.x - 2, e.y - 10, 4, 20);
         ctx.fillRect(e.x - 10, e.y - 2, 20, 4);
-        ctx.globalAlpha = 1;
-      } else if (e.type === "block"){
-        ctx.strokeStyle = COLORS.blockFx;
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = Math.min(1, e.life / 20);
-        ctx.strokeRect(e.x - 22, e.y - 26, 44, 52);
         ctx.globalAlpha = 1;
       } else if (e.type === "teleport"){
         ctx.fillStyle = COLORS.teleportFx;
@@ -1449,7 +1546,9 @@
       <p>Left/Right to move, Up to jump (or ascend while flying), Down to
       duck (or descend while flying), double-tap Space to toggle flying,
       number keys 1–9 for Doom's abilities — hold 5 for Mystic Shield,
-      hold 3 to charge Disruptor Beam (release to fire).</p>
+      hold 3 to charge Disruptor Beam (release to fire), hold 8 for
+      Levitation Siphon (lifts the enemy and drains its health into
+      yours the longer you hold it).</p>
       ${whoLine}
       ${best > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${best}</p>` : ""}
       <button type="button" class="btn" id="doom-play-btn">Play</button>
@@ -1651,11 +1750,11 @@
         if (n >= 1 && n <= 9){
           e.preventDefault();
           selectedAbilityIndex = n - 1;
-          if (n === 5 || n === 3){
-            // Held, not cast — updateShieldHold()/updateBeamCharge() do
-            // the actual work every frame these stay true. Not marked
-            // !e.repeat since a held key's repeated keydowns are exactly
-            // what keeps this true.
+          if (n === 5 || n === 3 || n === 8){
+            // Held, not cast — updateShieldHold()/updateBeamCharge()/
+            // updateSiphonHold() do the actual work every frame these
+            // stay true. Not marked !e.repeat since a held key's repeated
+            // keydowns are exactly what keeps this true.
             keysDown[e.code] = true;
           } else {
             tryCastAbility(n - 1);
@@ -1666,7 +1765,7 @@
 
     document.addEventListener("keyup", (e) => {
       if (document.activeElement !== canvas) return;
-      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Digit5"){
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Digit5" || e.code === "Digit8"){
         keysDown[e.code] = false;
       } else if (e.code === "Digit3"){
         keysDown.Digit3 = false;
