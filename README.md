@@ -418,7 +418,9 @@ and the world stops scrolling until you defeat them.
   of attacking with anything else. Hyperbolic Nova (key 9): holding it
   spends its whole cost and damage gradually instead of all at once — a
   green ring sweeps in around Doom for the first 60% of the charge, then
-  a star fills in at its center for the rest, and the instant it's fully
+  a five-point star outline traces itself in one continuous line at its
+  center for the rest — not a shape fading or scaling in, an actual
+  line drawing itself point to point — and the instant it's fully
   charged (no release needed) the ring flashes and a barrage of eight
   mystic meteors erupts from around it and converges on the enemy for
   90 total damage; letting go before that just lets the charge (and

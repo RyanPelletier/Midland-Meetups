@@ -1239,9 +1239,10 @@
     }
 
     // Hyperbolic Nova charging: a green ring sweeps in first (0 through
-    // NOVA_CIRCLE_PHASE of the charge), then a star fills in at its
-    // center for the rest — once full, novaFlashFrames keeps both pinned
-    // at 100% and pulsing for a few frames right as the meteors launch.
+    // NOVA_CIRCLE_PHASE of the charge), then a fixed-size star outline
+    // traces itself in one continuous line at its center for the rest —
+    // once full, novaFlashFrames keeps both pinned at 100% and pulsing
+    // for a few frames right as the meteors launch.
     if (player.novaCharge > 0.001 || player.novaFlashFrames > 0){
       const charge = player.novaFlashFrames > 0 ? 1 : player.novaCharge;
       const ncx = x + PLAYER_W/2, ncy = y + h/2;
@@ -1262,10 +1263,7 @@
       ctx.stroke();
 
       if (starProgress > 0.02){
-        ctx.globalAlpha = starProgress;
-        ctx.fillStyle = `rgba(${COLORS.novaGlow},1)`;
-        drawStar(ncx, ncy, R * (0.25 + starProgress * 0.4), R * (0.1 + starProgress * 0.16));
-        ctx.globalAlpha = 1;
+        drawStarOutline(ncx, ncy, R * 0.55, R * 0.22, starProgress);
       }
     }
   }
@@ -1281,6 +1279,35 @@
     }
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Traces the same 5-point star as drawStar(), but as an outline that
+  // draws itself in one continuous line — progress 0 is nothing, 1 is the
+  // fully closed outline — for Hyperbolic Nova's charge-up star instead
+  // of a filled shape fading/scaling in.
+  function drawStarOutline(cx, cy, outerR, innerR, progress){
+    const points = [];
+    for (let i = 0; i < 10; i++){
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (Math.PI / 5) * i - Math.PI / 2;
+      points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+    }
+    const segments = 10; // 10 points, closing the last segment back to point 0
+    const segPos = clamp(progress, 0, 1) * segments;
+    const fullSegs = Math.floor(segPos);
+    const partial = segPos - fullSegs;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i <= fullSegs; i++){
+      const p = points[i % segments];
+      ctx.lineTo(p.x, p.y);
+    }
+    if (partial > 0 && fullSegs < segments){
+      const from = points[fullSegs % segments], to = points[(fullSegs + 1) % segments];
+      ctx.lineTo(from.x + (to.x - from.x) * partial, from.y + (to.y - from.y) * partial);
+    }
+    ctx.stroke();
   }
 
   function enemyIsDucking(){
