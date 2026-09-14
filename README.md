@@ -369,20 +369,26 @@ and the world stops scrolling until you defeat them.
   biome's background).
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
   abilities you need — a quick poke (Plasma Bolt), a triple-shot
-  (Doom Bolts), defensive options (Mystic Shield, Teleport Slip,
-  Molecular Barrier), a self-heal (Self Repair), a life-steal grapple
-  (Levitation Siphon), and an ultimate (Hyperbolic Nova). Every ability
-  draws from a shared energy bar and has its own cooldown, shown on the
-  hotbar at the bottom of the canvas — the currently-selected ability
-  (whichever number you pressed last) is also called out in the
-  top-right corner and outlined on the hotbar. Plasma Bolt is
-  deliberately the weakest hit per energy spent (it was cheap enough to
-  win fights by itself just mashing 1) — it's there for quick chip
-  damage between other abilities, not as a whole strategy on its own.
-  Molecular Barrier now **fully blocks all incoming damage** for its
-  duration (previously a partial 75% reduction), shown as a pulsating
-  yellow radial glow around Doom instead of a static dotted outline.
-  **Three abilities are held, not cast.** Mystic Shield (key 5): holding
+  (Doom Bolts), defensive options (Mystic Shield, Molecular Barrier), a
+  utility counter (Projectile Reversal), a self-heal (Self Repair), a
+  life-steal grapple (Levitation Siphon), and an ultimate (Hyperbolic
+  Nova). Every ability draws from a shared energy bar and has its own
+  cooldown, shown on the hotbar at the bottom of the canvas — the
+  currently-selected ability (whichever number you pressed last) is
+  also called out in the top-right corner and outlined on the hotbar.
+  Plasma Bolt is deliberately the weakest hit per energy spent (it was
+  cheap enough to win fights by itself just mashing 1) — it's there for
+  quick chip damage between other abilities, not as a whole strategy on
+  its own. Molecular Barrier now **fully blocks all incoming damage**
+  for its duration (previously a partial 75% reduction), shown as a
+  pulsating yellow radial glow around Doom instead of a static dotted
+  outline. **Projectile Reversal** (key 6, replacing the old Teleport
+  Slip) grabs every enemy shot currently in the air — Repulsor Blasts,
+  Sonic Claps, Optic Blasts, Cap's thrown shield, whatever's live — and
+  relaunches each one at the enemy from wherever it currently is,
+  carrying its original damage; a shield grabbed mid-throw gets handed
+  straight back to Cap rather than leaving him without one.
+  **Four abilities are held, not cast.** Mystic Shield (key 5): holding
   it down drains energy every frame and keeps Doom invulnerable the
   whole time (the hotbar slot glows blue while active); a quick tap
   still grants a brief flicker of invulnerability since the same
@@ -401,11 +407,19 @@ and the world stops scrolling until you defeat them.
   the enemy's own attacks are paused the whole time it's lifted, so a
   long, committed hold both swings the fight's damage race and buys
   Doom a breather, at the cost of standing there channeling it instead
-  of attacking with anything else. Plasma Bolt, Doom Bolts, and
-  Disruptor Beam all aim at wherever the current fighter actually is
-  (including their altitude), and Disruptor Beam only ever draws as a
-  line from Doom to that fighter — never as a beam spanning the whole
-  screen behind him.
+  of attacking with anything else. Hyperbolic Nova (key 9): holding it
+  spends its whole cost and damage gradually instead of all at once — a
+  green ring sweeps in around Doom for the first 60% of the charge, then
+  a star fills in at its center for the rest, and the instant it's fully
+  charged (no release needed) the ring flashes and a barrage of eight
+  mystic meteors erupts from around it and converges on the enemy for
+  90 total damage; letting go before that just lets the charge (and
+  whatever energy was already spent) fade back down for nothing, the
+  same risk as walking away mid-charge on Disruptor Beam. Plasma Bolt,
+  Doom Bolts, and Disruptor Beam all aim at wherever the current fighter
+  actually is (including their altitude), and Disruptor Beam only ever
+  draws as a line from Doom to that fighter — never as a beam spanning
+  the whole screen behind him.
 - **The character library:** Wolverine, Iron Man, Hulk, Cyclops, and
   Captain America to start, each with a unique movement style and
   exactly three fight abilities (defined together as one `CHARACTERS`
