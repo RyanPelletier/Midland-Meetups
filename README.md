@@ -394,39 +394,50 @@ and the world stops scrolling until you defeat them.
   Sonic Claps, Optic Blasts, Cap's thrown shield, whatever's live — and
   relaunches each one at the enemy from wherever it currently is,
   carrying its original damage; a shield grabbed mid-throw gets handed
-  straight back to Cap rather than leaving him without one.
+  straight back to Cap rather than leaving him without one. It also
+  interrupts Missile Barrage or Crossfire if either is currently
+  telegraphing or active — those never spawn a real traveling shot (their
+  motion is a scripted visual, not an object in the air), so without this
+  they'd fly under Reversal's radar and connect anyway; catching one
+  cancels it and reflects its own damage back at whoever cast it.
   **Four abilities are held, not cast.** Mystic Shield (key 5): holding
   it down drains energy every frame and keeps Doom invulnerable the
-  whole time, shown as a pulsing yellow-green radial glow around him
-  (the hotbar slot pulses the same color while active); a quick tap
-  still grants a brief flicker of invulnerability since the same
-  per-frame check just runs for that one frame — this is the only way
-  to survive an unblockable attack. Disruptor Beam (key 3): holding it
-  diverts energy into the shot at 10/sec (the hotbar slot fills green
-  from the bottom as it charges) instead of spending a flat cost —
-  release to fire a beam whose damage scales with however much you
-  charged, up to your entire bar for a devastating full-charge blast;
-  standing still charging for that long is genuinely risky, so it's a
-  real trade-off against just poking with Plasma Bolt. Levitation
-  Siphon (key 8): holding it lifts the current enemy into the air —
-  the same pulsing green glow Doom's own flight uses, now wrapped
-  around whoever's being drained — and pulls damage straight out of its
-  HP into Doom's every frame the hold lasts, at a steady energy cost;
-  the enemy's own attacks are paused the whole time it's lifted, so a
-  long, committed hold both swings the fight's damage race and buys
-  Doom a breather, at the cost of standing there channeling it instead
-  of attacking with anything else. Hyperbolic Nova (key 9): holding it
-  spends its whole cost and damage gradually instead of all at once — a
-  green ring sweeps in around Doom for the first 60% of the charge, then
-  a five-point star outline traces itself in one continuous line at its
-  center for the rest — not a shape fading or scaling in, an actual
-  line drawing itself point to point — and the instant it's fully
-  charged (no release needed) the ring flashes and a barrage of eight
-  mystic meteors erupts from around it and converges on the enemy for
-  90 total damage; letting go before that just lets the charge (and
-  whatever energy was already spent) fade back down for nothing, the
-  same risk as walking away mid-charge on Disruptor Beam. Plasma Bolt,
-  Doom Bolts, and Disruptor Beam all aim at wherever the current fighter
+  whole time, shown as a pulsing yellow-green radial glow around him at
+  1.5x the size of Molecular Barrier's (the hotbar slot pulses the same
+  color while active) — its actual block radius is 1.5x bigger too, not
+  just the glow; a quick tap still grants a brief flicker of
+  invulnerability since the same per-frame check just runs for that one
+  frame — this is the only way to survive an unblockable attack.
+  Disruptor Beam (key 3): holding it diverts energy into the shot at
+  10/sec (the hotbar slot fills green from the bottom as it charges)
+  instead of spending a flat cost — release to fire a beam whose damage
+  scales with however much you charged, up to your entire bar for a
+  devastating full-charge blast; standing still charging for that long
+  is genuinely risky, so it's a real trade-off against just poking with
+  Plasma Bolt. Levitation Siphon (key 8): holding it lifts the current
+  enemy into the air — the same pulsing green glow Doom's own flight
+  uses, now wrapped around whoever's being drained — and pulls damage
+  straight out of its HP into Doom's every frame the hold lasts, at a
+  steady energy cost; the enemy's own attacks are paused the whole time
+  it's lifted, so a long, committed hold both swings the fight's damage
+  race and buys Doom a breather, at the cost of standing there
+  channeling it instead of attacking with anything else. Hyperbolic Nova
+  (key 9): holding it spends its whole cost and damage gradually instead
+  of all at once — a green ring sweeps in around Doom for the first 60%
+  of the charge, then a five-point star outline traces itself in one
+  continuous line at its center for the rest — not a shape fading or
+  scaling in, an actual line drawing itself point to point — and the
+  instant it's fully charged (no release needed) the ring flashes and
+  eight mystic meteors launch, one every few frames rather than all at
+  once, cycling through blue/yellow/red/purple (two of each): each gets
+  its own launch flash — a radial burst twice the size of Doom's flying
+  glow, in that meteor's color — as it fires, then detonates in a matching
+  colored explosion on impact, the same fiery-burst shape Missile Barrage
+  uses just recolored per meteor. 90 total damage split across all eight;
+  letting go before the charge completes just lets it (and whatever
+  energy was already spent) fade back down for nothing, the same risk as
+  walking away mid-charge on Disruptor Beam. Plasma Bolt, Doom Bolts, and
+  Disruptor Beam all aim at wherever the current fighter
   actually is (including their altitude), and Disruptor Beam only ever
   draws as a line from Doom to that fighter — never as a beam spanning
   the whole screen behind him.
