@@ -334,19 +334,31 @@ and the world stops scrolling until you defeat them.
 
 - **Move and dodge:** Left/Right to move, Up to jump (or ascend while
   flying), Down to duck (or descend while flying), **double-tap Space**
-  to toggle between walking and flying. Dodging is a vertical problem.
-  Melee-range enemy attacks are telegraphed horizontal danger bands
-  (a highlighted strip before it turns dangerous) at one of two
-  heights: **ground-level** (a sweep or charge — only jumping or
-  flying clears it, ducking doesn't help since your feet are still on
-  the floor) or **head-level** (a swing at standing height — ducking
-  drops you clean under it). Ranged enemy attacks (Iron Man's
+  to toggle between walking and flying. There's no screen-spanning
+  danger-band overlay — instead, whoever's about to attack you gets a
+  pulsing red glow that brightens as their wind-up completes (a
+  generalized version of "a pulsing red light for Cyclops"), plus a
+  pose change for close-range attacks: they visibly crouch for a
+  ground-level sweep/charge (jump or fly to clear it — ducking doesn't
+  help, your feet are still on the floor) or rear back for a
+  head-level swing (duck drops you clean under it; ground and head are
+  the two melee heights in the game). Ranged shots (Iron Man's
   Repulsor Blast, Hulk's Boulder Throw, Cyclops' Optic Blast, Cap's
-  thrown shield) are real traveling shots aimed at wherever Doom
+  thrown shield) are real traveling projectiles aimed at wherever Doom
   actually is — including his altitude — the instant they fire; since
   they don't home in after that, Doom dodges by no longer being there
-  when the shot arrives (drop out of the sky, change altitude, move).
-  While flying, a pulsing green glow replaces Doom's usual cape.
+  when the shot arrives. A handful of signature attacks are
+  **unblockable** instead of dodgeable by position at all — Cyclops's
+  twin-beam **Crossfire** (two beams sweep in from ±70° and converge
+  exactly on Doom) and Iron Man's **Missile Barrage** (a swarm of tiny
+  rockets spreads out, then homes in on him) always connect unless
+  Doom is actively shielded the instant they land — no amount of
+  flying or ducking avoids these, only timing a block does. While
+  flying, a pulsing green glow replaces Doom's usual cape, and every
+  character now casts a ground shadow that shrinks and fades with
+  altitude for a cheap sense of depth (along with a second, fainter,
+  slower-scrolling silhouette layer behind the existing one in each
+  biome's background).
 - **Fight back:** number keys 1–9 fire whichever of Doom's nine
   abilities you need — quick pokes (Plasma Bolt, Doom Bolts), a heavy
   beam (Disruptor Beam), defensive options (Mystic Shield, Teleport
@@ -356,6 +368,12 @@ and the world stops scrolling until you defeat them.
   cooldown, shown on the hotbar at the bottom of the canvas — the
   currently-selected ability (whichever number you pressed last) is
   also called out in the top-right corner and outlined on the hotbar.
+  **Mystic Shield (key 5) works differently from the rest: it's held,
+  not cast.** Holding it down drains energy every frame it's held and
+  keeps Doom invulnerable the whole time (the hotbar slot glows blue
+  while active); a quick tap still grants a brief flicker of
+  invulnerability since the same per-frame check just runs for that
+  one frame — this is the only way to survive an unblockable attack.
   Plasma Bolt, Doom Bolts, and Disruptor Beam all aim at wherever the
   current fighter actually is (including their altitude), and
   Disruptor Beam only ever draws as a line from Doom to that fighter —
@@ -364,22 +382,22 @@ and the world stops scrolling until you defeat them.
   Captain America to start, each with a unique movement style and
   exactly three fight abilities (defined together as one `CHARACTERS`
   entry near the top of `doom.js`). Adding the next Marvel character
-  later is just one more entry in that table — the fight engine itself
-  (telegraph → active → cooldown, danger bands, gap-picks, pincers,
-  self-buffs, reflects) is generic and doesn't need touching. Captain
-  America's shield is his signature move: **Shield Throw** is a real
-  projectile (drawn larger than the other characters' shots) that, if
-  it misses, curves back and returns to him rather than flying off —
-  the shield on his own sprite disappears the instant he throws it and
-  reappears only once it's back in hand, so there's never two visible
-  at once; his **Bounce Back** (previously "Vibranium Block") only
-  reflects Doom's projectile-based hits back at him 70% of the time —
-  the other 30% it just takes the hit — instead of blocking every
-  time. The close-range fighters (Wolverine's claws and lunge, Hulk's
-  ground pound and rage charge, Cap's shield charge) hit noticeably
-  harder than the ranged pokes and dash a real distance when they
-  charge — melee is meant to feel dangerous up close, not just
-  attrition-y at range.
+  later is just one more entry in that table — the fight engine's
+  ability kinds (band, projectile, unblockable, buff, reflectBuff) are
+  generic and don't need touching. Captain America's shield is his
+  signature move: **Shield Throw** is a real projectile (drawn larger
+  than the other characters' shots) that, if it misses, curves back
+  and returns to him rather than flying off — the shield on his own
+  sprite disappears the instant he throws it and reappears only once
+  it's back in hand, so there's never two visible at once; his
+  **Bounce Back** (previously "Vibranium Block") only reflects Doom's
+  projectile-based hits back at him 70% of the time — the other 30%
+  it just takes the hit — instead of blocking every time. The
+  close-range fighters (Wolverine's claws and lunge, Hulk's ground
+  pound and rage charge, Cap's shield charge) hit noticeably harder
+  than the ranged pokes, move faster between attacks, and dash a real
+  distance when they charge — melee is meant to feel dangerous up
+  close, not just attrition-y at range.
 
 If the canvas ever appears to freeze mid-game, it isn't silent: `loop()`
 wraps each frame's `update()`/`draw()` in a try/catch that logs any
