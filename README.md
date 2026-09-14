@@ -19,9 +19,9 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
   (the database)         (the API in between)          (what people see/use)
 ```
 
-- **The Sheet** has seven tabs: `Events`, `Memories`, `RSVPs`, `Squad`,
-  `Chat`, `Scores`, `WalterProgress`. You can look at and hand-edit any
-  of it any time.
+- **The Sheet** has eight tabs: `Events`, `Memories`, `RSVPs`, `Squad`,
+  `Chat`, `Scores`, `WalterProgress`, `DoomScores`. You can look at and
+  hand-edit any of it any time.
 - **The Apps Script** (`apps-script/Code.gs`) is code that lives *inside*
   that Sheet (via Extensions → Apps Script) and exposes it to the website
   through a URL. It also emails you when something needs review, and
@@ -45,10 +45,10 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
    **Go to [project name] (unsafe)**, then **Allow**. (This warning shows
    up for any script you write yourself — it's just Google being cautious
    about scripts that touch your Sheets, Drive, and Gmail.)
-7. Go back to the Sheet tab — you should now see seven tabs at the bottom:
+7. Go back to the Sheet tab — you should now see eight tabs at the bottom:
    `Events`, `Memories`, `RSVPs`, `Squad`, `Chat`, `Scores`,
-   `WalterProgress`, with headers and a couple of sample rows marked
-   "(sample — delete me)".
+   `WalterProgress`, `DoomScores`, with headers and a couple of sample rows
+   marked "(sample — delete me)".
 8. Back in the Apps Script editor: **Deploy → New deployment**.
 9. Click the gear icon next to "Select type" and choose **Web app**.
 10. Set **Execute as** to "Me" and **Who has access** to **"Anyone"** —
@@ -96,14 +96,20 @@ and the site is deployed (see below), it should be pulling live data.
 - **RSVPs tab:** one row per person per event — fills in automatically as
   people RSVP on the site. You generally won't need to touch it.
 - **Scores tab:** columns are `id`, `name`, `score`, `timestamp` — powers
-  the Wizards &amp; Waffles leaderboard. Only each person's *best* score is kept
-  (one row per name); a new run only overwrites their row if it beats
-  their previous best. No approval step, same reasoning as Chat.
+  the Wizards &amp; Waffles column of the shared leaderboard. Only each
+  person's *best* score is kept (one row per name); a new run only
+  overwrites their row if it beats their previous best. No approval step,
+  no login — anyone can save a score under any name, same as always.
 - **WalterProgress tab:** columns are `name`, `password`, `progress`,
   `updatedAt` — powers Walter vs. Wizards' save system (see below).
-- **Doom Scroller** doesn't use the Sheet at all — its best score is kept
-  in `localStorage` only, same as Wizards &amp; Waffles' local-best fallback.
-  Nothing to set up here; see its own section below.
+- **DoomScores tab:** columns are `name`, `password`, `bestScore`,
+  `updatedAt` — same name+password login pattern as `WalterProgress`, but
+  just tracking one number (Doom's best score) instead of a full save. One
+  row per name; a new run only overwrites `bestScore` if it beats the
+  previous one. Powers Doom Scroller's login and the shared leaderboard's
+  "Doom" column (see below). Playing as a guest skips this tab entirely —
+  guest scores stay in `localStorage` only, same as before this feature
+  existed.
 - **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
   post immediately with no approval step (a review queue would defeat the
   point of a live chat). The page polls for new messages every 8 seconds.
@@ -416,10 +422,112 @@ or `draw() threw`) and keeps the animation loop alive rather than
 letting one bad frame kill it outright. If that ever fires, whatever's
 in the console names the exact line to fix.
 
-**Doom Scroller doesn't touch the Sheet or the Apps Script at all** —
-its best score lives in `localStorage` only, the same fallback Wizards
-&amp; Waffles uses before a Sheet is connected. There's no shared
-leaderboard for it yet (same "later" status Walter's leaderboard has).
+**Doom Scroller now has a login**, the same lightweight name+password
+pattern as And So I Wander: the first thing you see is a login screen,
+typing a brand-new name creates a fresh save under that name with
+whatever password you typed, and an existing name requires the matching
+password (so no one else can overwrite your score by reusing your name).
+There's also a **"Play without saving"** guest link for anyone who just
+wants to try the game once — a guest's score stays in `localStorage` only,
+exactly like Doom Scroller's original local-best fallback, and never
+touches the Sheet or the leaderboard.
+
+Logged-in scores auto-save the instant a run beats your previous best —
+there's no separate "save" button to click, since your identity is
+already established by the login. That best score also feeds the shared
+leaderboard at the top of this page (see `renderLeaderboard()` in
+`app.js`), which now shows one row per player with both games' high
+scores side by side — a name that's only played one of the two games
+just shows "—" in the other column.
+
+**This needs a small Apps Script addition to work** — see "Apps Script
+setup for Doom Scroller's login" right below. Until that's added to your
+live deployment, the login screen will show a "couldn't reach the server"
+error; nothing on the rest of the site breaks.
+
+### Apps Script setup for Doom Scroller's login
+
+Since `Code.gs` lives in your Sheet's Apps Script editor, not on GitHub
+(see "Putting the website on GitHub Pages" below), this repo can't ship
+the backend half of this feature for you — you'll need to add it to your
+own script once. Open **Extensions → Apps Script** on your Sheet and:
+
+1. Add a new tab to the Sheet named exactly `DoomScores`, with a header
+   row: `name`, `password`, `bestScore`, `updatedAt` (same shape as
+   `WalterProgress`, minus the `progress` column).
+2. Paste these three functions into `Code.gs` anywhere at the top level:
+
+```js
+function getDoomScoresSheet_(){
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DoomScores");
+  if (!sheet) throw new Error("DoomScores tab not found — create it with headers: name, password, bestScore, updatedAt");
+  return sheet;
+}
+
+function getDoomScores(){
+  const sheet = getDoomScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < rows.length; i++){
+    const name = rows[i][0], bestScore = rows[i][2];
+    if (!name) continue;
+    out.push({ name: String(name), score: Number(bestScore) || 0 });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
+function doomLogin(name, password){
+  name = String(name || "").trim();
+  password = String(password || "");
+  if (!name || !password) return { success: false, error: "Enter both a name and a password." };
+
+  const sheet = getDoomScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()){
+      if (String(rows[i][1]) !== password) return { success: false, error: "Wrong password for that name." };
+      return { success: true, bestScore: Number(rows[i][2]) || 0 };
+    }
+  }
+  sheet.appendRow([name, password, 0, new Date().toISOString()]); // brand-new name — fresh save
+  return { success: true, bestScore: 0 };
+}
+
+function doomSaveScore(name, password, score){
+  name = String(name || "").trim();
+  password = String(password || "");
+  score = Number(score) || 0;
+
+  const sheet = getDoomScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()){
+      if (String(rows[i][1]) !== password) return { success: false, error: "Wrong password for that name." };
+      const currentBest = Number(rows[i][2]) || 0;
+      if (score <= currentBest) return { success: true, bestScore: currentBest };
+      sheet.getRange(i + 1, 3).setValue(score);
+      sheet.getRange(i + 1, 4).setValue(new Date().toISOString());
+      return { success: true, bestScore: score };
+    }
+  }
+  return { success: false, error: "Not logged in — log in first." };
+}
+```
+
+3. Wire those three into your existing `doGet`/`doPost` action dispatcher
+   (the same `if`/`switch` that already handles `getScores`,
+   `walterLogin`, etc.) — add cases for `getDoomScores` (GET), `doomLogin`
+   (POST, needs `name` + `password`), and `doomSaveScore` (POST, needs
+   `name` + `password` + `score`), each returning that function's result
+   wrapped in whatever response helper your other actions already use.
+   The exact wiring depends on how your dispatcher is written, since only
+   the Sheet-side of this script is yours to edit here — the website side
+   (`doom.js`, `app.js`) already calls these three action names and
+   expects exactly the shapes above.
+4. **Deploy → Manage deployments → pencil icon → New version → Deploy**
+   so the live URL picks up the change (same step as any other script
+   edit — see Part 1 above).
 
 **A technical note for future changes:** since three games now share
 one page, `game.js`, `walter.js`, and `doom.js` each check that their

@@ -227,6 +227,11 @@
   let phase, victoryTimer, lastDefeatedName, lastScoreBonus;
   let score, frame, running, over, started, animId;
   let lastSpaceTapFrame, selectedAbilityIndex;
+  // Login state (mirrors And So I Wander's name+password pattern) — kept
+  // in memory only, never written to localStorage, so it clears on reload
+  // same as Walter's. doomGuestMode plays exactly like before this
+  // feature existed (localStorage-only best score, never touches the Sheet).
+  let doomName, doomPassword, doomGuestMode, doomBestScore, doomLoginComplete;
   const keysDown = {};
 
   function resetState(){
@@ -1423,9 +1428,16 @@
     overlay.style.display = "none";
   }
 
+  function currentBestDisplay(){
+    return doomGuestMode ? getLocalBest() : (doomBestScore || 0);
+  }
+
   function showStartOverlay(){
     overlay.style.display = "flex";
-    const localBest = getLocalBest();
+    const best = currentBestDisplay();
+    const whoLine = doomGuestMode
+      ? `<p style="font-size:0.78rem;opacity:0.7;">Playing as guest — this score stays on this device only.</p>`
+      : `<p style="font-size:0.78rem;opacity:0.7;">Logged in as ${escapeHTML(doomName)}.</p>`;
     overlayInner.innerHTML = `
       <h3>Doom Scroller</h3>
       <p>Play as Dr. Doom, scrolling right through Latveria, Manhattan, the
@@ -1438,25 +1450,157 @@
       duck (or descend while flying), double-tap Space to toggle flying,
       number keys 1–9 for Doom's abilities — hold 5 for Mystic Shield,
       hold 3 to charge Disruptor Beam (release to fire).</p>
-      ${localBest > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${localBest}</p>` : ""}
+      ${whoLine}
+      ${best > 0 ? `<p style="font-size:0.82rem;opacity:0.85;">Your best so far: ${best}</p>` : ""}
       <button type="button" class="btn" id="doom-play-btn">Play</button>
     `;
     document.getElementById("doom-play-btn").addEventListener("click", startGame);
   }
 
+  async function saveDoomScoreIfBest(finalScore){
+    // Guest / not configured: same localStorage-only fallback Doom Scroller
+    // has always used — never touches the Sheet.
+    if (doomGuestMode || !isConfigured()){
+      return { isNewBest: setLocalBestIfHigher(finalScore), saved: false, pending: false };
+    }
+    if (finalScore <= (doomBestScore || 0)){
+      return { isNewBest: false, saved: false, pending: false };
+    }
+    try{
+      const res = await apiPost({ action: "doomSaveScore", name: doomName, password: doomPassword, score: finalScore });
+      if (res && res.success){
+        doomBestScore = Number(res.bestScore) || finalScore;
+        if (typeof renderLeaderboard === "function") renderLeaderboard();
+        return { isNewBest: true, saved: true, pending: false };
+      }
+      console.error("[Doom Scroller] doomSaveScore rejected:", res && res.error);
+      return { isNewBest: true, saved: false, pending: false };
+    }catch(err){
+      console.error("[Doom Scroller] couldn't save score to the Sheet:", err);
+      return { isNewBest: true, saved: false, pending: false };
+    }
+  }
+
   function showGameOverOverlay(){
     const finalScore = Math.floor(score);
-    const isNewLocalBest = setLocalBestIfHigher(finalScore);
-    const localBest = getLocalBest();
 
     overlay.style.display = "flex";
     overlayInner.innerHTML = `
       <h3>Doom Falls</h3>
-      <p>Score: ${finalScore}${isNewLocalBest ? " — new personal best!" : ""}</p>
-      <p style="font-size:0.78rem;opacity:0.8;margin-top:-10px;">Your best: ${localBest}</p>
+      <p>Score: ${finalScore}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-10px;" id="doom-best-line">Your best: ${currentBestDisplay()}</p>
+      <p class="form-note" id="doom-save-status"></p>
       <button type="button" class="btn" id="doom-again-btn">Play Again</button>
     `;
     document.getElementById("doom-again-btn").addEventListener("click", startGame);
+
+    const statusEl = document.getElementById("doom-save-status");
+    const bestLineEl = document.getElementById("doom-best-line");
+    if (!doomGuestMode && isConfigured() && finalScore > (doomBestScore || 0)){
+      statusEl.textContent = "Saving new best…";
+    }
+    saveDoomScoreIfBest(finalScore).then((result) => {
+      if (bestLineEl) bestLineEl.textContent = "Your best: " + currentBestDisplay();
+      if (!statusEl) return;
+      if (result.saved){
+        statusEl.textContent = "New best saved!";
+        statusEl.style.color = "var(--green)";
+      }else if (result.isNewBest && !doomGuestMode && isConfigured()){
+        statusEl.textContent = "New best, but couldn't save it to the leaderboard — check your connection.";
+        statusEl.style.color = "var(--red)";
+      }else if (result.isNewBest){
+        statusEl.textContent = "New personal best!";
+        statusEl.style.color = "var(--green)";
+      }else{
+        statusEl.textContent = "";
+      }
+    });
+  }
+
+  /* ---------------- login ---------------- */
+  function showLoginOverlay(){
+    overlay.style.display = "flex";
+    overlayInner.innerHTML = `
+      <h3>Doom Scroller</h3>
+      <p>Log in with a name and password to save your high score across
+      sessions and see it on the leaderboard above. First time using a
+      name creates a fresh save automatically — just remember the
+      password.</p>
+      <div class="form-row"><input type="text" id="doom-login-name" placeholder="Name" maxlength="40"></div>
+      <div class="form-row"><input type="password" id="doom-login-password" placeholder="Password" maxlength="40"></div>
+      <button type="button" class="btn" id="doom-login-btn">Log In &amp; Play</button>
+      <p class="form-note" id="doom-login-status"></p>
+      <p class="form-note" style="margin-top:6px;"><a href="#" id="doom-guest-link" style="color:inherit;text-decoration:underline;">Play without saving</a></p>
+    `;
+
+    if (typeof getStoredName === "function"){
+      const stored = getStoredName();
+      if (stored) document.getElementById("doom-login-name").value = stored;
+    }
+
+    document.getElementById("doom-login-btn").addEventListener("click", attemptDoomLogin);
+    document.getElementById("doom-guest-link").addEventListener("click", (e) => {
+      e.preventDefault();
+      doomGuestMode = true;
+      doomName = null;
+      doomPassword = null;
+      doomBestScore = 0;
+      doomLoginComplete = true;
+      showStartOverlay();
+    });
+  }
+
+  async function attemptDoomLogin(){
+    const nameInput = document.getElementById("doom-login-name");
+    const passwordInput = document.getElementById("doom-login-password");
+    const statusEl = document.getElementById("doom-login-status");
+    const name = nameInput.value.trim();
+    const password = passwordInput.value;
+
+    if (!name || !password){
+      statusEl.textContent = "Enter both a name and a password.";
+      statusEl.style.color = "var(--red)";
+      return;
+    }
+
+    if (!isConfigured()){
+      statusEl.textContent = "Not connected to a Google Sheet yet — see config.js. Playing without saving.";
+      statusEl.style.color = "var(--red)";
+      doomGuestMode = true;
+      doomName = null;
+      doomPassword = null;
+      doomBestScore = 0;
+      doomLoginComplete = true;
+      setTimeout(showStartOverlay, 1200);
+      return;
+    }
+
+    const btn = document.getElementById("doom-login-btn");
+    btn.disabled = true;
+    statusEl.textContent = "Logging in…";
+    statusEl.style.color = "var(--muted)";
+
+    try{
+      const res = await apiPost({ action: "doomLogin", name, password });
+      if (!res.success){
+        statusEl.textContent = res.error || "Couldn't log in — try again.";
+        statusEl.style.color = "var(--red)";
+        btn.disabled = false;
+        return;
+      }
+      doomGuestMode = false;
+      doomName = name;
+      doomPassword = password;
+      doomBestScore = Number(res.bestScore) || 0;
+      if (typeof setStoredName === "function") setStoredName(name);
+      doomLoginComplete = true;
+      showStartOverlay();
+    }catch(err){
+      console.error("[Doom Scroller] login failed", err);
+      statusEl.textContent = "Couldn't reach the server — check your connection and try again.";
+      statusEl.style.color = "var(--red)";
+      btn.disabled = false;
+    }
   }
 
   /* ---------------- input ---------------- */
@@ -1469,8 +1613,9 @@
 
     ctx = canvas.getContext("2d");
     resetState();
+    doomLoginComplete = false;
     draw();
-    showStartOverlay();
+    showLoginOverlay();
 
     canvas.addEventListener("click", () => canvas.focus());
     canvas.addEventListener("blur", () => { for (const k in keysDown) delete keysDown[k]; });
@@ -1479,6 +1624,7 @@
       if (document.activeElement !== canvas) return; // don't steal input meant for the other games on this page
 
       if (!started || over){
+        if (!doomLoginComplete) return; // still on the login screen — its own button handles input
         if (e.code.startsWith("Digit") || e.code === "ArrowUp" || e.code === "Space"){
           e.preventDefault();
           startGame();

@@ -199,6 +199,66 @@ const ICONS = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg>'
 };
 
+/* ---------------- Shared leaderboard (game.html) ---------------- */
+// Merges Wizards & Waffles' scores (getScores) with Doom Scroller's
+// (getDoomScores) into one list, one row per player name, so a name that's
+// played both games shows both high scores side by side. Both games call
+// this again after a successful score save; it also self-refreshes on a
+// timer so scores saved by other people show up without a manual reload.
+async function renderLeaderboard(){
+  const list = document.getElementById("leaderboard-list");
+  if (!list) return;
+
+  if (!isConfigured()){
+    list.innerHTML = configNotice("Install the backend");
+    return;
+  }
+
+  let wwScores, doomScores;
+  try{
+    const results = await Promise.all([
+      apiGet("getScores"),
+      apiGet("getDoomScores").catch(() => []) // older backends without this action yet shouldn't blank the whole board
+    ]);
+    wwScores = results[0];
+    doomScores = results[1];
+  }catch(err){
+    console.error(err);
+    list.innerHTML = loadErrorNotice();
+    return;
+  }
+
+  const byName = new Map(); // lowercase, trimmed name -> { name, ww, doom }
+  function upsert(rawName, field, rawScore){
+    const key = String(rawName).toLowerCase().trim();
+    if (!key) return;
+    if (!byName.has(key)) byName.set(key, { name: rawName, ww: null, doom: null });
+    byName.get(key)[field] = Math.floor(Number(rawScore));
+  }
+  (wwScores || []).forEach(s => upsert(s.name, "ww", s.score));
+  (doomScores || []).forEach(s => upsert(s.name, "doom", s.score));
+
+  const rows = Array.from(byName.values())
+    .sort((a, b) => Math.max(b.ww || 0, b.doom || 0) - Math.max(a.ww || 0, a.doom || 0))
+    .slice(0, 20);
+
+  if (rows.length === 0){
+    list.innerHTML = '<li class="empty-note">No scores yet — be the first!</li>';
+    return;
+  }
+
+  list.innerHTML = rows.map((r, i) => `
+    <li>
+      <span class="leaderboard-rank">${i + 1}</span>
+      <span class="leaderboard-name">${escapeHTML(r.name)}</span>
+      <span class="leaderboard-scores">
+        <span class="leaderboard-score" title="Wizards &amp; Waffles">${r.ww != null ? r.ww : "—"}</span>
+        <span class="leaderboard-score leaderboard-score-doom" title="Doom Scroller">${r.doom != null ? r.doom : "—"}</span>
+      </span>
+    </li>
+  `).join("");
+}
+
 function configNotice(where){
   return `<div class="empty-note">This page hasn't been connected to your Google Sheet yet.
     Open <code>config.js</code> and paste in your deployed Apps Script Web App URL.
@@ -981,4 +1041,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initSubmitForm();
   initMemoryForm();
   initSquadForm();
+  renderLeaderboard();
+  setInterval(renderLeaderboard, 20000);
 });
