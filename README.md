@@ -355,7 +355,11 @@ and the world stops scrolling until you defeat them.
   Blast, Cap's thrown shield) are real traveling projectiles aimed at
   wherever Doom actually is — including his altitude — the instant they
   fire; since they don't home in after that, Doom dodges by no longer
-  being there when the shot arrives. A handful of signature attacks are
+  being there when the shot arrives. If Mystic Shield or Molecular
+  Barrier is up when one arrives, it stops right at the glow's edge with
+  a small deflection spark instead of flying in to visually overlap his
+  body — the block/invulnerability rules are unchanged, only how far the
+  shot actually travels before it's stopped. A handful of signature attacks are
   **unblockable** instead of dodgeable by position at all — Cyclops's
   twin-beam **Crossfire** (two beams sweep in from ±70° and converge
   exactly on Doom) and Iron Man's **Missile Barrage** (a swarm of tiny

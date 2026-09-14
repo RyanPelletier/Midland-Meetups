@@ -53,6 +53,12 @@
   const SIPHON_LIFT_HEIGHT = 90;
   const SIPHON_LIFT_EASE = 0.06;
 
+  // How far out a shield (Mystic Shield or Molecular Barrier) stops an
+  // incoming projectile — roughly the middle of the two glows' actual
+  // render radii, so a blocked shot reads as hitting the glow's edge
+  // rather than punching through to Doom's body. See playerShieldRadius().
+  const SHIELD_HIT_RADIUS_MULT = 0.85;
+
   // Hyperbolic Nova (held) charge timing/visuals — see updateNovaCharge().
   const NOVA_CHARGE_FRAMES = 100; // ~1.7s held to fully charge
   const NOVA_CHARGE_DECAY = 0.035; // per-frame charge lost once released early
@@ -354,6 +360,15 @@
   function playerOverlapsBand(band){
     const top = playerTop(), bot = top + playerHeight();
     return top < band.max && bot > band.min;
+  }
+  // Non-zero whenever Mystic Shield or Molecular Barrier is currently up
+  // — used by updateEnemyProjectiles() to stop a shot at the shield's
+  // edge instead of letting it travel in to overlap Doom's actual body.
+  function playerShieldRadius(){
+    if (player.invulnFrames > 0 || player.blockFrames > 0){
+      return Math.max(PLAYER_W, playerHeight()) * SHIELD_HIT_RADIUS_MULT;
+    }
+    return 0;
   }
 
   /* ---------------- player ---------------- */
@@ -813,10 +828,24 @@
       if (p.returning && enemy && Math.hypot((enemy.x + enemy.w/2) - p.x, (enemy.y + enemy.h/2) - p.y) < 18) return releaseShield(); // caught
       if (p.x < -50 || p.x > CANVAS_W + 50 || p.y < -50 || p.y > CANVAS_H + 50) return releaseShield();
       if (!p.returning){
-        const top = playerTop(), height = playerHeight();
-        if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
-          applyDamageToPlayer(p.dmg);
-          return releaseShield();
+        const shieldR = playerShieldRadius();
+        if (shieldR > 0){
+          // Shielded: stop at the glow's edge rather than letting it fly
+          // in to visually overlap Doom's body — applyDamageToPlayer
+          // still runs so the exact same block/invuln rules apply, it's
+          // only the travel distance that changes.
+          const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+          if (Math.hypot(p.x - cx, p.y - cy) <= shieldR + p.r){
+            effects.push({ type: "clang", x: p.x, y: p.y, life: 10 });
+            applyDamageToPlayer(p.dmg);
+            return releaseShield();
+          }
+        } else {
+          const top = playerTop(), height = playerHeight();
+          if (rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, player.x, top, PLAYER_W, height)){
+            applyDamageToPlayer(p.dmg);
+            return releaseShield();
+          }
         }
       }
       return true;
