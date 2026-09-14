@@ -597,38 +597,10 @@
     document.getElementById("game-again-btn").addEventListener("click", startGame);
   }
 
-  /* ---------------- leaderboard ---------------- */
-  async function renderLeaderboard(){
-    const list = document.getElementById("leaderboard-list");
-    if (!list) return;
-
-    if (!isConfigured()){
-      list.innerHTML = configNotice("Install the backend");
-      return;
-    }
-
-    let scores;
-    try{
-      scores = await apiGet("getScores");
-    }catch(err){
-      console.error(err);
-      list.innerHTML = loadErrorNotice();
-      return;
-    }
-
-    if (scores.length === 0){
-      list.innerHTML = '<li class="empty-note">No scores yet — be the first!</li>';
-      return;
-    }
-
-    list.innerHTML = scores.map((s, i) => `
-      <li>
-        <span class="leaderboard-rank">${i + 1}</span>
-        <span class="leaderboard-name">${escapeHTML(s.name)}</span>
-        <span class="leaderboard-score">${Math.floor(Number(s.score))}</span>
-      </li>
-    `).join("");
-  }
+  // Leaderboard rendering (renderLeaderboard) now lives in app.js, since it
+  // merges Wizards & Waffles' scores with Doom Scroller's onto one shared
+  // list (see game.html's #leaderboard-list) — both games just call it
+  // after a successful score save.
 
   /* ---------------- input ---------------- */
   function handlePointer(clientX){
@@ -670,8 +642,6 @@
       }
     });
 
-    renderLeaderboard();
-    setInterval(renderLeaderboard, 20000);
   }
 
   document.addEventListener("DOMContentLoaded", initGame);
