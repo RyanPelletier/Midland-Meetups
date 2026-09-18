@@ -77,6 +77,7 @@
   const MOTORCYCLE_DURATION_FRAMES = 10 * 60; // 10 seconds @ ~60fps, invincible
   const JETPACK_DURATION_FRAMES = 8 * 60;     // 8 seconds, hover + throw muffins
   const JETPACK_HOVER_OFFSET = 60;            // how high above ground while hovering
+  const JETPACK_LANDING_INVULN_FRAMES = 60;   // ~1s grace period once the jetpack wears off — otherwise scrolling back down into a ground-level obstacle right as it ends is an unavoidable cheap death
 
   const POWERUP_SPAWN_CHANCE = 0.006; // rolled once per frame once eligible
   const POWERUP_MIN_SCORE_GAP = 400;  // minimum score between power-up spawns
@@ -94,7 +95,7 @@
   let nextSpawnFrame, throwCooldown, lastPowerupScore, animId;
 
   function resetState(){
-    player = { y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, mode: "normal", modeFramesLeft: 0 };
+    player = { y: GROUND_Y - PLAYER_H, vy: 0, onGround: true, mode: "normal", modeFramesLeft: 0, landingInvulnFrames: 0 };
     obstacles = [];
     enemyProjectiles = [];
     playerProjectiles = [];
@@ -160,8 +161,17 @@
 
     if (player.mode !== "normal"){
       player.modeFramesLeft--;
-      if (player.modeFramesLeft <= 0) player.mode = "normal";
+      if (player.modeFramesLeft <= 0){
+        const wasJetpack = player.mode === "jetpack";
+        player.mode = "normal";
+        // A brief grace period once the jetpack wears off — the player
+        // is still descending from the hover offset back to the ground,
+        // and whatever obstacle happens to be scrolling underneath at
+        // that exact moment shouldn't be an unavoidable death.
+        if (wasJetpack) player.landingInvulnFrames = JETPACK_LANDING_INVULN_FRAMES;
+      }
     }
+    if (player.landingInvulnFrames > 0) player.landingInvulnFrames--;
 
     if (throwCooldown > 0) throwCooldown--;
   }
@@ -265,7 +275,7 @@
     });
     powerups = powerups.filter(p => !p.collected);
 
-    if (player.mode === "motorcycle") return; // invincible — nothing else can hurt you
+    if (player.mode === "motorcycle" || player.landingInvulnFrames > 0) return; // invincible — nothing else can hurt you
 
     const hovering = player.mode === "jetpack"; // above ground-level threats
 
@@ -426,6 +436,11 @@
       return;
     }
 
+    // Flicker while the post-jetpack grace period is active, so surviving
+    // a near-hit reads as "that was on purpose" rather than a bug.
+    const flickering = player.landingInvulnFrames > 0 && Math.floor(frame / 4) % 2 === 0;
+    if (flickering) ctx.globalAlpha = 0.35;
+
     ctx.fillStyle = COLORS.player;
     ctx.fillRect(x, y, PLAYER_W, PLAYER_H - 8);
 
@@ -453,6 +468,8 @@
       ctx.closePath();
       ctx.fill();
     }
+
+    if (flickering) ctx.globalAlpha = 1;
   }
 
   function drawHud(){

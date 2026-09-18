@@ -53,11 +53,13 @@
   const SIPHON_LIFT_HEIGHT = 90;
   const SIPHON_LIFT_EASE = 0.06;
 
-  // How far out a shield (Mystic Shield or Molecular Barrier) stops an
-  // incoming projectile — roughly the middle of the two glows' actual
-  // render radii, so a blocked shot reads as hitting the glow's edge
-  // rather than punching through to Doom's body. See playerShieldRadius().
-  const SHIELD_HIT_RADIUS_MULT = 0.85;
+  // How far out a shield stops an incoming projectile — roughly the
+  // middle of each glow's actual render radius, so a blocked shot reads
+  // as hitting the glow's edge rather than punching through to Doom's
+  // body. Mystic Shield's is 1.5x Molecular Barrier's, matching its
+  // bigger visual. See playerShieldRadius().
+  const BARRIER_HIT_RADIUS_MULT = 0.85;
+  const MYSTIC_SHIELD_RADIUS_MULT = BARRIER_HIT_RADIUS_MULT * 1.5;
 
   // Hyperbolic Nova (held) charge timing/visuals — see updateNovaCharge().
   const NOVA_CHARGE_FRAMES = 100; // ~1.7s held to fully charge
@@ -65,6 +67,9 @@
   const NOVA_CIRCLE_PHASE = 0.6; // fraction of the charge spent drawing the ring before the star starts revealing
   const NOVA_METEOR_COUNT = 8;
   const NOVA_RING_RADIUS_MULT = 1.1; // ring radius relative to max(PLAYER_W, playerHeight())
+  const NOVA_METEOR_LAUNCH_INTERVAL = 8; // frames between each meteor's individual launch — see updateNovaLaunchQueue()
+  const NOVA_METEOR_FLASH_LIFE = 14;
+  const DOOM_HOVER_GLOW_MULT = 1.1; // ~ the flying glow's typical radius relative to max(PLAYER_W, playerHeight()) — meteor launch flashes are 2x this
 
   const GRAVITY = 0.8;
   const JUMP_VELOCITY = -13;
@@ -120,7 +125,6 @@
     bolt: "#7FE0C4",
     siphonGlow: "95,217,122", // rgb triplet — same green as Doom's own flying glow
     novaGlow: "95,217,122", // rgb triplet — green ring/star charge-up for Hyperbolic Nova
-    novaMeteor: "#5FD97A",
     nova: "#F6C945",
     mysticGlow: "200,224,70", // rgb triplet — pulsing yellow-green radial for Mystic Shield
     teleportFx: "#B98FE0", // also doubles as Projectile Reversal's grab/throw color
@@ -132,6 +136,11 @@
     sonicFx: "#9FD8A0",
     opticFx: "#E14B3C"
   };
+
+  // Two of each — Hyperbolic Nova's meteors cycle through these in order
+  // (0,1,2,3,0,1,2,3 across the 8 meteors) so the staggered launch shows
+  // real color variety rather than four same-colored pairs in a row.
+  const NOVA_METEOR_COLORS = [COLORS.energyBar, COLORS.repulsorFx, COLORS.hpBar, COLORS.teleportFx]; // blue, yellow, red, purple
 
   const BIOMES = [
     { name: "Latveria — The Ruined Approach", skyTop: "#2A1F33", skyBottom: "#4A3A55", ground: "#3B2E3F", silhouette: "#1C1420", farColor: "#3A2E42", tileW: 140, kind: "towers" },
@@ -289,6 +298,7 @@
       siphoning: false,
       novaCharge: 0,
       novaFlashFrames: 0,
+      novaLaunchQueue: [],
       abilityCooldowns: new Array(9).fill(0)
     };
     enemy = null;
@@ -332,6 +342,13 @@
   function rectOverlap(x1,y1,w1,h1,x2,y2,w2,h2){
     return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
   }
+  // "#RRGGBB" -> "r,g,b", for building rgba() gradient stops out of a
+  // plain hex color constant (e.g. a meteor's color) without keeping a
+  // second, separately-maintained triplet for every hex value.
+  function hexToRgb(hex){
+    const n = parseInt(hex.slice(1), 16);
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  }
   // Direction+speed from one point toward another — used so Doom's
   // projectiles and beam always aim at wherever the enemy actually is
   // (including its altitude), not just straight out at Doom's own y.
@@ -364,11 +381,14 @@
   // Non-zero whenever Mystic Shield or Molecular Barrier is currently up
   // — used by updateEnemyProjectiles() to stop a shot at the shield's
   // edge instead of letting it travel in to overlap Doom's actual body.
+  // Mystic Shield's radius is bigger than Molecular Barrier's, matching
+  // its bigger visual; if both are somehow up at once, the larger wins.
   function playerShieldRadius(){
-    if (player.invulnFrames > 0 || player.blockFrames > 0){
-      return Math.max(PLAYER_W, playerHeight()) * SHIELD_HIT_RADIUS_MULT;
-    }
-    return 0;
+    const base = Math.max(PLAYER_W, playerHeight());
+    let r = 0;
+    if (player.invulnFrames > 0) r = Math.max(r, base * MYSTIC_SHIELD_RADIUS_MULT);
+    if (player.blockFrames > 0) r = Math.max(r, base * BARRIER_HIT_RADIUS_MULT);
+    return r;
   }
 
   /* ---------------- player ---------------- */
@@ -408,6 +428,7 @@
     updateBeamCharge();
     updateSiphonHold();
     updateNovaCharge();
+    updateNovaLaunchQueue();
   }
 
   // Mystic Shield (key 5) is held, not cast: as long as it's down and
@@ -504,25 +525,48 @@
     }
   }
 
-  // Meteors erupt from points spread evenly around the charge ring,
-  // all aimed at wherever the enemy actually is — reuses the ordinary
-  // doomProjectiles pipeline (so they travel and can be seen arriving)
-  // but tagged piercing so the ultimate still bypasses rangedImmune and
-  // Bounce Back like the old instant-hit version did.
+  // Doesn't launch all 8 meteors at once — queues them, one every
+  // NOVA_METEOR_LAUNCH_INTERVAL frames, cycling through the four colors
+  // twice each. updateNovaLaunchQueue() (called every frame from
+  // updatePlayer()) actually spawns each one when its turn comes up.
   function fireHyperbolicNova(){
-    const def = DOOM_ABILITIES[8];
     const cx = player.x + PLAYER_W/2, cy = playerCenterY();
     effects.push({ type: "nova", x: cx, y: cy, life: 26, color: `rgb(${COLORS.novaGlow})` });
     if (!enemy) return;
-    const ringR = Math.max(PLAYER_W, playerHeight()) * NOVA_RING_RADIUS_MULT;
-    const target = enemyTargetPoint(cx + 300, cy);
-    const dmgEach = def.damage / NOVA_METEOR_COUNT;
     for (let i = 0; i < NOVA_METEOR_COUNT; i++){
-      const angle = (Math.PI * 2 * i) / NOVA_METEOR_COUNT;
-      const originX = cx + Math.cos(angle) * ringR, originY = cy + Math.sin(angle) * ringR;
-      const v = aimAt(originX, originY, target.x, target.y, 8 + Math.random() * 2);
-      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: dmgEach, category: "energy", piercing: true, r: 6, color: COLORS.novaMeteor });
+      player.novaLaunchQueue.push({
+        framesLeft: i * NOVA_METEOR_LAUNCH_INTERVAL,
+        angle: (Math.PI * 2 * i) / NOVA_METEOR_COUNT,
+        color: NOVA_METEOR_COLORS[i % NOVA_METEOR_COLORS.length]
+      });
     }
+  }
+
+  // Fires whichever queued meteors have finished their delay this frame.
+  // Each one gets its own launch-moment flash (a radial burst 2x the
+  // size of Doom's flying glow, in that meteor's color) and aims at
+  // wherever the enemy actually is at the instant IT launches, not back
+  // when the whole barrage started — same "aimed at launch" rule as
+  // every other projectile in the game.
+  function updateNovaLaunchQueue(){
+    if (!player.novaLaunchQueue.length) return;
+    const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+    const ringR = Math.max(PLAYER_W, playerHeight()) * NOVA_RING_RADIUS_MULT;
+    const dmgEach = DOOM_ABILITIES[8].damage / NOVA_METEOR_COUNT;
+
+    player.novaLaunchQueue = player.novaLaunchQueue.filter(m => {
+      m.framesLeft--;
+      if (m.framesLeft > 0) return true;
+      if (!enemy) return false; // target vanished mid-sequence — drop whatever's left, nothing to aim at
+      const originX = cx + Math.cos(m.angle) * ringR, originY = cy + Math.sin(m.angle) * ringR;
+      const rgb = hexToRgb(m.color);
+      const flashR = 2 * Math.max(PLAYER_W, playerHeight()) * DOOM_HOVER_GLOW_MULT;
+      effects.push({ type: "meteorFlash", x: originX, y: originY, life: NOVA_METEOR_FLASH_LIFE, totalLife: NOVA_METEOR_FLASH_LIFE, maxR: flashR, color: rgb });
+      const target = enemyTargetPoint(cx + 300, cy);
+      const v = aimAt(originX, originY, target.x, target.y, 8 + Math.random() * 2);
+      spawnDoomProjectile({ x: originX, y: originY, vx: v.vx, vy: v.vy, dmg: dmgEach, category: "energy", piercing: true, r: 6, color: m.color, explodeColor: rgb });
+      return false;
+    });
   }
 
   function fireDisruptorBeam(){
@@ -606,11 +650,17 @@
     // and can be seen arriving, and correctly only ever damage the
     // enemy) rather than teaching enemyProjectiles a second hit-target —
     // "physical" so a reflected shield throw can't loop back through
-    // Cap's own Bounce Back a second time.
+    // Cap's own Bounce Back a second time. Also interrupts an
+    // "unblockable" attack (Missile Barrage, Crossfire) that's currently
+    // telegraphing or active — those never spawn a real enemyProjectiles
+    // entry (their travel is purely a scripted visual), so without this
+    // they'd fly under Reversal's radar entirely and connect anyway.
+    // Interrupting resets the ability to idle (same as it would after a
+    // normal active phase ends) and reflects its own damage back.
     function castProjectileReversal(){
       const cx = player.x + PLAYER_W/2, cy = playerCenterY();
       const target = enemyTargetPoint(cx + 300, cy);
-      const grabbed = enemyProjectiles.length;
+      let grabbed = enemyProjectiles.length;
       enemyProjectiles.forEach(p => {
         if (p.style === "shield" && enemy) enemy.hasShield = true; // hand Cap's shield back rather than leaving him permanently without one
         const speed = Math.max(6, Math.hypot(p.vx, p.vy));
@@ -618,6 +668,21 @@
         spawnDoomProjectile({ x: p.x, y: p.y, vx: v.vx, vy: v.vy, dmg: p.dmg, category: "physical", r: p.r, color: COLORS.teleportFx });
       });
       enemyProjectiles = [];
+
+      if (enemy){
+        enemy.def.abilities.forEach((def, i) => {
+          if (def.kind !== "unblockable") return;
+          const st = enemy.abilityStates[i];
+          if (st.phase !== "telegraph" && st.phase !== "active") return;
+          st.phase = "idle";
+          st.cooldownRemaining = randBetween(def.cdMin, def.cdMax);
+          enemy.busy = false;
+          applyDamageToEnemy(def.damage, "physical", false);
+          effects.push({ type: "clang", x: enemy.x + enemy.w/2, y: enemy.y + enemy.h/2, life: 12 });
+          grabbed++;
+        });
+      }
+
       if (grabbed > 0) effects.push({ type: "teleport", x: cx, y: cy, life: 16 });
       player.invulnFrames = Math.max(player.invulnFrames, 10);
     },
@@ -650,6 +715,7 @@
       if (p.x > CANVAS_W + 20 || p.y < -50 || p.y > CANVAS_H + 50) return false;
       if (enemy && rectOverlap(p.x - p.r, p.y - p.r, p.r*2, p.r*2, enemy.x, enemy.y, enemy.w, enemy.h)){
         applyDamageToEnemy(p.dmg, p.category, !!p.piercing);
+        if (p.explodeColor) effects.push({ type: "explosion", x: p.x, y: p.y, life: 20, color: p.explodeColor });
         return false;
       }
       return true;
@@ -1214,7 +1280,7 @@
     if (player.invulnFrames > 0){
       const pulse = 0.5 + 0.5 * Math.sin(frame * 0.4);
       const cx = x + PLAYER_W/2, cy = y + h/2;
-      const r = Math.max(PLAYER_W, h) * (0.65 + pulse * 0.25);
+      const r = Math.max(PLAYER_W, h) * (0.65 + pulse * 0.25) * 1.5;
       const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
       glow.addColorStop(0, `rgba(${COLORS.mysticGlow},${(0.55 + pulse * 0.3).toFixed(3)})`);
       glow.addColorStop(0.65, `rgba(${COLORS.mysticGlow},${(0.28 + pulse * 0.15).toFixed(3)})`);
@@ -1239,9 +1305,10 @@
     }
 
     // Hyperbolic Nova charging: a green ring sweeps in first (0 through
-    // NOVA_CIRCLE_PHASE of the charge), then a star fills in at its
-    // center for the rest — once full, novaFlashFrames keeps both pinned
-    // at 100% and pulsing for a few frames right as the meteors launch.
+    // NOVA_CIRCLE_PHASE of the charge), then a fixed-size star outline
+    // traces itself in one continuous line at its center for the rest —
+    // once full, novaFlashFrames keeps both pinned at 100% and pulsing
+    // for a few frames right as the meteors launch.
     if (player.novaCharge > 0.001 || player.novaFlashFrames > 0){
       const charge = player.novaFlashFrames > 0 ? 1 : player.novaCharge;
       const ncx = x + PLAYER_W/2, ncy = y + h/2;
@@ -1262,10 +1329,7 @@
       ctx.stroke();
 
       if (starProgress > 0.02){
-        ctx.globalAlpha = starProgress;
-        ctx.fillStyle = `rgba(${COLORS.novaGlow},1)`;
-        drawStar(ncx, ncy, R * (0.25 + starProgress * 0.4), R * (0.1 + starProgress * 0.16));
-        ctx.globalAlpha = 1;
+        drawStarOutline(ncx, ncy, R * 0.55, R * 0.22, starProgress);
       }
     }
   }
@@ -1281,6 +1345,35 @@
     }
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Traces the same 5-point star as drawStar(), but as an outline that
+  // draws itself in one continuous line — progress 0 is nothing, 1 is the
+  // fully closed outline — for Hyperbolic Nova's charge-up star instead
+  // of a filled shape fading/scaling in.
+  function drawStarOutline(cx, cy, outerR, innerR, progress){
+    const points = [];
+    for (let i = 0; i < 10; i++){
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (Math.PI / 5) * i - Math.PI / 2;
+      points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+    }
+    const segments = 10; // 10 points, closing the last segment back to point 0
+    const segPos = clamp(progress, 0, 1) * segments;
+    const fullSegs = Math.floor(segPos);
+    const partial = segPos - fullSegs;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i <= fullSegs; i++){
+      const p = points[i % segments];
+      ctx.lineTo(p.x, p.y);
+    }
+    if (partial > 0 && fullSegs < segments){
+      const from = points[fullSegs % segments], to = points[(fullSegs + 1) % segments];
+      ctx.lineTo(from.x + (to.x - from.x) * partial, from.y + (to.y - from.y) * partial);
+    }
+    ctx.stroke();
   }
 
   function enemyIsDucking(){
@@ -1535,15 +1628,37 @@
         ctx.beginPath(); ctx.arc(e.x, e.y, 10 * (1 - e.life/12) + 3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
       } else if (e.type === "explosion"){
-        // A bright core fading through orange into red as it expands —
-        // Iron Man's Missile Barrage detonating on arrival.
+        // With no e.color: a bright core fading through orange into red —
+        // Iron Man's Missile Barrage detonating on arrival. With e.color
+        // (an "r,g,b" triplet): a bright white core fading through that
+        // color instead — a Hyperbolic Nova meteor detonating in its own
+        // color on impact, same shape, different palette.
         const progress = 1 - e.life / 20;
         const r = 8 + progress * 34;
         const grad = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, r);
-        grad.addColorStop(0, `rgba(255,241,168,${Math.max(0, 1 - progress * 1.3).toFixed(3)})`);
-        grad.addColorStop(0.35, `rgba(255,140,40,${Math.max(0, 0.9 - progress).toFixed(3)})`);
-        grad.addColorStop(0.7, `rgba(200,40,20,${Math.max(0, 0.6 - progress * 0.6).toFixed(3)})`);
-        grad.addColorStop(1, "rgba(120,20,10,0)");
+        if (e.color){
+          grad.addColorStop(0, `rgba(255,255,255,${Math.max(0, 1 - progress * 1.3).toFixed(3)})`);
+          grad.addColorStop(0.4, `rgba(${e.color},${Math.max(0, 0.9 - progress).toFixed(3)})`);
+          grad.addColorStop(1, `rgba(${e.color},0)`);
+        } else {
+          grad.addColorStop(0, `rgba(255,241,168,${Math.max(0, 1 - progress * 1.3).toFixed(3)})`);
+          grad.addColorStop(0.35, `rgba(255,140,40,${Math.max(0, 0.9 - progress).toFixed(3)})`);
+          grad.addColorStop(0.7, `rgba(200,40,20,${Math.max(0, 0.6 - progress * 0.6).toFixed(3)})`);
+          grad.addColorStop(1, "rgba(120,20,10,0)");
+        }
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (e.type === "meteorFlash"){
+        // A quick radial flash in the meteor's own color at the instant
+        // it launches — grows fast, then just fades.
+        const progress = 1 - e.life / e.totalLife;
+        const r = Math.max(4, e.maxR * Math.min(1, progress * 1.6));
+        const grad = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, r);
+        grad.addColorStop(0, `rgba(255,255,255,${Math.max(0, 0.85 - progress).toFixed(3)})`);
+        grad.addColorStop(0.5, `rgba(${e.color},${Math.max(0, 0.55 - progress * 0.55).toFixed(3)})`);
+        grad.addColorStop(1, `rgba(${e.color},0)`);
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
