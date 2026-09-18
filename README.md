@@ -227,7 +227,11 @@ style — bold primary colors, simple flat shapes) built from scratch in
 obstacles and wizards, or throw waffles to defeat wizards outright.
 Grab the motorcycle power-up for 10 seconds of invincibility, or the
 jetpack to hover above ground threats and throw arcing muffins instead.
-The board gets faster the longer you survive.
+The jetpack also leaves you with a brief (~1 second) grace period of
+invincibility the instant it wears off — the flickering sprite — so
+scrolling back down into whatever obstacle happens to be right underneath
+at that exact moment isn't an unavoidable death. The board gets faster
+the longer you survive.
 
 **Controls:** Up arrow to jump, Space to throw. On touch devices, tap the
 left half of the game to jump, the right half to throw.
