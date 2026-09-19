@@ -432,12 +432,15 @@
     webShots.push({ x: originX, y: originY, vx: v.vx, vy: v.vy, r: 4 });
   }
 
+  // Nearest un-stunned goon in either direction — ahead or behind — so a
+  // web shot can hit whichever is actually closest, not just whatever's
+  // in front. aimAt() already points the shot the right way regardless
+  // of which side the target is on.
   function nearestGoonTarget(){
     let best = null, bestDist = Infinity;
     for (const g of goons){
       if (!g.alive || g.stunFrames > 0) continue;
-      if (g.x < player.x) continue;
-      const d = g.x - player.x;
+      const d = Math.abs((g.x + g.w/2) - (player.x + PLAYER_W/2));
       if (d < bestDist){ best = g; bestDist = d; }
     }
     return best;
@@ -577,7 +580,10 @@
   function updateWebShots(){
     webShots.forEach(p => { p.x += p.vx; p.y += p.vy; });
     webShots = webShots.filter(p => {
-      if (p.x > CANVAS_W + 20 || p.y < -30 || p.y > CANVAS_H + 30) return false;
+      // Shots can now travel either direction (a target behind the player
+      // aims backward), so both screen edges need a cleanup bound, not
+      // just the right one.
+      if (p.x < -30 || p.x > CANVAS_W + 20 || p.y < -30 || p.y > CANVAS_H + 30) return false;
       for (const g of goons){
         if (g.alive && g.stunFrames <= 0 && rectOverlap(p.x-p.r, p.y-p.r, p.r*2, p.r*2, g.x, g.y, g.w, g.h)){
           g.stunFrames = STUN_DURATION_FRAMES;
@@ -940,8 +946,9 @@
       <p>Swing, run, and jump across the rooftops. W to jump, S for a
       flying kick — locks onto the nearest goon ahead and takes it down
       outright, stunned or not. A and D are your left and right
-      web-shooters — tap either to fire a web shot (webs up a goon in
-      place), hold either to swing (left pulls you back, right pulls you
+      web-shooters — tap either to fire a web shot (auto-aimed at the
+      nearest goon, ahead or behind, webbing it in place), hold either
+      to swing (left pulls you back, right pulls you
       forward — alternate for momentum), and the web auto-climbs while
       you hang on for extra height. Swing or run into a webbed goon to
       take them down; an armed one hurts you back, and some carry rocket
