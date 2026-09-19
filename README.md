@@ -604,15 +604,19 @@ rooftops while taking down goons.
   automatically, like the other three games. Space jumps (only while
   running along a rooftop). A and D are your left and right web-shooters,
   and each does double duty depending on how long you hold it: **tap**
-  either one to fire a web shot, **hold** either one to swing. Holding
-  auto-attaches to the nearest valid anchor point (a pole placed above
-  any gap too wide to jump) within reach — no manual aiming — and you
-  swing from it with real pendulum physics (gravity pulls you back
-  toward hanging straight down; building up angular momentum before you
-  let go is what launches you up and onward instead of just dropping).
-  Release to let go, carrying whatever velocity the swing built up into
-  the jump that follows. Falling past street level is a death, same
-  stakes as missing a jump in a real platformer.
+  either one to fire a web shot, **hold** either one to swing. Swinging
+  always works, comic-Spider-Man style — no city anchor point to find or
+  be in range of, the web just shoots up into the skyline (a "virtual"
+  attach point a fixed height and distance ahead of wherever you
+  currently are, which then scrolls with the world like everything
+  else) — and you swing from it with real pendulum physics (gravity
+  pulls you back toward hanging straight down; building up angular
+  momentum before you let go is what launches you up and onward instead
+  of just dropping). Hold **W** while swinging to reel the web in and
+  climb, gaining height mid-arc. Release A/D to let go, carrying
+  whatever velocity the swing built up into the jump that follows.
+  Falling past street level is a death, same stakes as missing a jump in
+  a real platformer.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*
