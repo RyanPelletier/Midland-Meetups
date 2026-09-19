@@ -1153,6 +1153,52 @@ textarea{ resize: vertical; min-height: 110px; }
   margin: 14px 0 0;
 }
 
+/* Arachnid Guy's control-scheme toggle — WASD-style vs. arrow keys. */
+.control-toggle{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.control-toggle-switch{ position: relative; display: inline-flex; flex: 0 0 auto; }
+.control-toggle-input{
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.control-toggle-track{
+  display: block;
+  width: 38px;
+  height: 22px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.control-toggle-track::after{
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20,24,31,0.35);
+  transition: transform 0.15s;
+}
+.control-toggle-input:checked + .control-toggle-track{ background: var(--blue); border-color: var(--blue); }
+.control-toggle-input:checked + .control-toggle-track::after{ transform: translateX(16px); }
+.control-toggle-input:focus-visible + .control-toggle-track{ outline: 2px solid var(--blue); outline-offset: 2px; }
+
 /* -------------------- Footer -------------------- */
 .site-footer{
   border-top: 1px solid var(--border);

@@ -9,12 +9,24 @@
    Scroller, so this file only reacts to input when its OWN canvas is
    focused — see initGame() at the bottom (same guard those three use).
 
-   CONTROLS: Space to jump. KeyA/KeyD are the left/right web-shooters —
-   tap either to fire a web shot (stuns a goon on a hit), hold either to
-   swing — always works, comic-Spider-Man style, no city anchor point
-   needed. Release to let go, launching you onward with whatever
-   momentum you built up. The web auto-climbs while you swing, so you
-   gain height without any extra input.
+   CONTROLS: W to jump, S for a flying kick. KeyA/KeyD are the left/right
+   web-shooters — tap either to fire a web shot (stuns a goon on a hit),
+   hold either to swing — always works, comic-Spider-Man style, no city
+   anchor point needed. The left hand's web pulls you backward (anchored
+   15% in from the left edge), the right hand's pulls you forward
+   (anchored 10% in from the right edge) — alternate hands for a real
+   back-and-forth swinging rhythm. Release to let go, launching you
+   onward with whatever momentum you built up. The web auto-climbs while
+   you swing, so you gain height without any extra input. The flying
+   kick locks onto the nearest goon ahead and closes the distance
+   instantly — the goon is the anchor point and the "climb" runs at
+   100% speed instead of the usual slow auto-climb — defeating it
+   outright (stunned or not) and sending it into a ragdoll tumble. An
+   on-page toggle swaps the whole scheme to arrow keys
+   (Left/Right/Up/Down) instead — see controlKeys() and the
+   #webrunner-control-scheme checkbox in initGame(). Some goons carry
+   rocket launchers instead of pistols — their shots explode on impact
+   for 2 hit points instead of 1.
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -72,10 +84,27 @@
   const WEB_SHOT_SPEED = 10.5;
   const WEB_HAND_COOLDOWN_FRAMES = 20;
   const SWING_VIRTUAL_HEIGHT = 150; // how high above the anchor's screen-x the web's attach point sits
-  const SWING_ANCHOR_X_FRACTION = 0.9; // anchor sits at this fraction of canvas width (10% in from the right edge) — fixed on screen, not tied to the player's position, so the auto-scroll can't outrun it and drag the player backward mid-swing
+  // Each hand anchors to a different fixed screen-x, not the same spot —
+  // the left hand pulls backward (toward 15% in from the left edge), the
+  // right hand pulls forward (toward 10% in from the right edge, same
+  // spot as before), so alternating hands gives a real back-and-forth
+  // swinging rhythm instead of both arms doing the same thing.
+  const SWING_ANCHOR_X_FRACTION_LEFT = 0.15;
+  const SWING_ANCHOR_X_FRACTION_RIGHT = 0.9;
   const SWING_DAMPING = 0.999;
-  const SWING_AUTO_CLIMB_RATE = 0.05; // fraction the rope shortens by, automatically, every frame while swinging
+  const SWING_AUTO_CLIMB_RATE = 0.0375; // fraction the rope shortens by, automatically, every frame while swinging (75% of the original 0.05 rate — slower climb)
   const SWING_MIN_ROPE = 40;
+
+  // Flying kick — S/Down. Locks onto the nearest goon ahead (within
+  // KICK_RANGE) and reuses the swing's anchor+rope math with the goon as
+  // the anchor, but the rope "climbs" at 100% instead of the swing's slow
+  // auto-climb, so it closes the whole distance in a single beat rather
+  // than reeling in gradually. See attemptFlyingKick()/updateKick().
+  const KICK_RANGE = 240;
+  const KICK_CLOSE_RATE = 1.0; // 100% speed — collapses the rope to the anchor in one frame
+  const KICK_RECOVERY_FRAMES = 18; // how long the kick pose holds before returning to normal control
+  const KICK_COOLDOWN_FRAMES = 30;
+  const SCORE_PER_KICK = 60;
 
   const GOON_W = 22, GOON_H = 34;
   const GOON_SPAWN_CHANCE = 0.5; // per eligible platform
@@ -84,6 +113,16 @@
   const GOON_RANGE = 420;
   const STUN_DURATION_FRAMES = 150;
   const SCORE_PER_GOON = 40;
+
+  // RPG goons — a subset of spawned goons carry a rocket launcher instead
+  // of a pistol. Slower shots, longer reload, but a hit explodes for
+  // ROCKET_DAMAGE instead of the usual 1.
+  const RPG_GOON_CHANCE = 0.25; // fraction of spawned goons that are the RPG variant
+  const ROCKET_SPEED = 4.5;
+  const ROCKET_R = 6;
+  const ROCKET_DAMAGE = 2;
+  const RPG_FIRE_COOLDOWN_MIN = 110, RPG_FIRE_COOLDOWN_MAX = 200;
+  const EXPLOSION_LIFE_FRAMES = 18;
 
   const PLAYER_MAX_HP = 4;
   const INVULN_AFTER_HIT_FRAMES = 55;
@@ -104,21 +143,35 @@
     hero: "#E5484D", heroTrim: "#2851E3", heroMask: "#1A1A22",
     web: "#FFFFFF",
     goon: "#3A3F5C", goonGun: "#22263A", goonStunned: "#B8B4C0",
-    bullet: "#F6A93B",
+    rpgGoon: "#6B2FA0", rpgLauncher: "#3D2247",
+    bullet: "#F6A93B", rocket: "#FF6B35",
     hpFull: "#E5484D", hpEmpty: "#E4DCC8",
     scoreText: "#1F2430"
   };
 
-  let canvas, ctx, overlay, overlayInner;
-  let player, platforms, obstacles, goons, webShots, goonBullets, tumbles;
+  let canvas, ctx, overlay, overlayInner, controlToggle;
+  let player, platforms, obstacles, goons, webShots, goonBullets, tumbles, explosions;
   let scrollSpeed, score, frame, running, over, started, animId;
   let genCursorX; // screen-x out to which platforms/gaps have already been generated
   const keysDown = {};
 
+  // Control scheme — WASD-style (A/D web-shooters, W jump, S kick) or
+  // arrow keys (Left/Right web-shooters, Up jump, Down kick), swapped via
+  // the on-page toggle and remembered across visits. Everything else keys
+  // off e.code, so the rest of the game only ever reads the mapping,
+  // never a hardcoded key.
+  const CONTROL_SCHEME_KEY = "webrunner-control-scheme";
+  let controlScheme = localStorage.getItem(CONTROL_SCHEME_KEY) === "arrows" ? "arrows" : "wasd";
+  function controlKeys(){
+    return controlScheme === "arrows"
+      ? { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp", kick: "ArrowDown" }
+      : { left: "KeyA", right: "KeyD", jump: "KeyW", kick: "KeyS" };
+  }
+
   function resetState(){
     player = {
       x: PLAYER_X_BASE, y: GROUND_Y - 90 - PLAYER_H, vy: 0, vx: 0,
-      mode: "airborne", // "running" | "airborne" | "swinging" | "dead"
+      mode: "airborne", // "running" | "airborne" | "swinging" | "kicking" | "dead"
       hp: PLAYER_MAX_HP,
       invulnFrames: 0,
       hand: {
@@ -126,6 +179,7 @@
         right: { holdFrames: 0, cooldown: 0, active: false }
       },
       swingHand: null, anchorX: 0, anchorY: 0, ropeLen: 0, angle: 0, angularVel: 0,
+      kickCooldown: 0, kickFrames: 0, kickTargetGoon: null,
       ragdoll: null
     };
     platforms = [];
@@ -134,6 +188,7 @@
     webShots = [];
     goonBullets = [];
     tumbles = [];
+    explosions = [];
     scrollSpeed = SCROLL_START;
     score = 0;
     frame = 0;
@@ -203,10 +258,13 @@
       }
     }
     if (Math.random() < GOON_SPAWN_CHANCE && w > 80){
+      const type = Math.random() < RPG_GOON_CHANCE ? "rpg" : "gun";
+      const cooldownMin = type === "rpg" ? RPG_FIRE_COOLDOWN_MIN : GOON_FIRE_COOLDOWN_MIN;
+      const cooldownMax = type === "rpg" ? RPG_FIRE_COOLDOWN_MAX : GOON_FIRE_COOLDOWN_MAX;
       goons.push({
         x: x + w * 0.6, y: nextY - GOON_H, w: GOON_W, h: GOON_H,
-        alive: true, stunFrames: 0,
-        fireCooldown: randBetween(GOON_FIRE_COOLDOWN_MIN, GOON_FIRE_COOLDOWN_MAX)
+        alive: true, stunFrames: 0, type,
+        fireCooldown: randBetween(cooldownMin, cooldownMax)
       });
     }
   }
@@ -227,10 +285,11 @@
   }
 
   function updateHands(){
+    const keys = controlKeys();
     ["left","right"].forEach(side => {
       const h = player.hand[side];
       if (h.cooldown > 0) h.cooldown--;
-      const code = side === "left" ? "KeyA" : "KeyD";
+      const code = side === "left" ? keys.left : keys.right;
       // Pause hold-tracking on the *other* hand once one is already
       // swinging — otherwise holding both at once leaves the second
       // hand's press stuck past the tap threshold, so releasing it
@@ -247,17 +306,19 @@
 
   // Swinging always works, comic-Spider-Man style — no city anchor point
   // to find or be in range of, the web just shoots up into the skyline.
-  // The attach point is a "virtual" spot fixed at 10% in from the right
-  // edge of the screen (not relative to the player's own x) so the
-  // auto-scroll can't outrun it mid-swing and drag the player backward;
-  // it then scrolls with the world like everything else (see
-  // updateSwing()) rather than staying nailed to one world position.
+  // The attach point is a "virtual" spot fixed on screen (not relative to
+  // the player's own x) so the auto-scroll can't outrun it mid-swing and
+  // drag the player backward; it then scrolls with the world like
+  // everything else (see updateSwing()) rather than staying nailed to one
+  // world position. Each hand anchors to a different screen-x — left
+  // pulls backward, right pulls forward — so alternating them gives a
+  // real back-and-forth swing instead of both arms doing the same thing.
   function attemptSwingAttach(side){
     if (player.mode === "dead") return;
     player.mode = "swinging";
     player.swingHand = side;
     player.hand[side].active = true;
-    player.anchorX = CANVAS_W * SWING_ANCHOR_X_FRACTION;
+    player.anchorX = CANVAS_W * (side === "left" ? SWING_ANCHOR_X_FRACTION_LEFT : SWING_ANCHOR_X_FRACTION_RIGHT);
     player.anchorY = player.y - SWING_VIRTUAL_HEIGHT;
     const dx = player.x - player.anchorX, dy = player.y - player.anchorY;
     player.ropeLen = Math.max(30, Math.hypot(dx, dy));
@@ -294,6 +355,72 @@
     player.angle += player.angularVel;
     player.x = player.anchorX + Math.sin(player.angle) * player.ropeLen;
     player.y = player.anchorY + Math.cos(player.angle) * player.ropeLen;
+  }
+
+  // Nearest still-alive goon ahead of the player within range — unlike
+  // nearestGoonTarget() (web shots, which skip already-stunned goons
+  // since they don't need re-stunning), the kick works on ANY alive
+  // goon, stunned or not, so it can finish an armed one outright.
+  function nearestAliveGoonAhead(maxDist){
+    let best = null, bestDist = Infinity;
+    for (const g of goons){
+      if (!g.alive) continue;
+      const gx = g.x + g.w/2, gy = g.y + g.h/2;
+      if (gx < player.x) continue;
+      const d = Math.hypot(gx - (player.x + PLAYER_W/2), gy - playerCenterY());
+      if (d <= maxDist && d < bestDist){ best = g; bestDist = d; }
+    }
+    return best;
+  }
+
+  // Flying kick — locks onto the nearest goon ahead and reuses the
+  // swing's anchor+rope setup with the goon as the anchor, but see
+  // updateKick() for the part that makes it a kick and not a swing.
+  function attemptFlyingKick(){
+    if (player.mode === "dead" || player.mode === "kicking") return;
+    if (player.kickCooldown > 0) return;
+    const target = nearestAliveGoonAhead(KICK_RANGE);
+    if (!target) return;
+    if (player.mode === "swinging") releaseSwing();
+    player.mode = "kicking";
+    player.kickFrames = 0;
+    player.kickTargetGoon = target;
+    player.anchorX = target.x + target.w/2;
+    player.anchorY = target.y + target.h/2;
+    const dx = (player.x + PLAYER_W/2) - player.anchorX, dy = playerCenterY() - player.anchorY;
+    player.ropeLen = Math.max(1, Math.hypot(dx, dy));
+    player.angle = Math.atan2(dx, dy);
+  }
+
+  // The goon is the anchor point and the rope "climbs" at 100% speed
+  // instead of the swing's slow auto-climb rate — it collapses to the
+  // anchor in a single frame rather than reeling in gradually, so the
+  // kick closes the whole gap in one beat. The kicking pose then holds
+  // for a short recovery window (see drawPlayer()) so the move still
+  // reads as an animated attack, not a teleport.
+  function updateKick(){
+    player.kickFrames++;
+    player.anchorX -= scrollSpeed; // the anchor is part of the world too, same as a normal swing anchor
+    player.ropeLen = Math.max(0, player.ropeLen * (1 - KICK_CLOSE_RATE));
+    player.x = player.anchorX + Math.sin(player.angle) * player.ropeLen - PLAYER_W/2;
+    player.y = player.anchorY + Math.cos(player.angle) * player.ropeLen - PLAYER_H/2;
+
+    if (player.ropeLen <= 0.5 && player.kickTargetGoon){
+      const g = player.kickTargetGoon;
+      if (g.alive){
+        g.alive = false;
+        score += SCORE_PER_KICK;
+        spawnGoonRagdoll(g);
+      }
+      player.kickTargetGoon = null;
+    }
+
+    if (player.kickFrames >= KICK_RECOVERY_FRAMES){
+      player.mode = "airborne";
+      player.vx = 0; player.vy = 0;
+      player.kickTargetGoon = null;
+      player.kickCooldown = KICK_COOLDOWN_FRAMES;
+    }
   }
 
   function fireWebShot(side){
@@ -336,9 +463,9 @@
     }
   }
 
-  function takeHit(){
+  function takeHit(amount){
     if (player.invulnFrames > 0 || player.mode === "dead") return;
-    player.hp--;
+    player.hp -= amount || 1;
     player.invulnFrames = INVULN_AFTER_HIT_FRAMES;
     if (player.hp <= 0) startRagdoll();
   }
@@ -361,16 +488,32 @@
   }
 
   function spawnGoonTumble(g){
-    tumbles.push({ x: g.x, y: g.y, w: g.w, h: g.h, vx: scrollSpeed * -0.3 + randBetween(-1,1), vy: -3, rot: 0, rotVel: randBetween(-0.15,0.15), life: 50, color: COLORS.goonStunned });
+    tumbles.push({ x: g.x, y: g.y, w: g.w, h: g.h, vx: scrollSpeed * -0.3 + randBetween(-1,1), vy: -3, rot: 0, rotVel: randBetween(-0.15,0.15), life: 50, color: g.type === "rpg" ? COLORS.rpgLauncher : COLORS.goonStunned });
+  }
+
+  // A two-piece ragdoll for a goon finished off by a flying kick — same
+  // lightweight independently-tumbling-segments approach as the player's
+  // own death ragdoll (startRagdoll()), just pushed through the existing
+  // tumbles list instead of a separate system.
+  function spawnGoonRagdoll(g){
+    const color = g.type === "rpg" ? COLORS.rpgGoon : COLORS.goon;
+    const kickDir = player.x <= g.x ? 1 : -1; // which way the kick sent it flying
+    tumbles.push(
+      { x: g.x, y: g.y, w: g.w, h: g.h * 0.55, vx: kickDir * 3 + randBetween(-1,1), vy: -5, rot: 0, rotVel: randBetween(-0.2,-0.1), life: 55, color },
+      { x: g.x, y: g.y + g.h * 0.5, w: g.w * 0.8, h: g.h * 0.5, vx: kickDir * 2 + randBetween(-1,1), vy: -3, rot: 0, rotVel: randBetween(0.1,0.2), life: 55, color }
+    );
   }
 
   function updatePlayer(){
     if (player.mode === "dead"){ updateRagdoll(); return; }
 
     updateHands();
+    if (player.kickCooldown > 0) player.kickCooldown--;
 
     if (player.mode === "swinging"){
       updateSwing();
+    } else if (player.mode === "kicking"){
+      updateKick();
     } else {
       player.vy += GRAVITY;
       player.y += player.vy;
@@ -416,9 +559,15 @@
       if (dist > 0 && dist < GOON_RANGE){
         g.fireCooldown--;
         if (g.fireCooldown <= 0){
-          const v = aimAt(g.x, g.y + g.h/2, player.x + PLAYER_W/2, playerCenterY(), GOON_BULLET_SPEED);
-          goonBullets.push({ x: g.x, y: g.y + g.h/2, vx: v.vx, vy: v.vy, r: 4 });
-          g.fireCooldown = randBetween(GOON_FIRE_COOLDOWN_MIN, GOON_FIRE_COOLDOWN_MAX);
+          if (g.type === "rpg"){
+            const v = aimAt(g.x, g.y + g.h/2, player.x + PLAYER_W/2, playerCenterY(), ROCKET_SPEED);
+            goonBullets.push({ x: g.x, y: g.y + g.h/2, vx: v.vx, vy: v.vy, r: ROCKET_R, type: "rocket" });
+            g.fireCooldown = randBetween(RPG_FIRE_COOLDOWN_MIN, RPG_FIRE_COOLDOWN_MAX);
+          } else {
+            const v = aimAt(g.x, g.y + g.h/2, player.x + PLAYER_W/2, playerCenterY(), GOON_BULLET_SPEED);
+            goonBullets.push({ x: g.x, y: g.y + g.h/2, vx: v.vx, vy: v.vy, r: 4, type: "bullet" });
+            g.fireCooldown = randBetween(GOON_FIRE_COOLDOWN_MIN, GOON_FIRE_COOLDOWN_MAX);
+          }
         }
       }
     });
@@ -439,12 +588,26 @@
     });
   }
 
+  function spawnExplosion(x, y){
+    explosions.push({ x, y, life: EXPLOSION_LIFE_FRAMES, maxLife: EXPLOSION_LIFE_FRAMES });
+  }
+
+  function updateExplosions(){
+    explosions.forEach(e => e.life--);
+    explosions = explosions.filter(e => e.life > 0);
+  }
+
   function updateGoonBullets(){
     goonBullets.forEach(p => { p.x += p.vx; p.y += p.vy; });
     goonBullets = goonBullets.filter(p => {
       if (p.x < -30 || p.x > CANVAS_W + 30 || p.y < -30 || p.y > CANVAS_H + 30) return false;
       if (player.mode !== "dead" && rectOverlap(p.x-p.r, p.y-p.r, p.r*2, p.r*2, player.x, player.y, PLAYER_W, PLAYER_H)){
-        takeHit();
+        if (p.type === "rocket"){
+          spawnExplosion(p.x, p.y);
+          takeHit(ROCKET_DAMAGE);
+        } else {
+          takeHit();
+        }
         return false;
       }
       return true;
@@ -499,6 +662,7 @@
     updateGoonBullets();
     checkGoonContact();
     updateTumbles();
+    updateExplosions();
   }
 
   /* ---------------- draw ---------------- */
@@ -591,7 +755,8 @@
   function drawGoons(){
     goons.forEach(g => {
       const stunned = g.stunFrames > 0;
-      const bodyColor = stunned ? COLORS.goonStunned : COLORS.goon;
+      const isRpg = g.type === "rpg";
+      const bodyColor = stunned ? COLORS.goonStunned : (isRpg ? COLORS.rpgGoon : COLORS.goon);
       let armAngleL, armAngleR, legAngleL, legAngleR;
       if (stunned){
         // Limp and dangling — no animation, sells "webbed in place".
@@ -599,15 +764,20 @@
         legAngleL = 0.15; legAngleR = -0.12;
       } else {
         const sway = Math.sin(frame * 0.06 + g.x * 0.01) * 0.12;
-        armAngleL = -0.9; // gun arm, raised toward the player
+        armAngleL = -0.9; // weapon arm, raised toward the player
         armAngleR = sway;
         legAngleL = sway * 0.5;
         legAngleR = -sway * 0.5;
       }
       drawHumanoidFigure(g.x, g.y, g.w, g.h, COLORS.goonGun, bodyColor, bodyColor, armAngleL, armAngleR, legAngleL, legAngleR);
       if (!stunned){
-        ctx.fillStyle = COLORS.goonGun;
-        ctx.fillRect(g.x - 8, g.y + g.h*0.45, 10, 4);
+        if (isRpg){
+          ctx.fillStyle = COLORS.rpgLauncher;
+          ctx.fillRect(g.x - 15, g.y + g.h*0.38, 17, 7);
+        } else {
+          ctx.fillStyle = COLORS.goonGun;
+          ctx.fillRect(g.x - 8, g.y + g.h*0.45, 10, 4);
+        }
       } else {
         ctx.strokeStyle = COLORS.web;
         ctx.lineWidth = 1;
@@ -648,7 +818,12 @@
     if (flicker) ctx.globalAlpha = 0.4;
 
     let armAngleL, armAngleR, legAngleL, legAngleR;
-    if (player.mode === "swinging"){
+    if (player.mode === "kicking"){
+      // Front (right) leg driven straight out, back leg tucked, both arms
+      // swept back for momentum — reads as a mid-air flying kick.
+      legAngleR = -1.3; legAngleL = 0.5;
+      armAngleL = 0.6; armAngleR = 0.7;
+    } else if (player.mode === "swinging"){
       const sway = Math.sin(frame * 0.2) * 0.12;
       const reach = 2.6;       // swinging hand reaches up toward the web
       const trail = 0.45 + sway; // everything else trails behind in the wind
@@ -675,8 +850,22 @@
   function drawProjectiles(){
     ctx.fillStyle = COLORS.web;
     webShots.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); });
-    ctx.fillStyle = COLORS.bullet;
-    goonBullets.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); });
+    goonBullets.forEach(p => {
+      ctx.fillStyle = p.type === "rocket" ? COLORS.rocket : COLORS.bullet;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    });
+  }
+
+  function drawExplosions(){
+    explosions.forEach(e => {
+      const t = 1 - e.life / e.maxLife;
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = COLORS.rocket;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, 6 + t * 22, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
   }
 
   function drawTumbles(){
@@ -712,6 +901,7 @@
     drawTumbles();
     drawPlayer();
     drawProjectiles();
+    drawExplosions();
     drawHud();
   }
 
@@ -747,12 +937,16 @@
     overlay.style.display = "flex";
     overlayInner.innerHTML = `
       <h3>Arachnid Guy</h3>
-      <p>Swing, run, and jump across the rooftops. Space to jump. A and D
-      are your left and right web-shooters — tap either to fire a web
-      shot (webs up a goon in place), hold either to swing — always
-      works, no city anchor point needed, and the web auto-climbs while
+      <p>Swing, run, and jump across the rooftops. W to jump, S for a
+      flying kick — locks onto the nearest goon ahead and takes it down
+      outright, stunned or not. A and D are your left and right
+      web-shooters — tap either to fire a web shot (webs up a goon in
+      place), hold either to swing (left pulls you back, right pulls you
+      forward — alternate for momentum), and the web auto-climbs while
       you hang on for extra height. Swing or run into a webbed goon to
-      take them down; an armed one hurts you back.</p>
+      take them down; an armed one hurts you back, and some carry rocket
+      launchers that hit twice as hard. Prefer arrow keys? Flip the
+      toggle below the game.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
@@ -770,11 +964,29 @@
   }
 
   /* ---------------- input ---------------- */
+  // Clears held keys and drops any in-progress swing/hold — used both
+  // when the canvas loses focus and when the control scheme is swapped
+  // mid-game, since either one can leave a key "stuck" held under a
+  // mapping that no longer matches what's actually down.
+  function resetInputState(){
+    for (const k in keysDown) delete keysDown[k];
+    if (player){
+      if (player.hand.left.active || player.hand.right.active){
+        if (player.swingHand) releaseSwing();
+        player.hand.left.active = false;
+        player.hand.right.active = false;
+      }
+      player.hand.left.holdFrames = 0;
+      player.hand.right.holdFrames = 0;
+    }
+  }
+
   function initGame(){
     if (DEBUG) console.log("[Arachnid Guy] webrunner.js loaded");
     canvas = document.getElementById("webrunner-canvas");
     overlay = document.getElementById("webrunner-overlay");
     overlayInner = document.getElementById("webrunner-overlay-inner");
+    controlToggle = document.getElementById("webrunner-control-scheme");
     if (!canvas || !overlay) return;
 
     ctx = canvas.getContext("2d");
@@ -782,35 +994,37 @@
     draw();
     showStartOverlay();
 
+    if (controlToggle){
+      controlToggle.checked = controlScheme === "arrows";
+      controlToggle.addEventListener("change", () => {
+        controlScheme = controlToggle.checked ? "arrows" : "wasd";
+        localStorage.setItem(CONTROL_SCHEME_KEY, controlScheme);
+        resetInputState();
+      });
+    }
+
     canvas.addEventListener("click", () => canvas.focus());
-    canvas.addEventListener("blur", () => {
-      for (const k in keysDown) delete keysDown[k];
-      if (player){
-        if (player.hand.left.active || player.hand.right.active){
-          if (player.swingHand) releaseSwing();
-          player.hand.left.active = false;
-          player.hand.right.active = false;
-        }
-        player.hand.left.holdFrames = 0;
-        player.hand.right.holdFrames = 0;
-      }
-    });
+    canvas.addEventListener("blur", resetInputState);
 
     document.addEventListener("keydown", (e) => {
       if (document.activeElement !== canvas) return; // don't steal input meant for the other games on this page
+      const keys = controlKeys();
 
       if (!started || over){
-        if (e.code === "Space" || e.code === "KeyA" || e.code === "KeyD"){
+        if (e.code === keys.jump || e.code === keys.left || e.code === keys.right || e.code === keys.kick){
           e.preventDefault();
           startGame();
         }
         return;
       }
 
-      if (e.code === "Space"){
+      if (e.code === keys.jump){
         e.preventDefault();
         if (!e.repeat) jump();
-      } else if (e.code === "KeyA" || e.code === "KeyD"){
+      } else if (e.code === keys.kick){
+        e.preventDefault();
+        if (!e.repeat) attemptFlyingKick();
+      } else if (e.code === keys.left || e.code === keys.right){
         e.preventDefault();
         keysDown[e.code] = true;
       }
@@ -818,8 +1032,9 @@
 
     document.addEventListener("keyup", (e) => {
       if (document.activeElement !== canvas) return;
-      if (e.code === "KeyA"){ keysDown.KeyA = false; releaseHand("left"); }
-      else if (e.code === "KeyD"){ keysDown.KeyD = false; releaseHand("right"); }
+      const keys = controlKeys();
+      if (e.code === keys.left){ keysDown[e.code] = false; releaseHand("left"); }
+      else if (e.code === keys.right){ keysDown[e.code] = false; releaseHand("right"); }
     });
   }
 
