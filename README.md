@@ -645,10 +645,12 @@ rooftops while taking down goons.
   guns aim at wherever you actually are the instant they fire — no
   homing after that — using the exact same `aimAt()` targeting Doom
   Scroller's projectiles use; your own web shots use it too, auto-aimed
-  at the nearest un-stunned goon ahead of you (or straight ahead if none
-  are in range). A fraction of spawned goons carry a rocket launcher
-  instead of a pistol — slower shots and a longer reload, but a hit
-  explodes on impact for 2 hit points instead of the usual 1.
+  at the nearest un-stunned goon in *either* direction — ahead of you or
+  already behind you — rather than only ever looking forward (or
+  straight ahead if none are in range). A fraction of spawned goons
+  carry a rocket launcher instead of a pistol — slower shots and a
+  longer reload, but a hit explodes on impact for 2 hit points instead
+  of the usual 1.
 - **Characters:** the player and goons are drawn as small canvas-primitive
   humanoids — a head circle, torso rect, and two arm/leg rects each
   pivoting from their own shoulder/hip point — rather than flat blobs.
