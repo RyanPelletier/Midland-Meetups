@@ -606,11 +606,14 @@ rooftops while taking down goons.
   each does double duty depending on how long you hold it: **tap** either
   one to fire a web shot, **hold** either one to swing. Swinging always
   works, comic-Spider-Man style — no city anchor point to find or be in
-  range of, the web just shoots up into the skyline (a "virtual" attach
-  point fixed at 10% in from the right edge of the screen, which then
-  scrolls with the world like everything else — pinning it to the screen
-  rather than to wherever you currently are keeps the auto-scroll from
-  ever outrunning it and dragging you backward mid-swing) — and you swing
+  range of, the web just shoots up into the skyline. Each hand anchors to
+  a different fixed screen-x rather than both sharing one spot: the left
+  hand pulls you *backward* (anchored 15% in from the left edge), the
+  right hand pulls you *forward* (anchored 10% in from the right edge,
+  same spot as before) — alternating hands gives a real back-and-forth
+  swinging rhythm instead of both arms doing the same thing. Either
+  anchor scrolls with the world like everything else, so the auto-scroll
+  can never outrun it and drag you backward mid-swing — and you swing
   from it with real pendulum physics (gravity pulls you back toward
   hanging straight down; building up angular momentum before you let go
   is what launches you up and onward instead of just dropping). The web
@@ -619,10 +622,22 @@ rooftops while taking down goons.
   carrying whatever velocity the swing built up into the jump that
   follows. Falling past street level is a death, same stakes as missing
   a jump in a real platformer. A toggle below the game swaps the whole
-  scheme to arrow keys (Left/Right web-shooters, Up jump) instead of
-  A/D/W, remembered across visits via `localStorage` — both schemes
-  just read from `controlKeys()` in `webrunner.js`, so there's no
+  scheme to arrow keys (Left/Right web-shooters, Up jump, Down kick)
+  instead of A/D/W/S, remembered across visits via `localStorage` — both
+  schemes just read from `controlKeys()` in `webrunner.js`, so there's no
   duplicated input-handling logic to keep in sync.
+- **Flying kick:** S (or Down) locks onto the nearest alive goon ahead,
+  within range, and closes the distance in a single beat — the goon
+  becomes the anchor point and the same rope-climb math the swing uses
+  runs at 100% instead of its usual slow auto-climb rate, so the rope
+  collapses to the anchor in one frame instead of reeling in gradually
+  (see `attemptFlyingKick()`/`updateKick()`). Unlike a body-contact
+  takedown, the kick works on a goon whether it's stunned or not, so it's
+  the way to finish an armed one outright without webbing it first. The
+  player animates into a flying-kick pose for the move's short recovery
+  window, and a defeated goon gets a two-piece ragdoll tumble — the same
+  lightweight independently-falling-segments approach as the player's own
+  death ragdoll, just reused through the existing tumble-effects list.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*
@@ -631,15 +646,20 @@ rooftops while taking down goons.
   homing after that — using the exact same `aimAt()` targeting Doom
   Scroller's projectiles use; your own web shots use it too, auto-aimed
   at the nearest un-stunned goon ahead of you (or straight ahead if none
-  are in range).
+  are in range). A fraction of spawned goons carry a rocket launcher
+  instead of a pistol — slower shots and a longer reload, but a hit
+  explodes on impact for 2 hit points instead of the usual 1.
 - **Characters:** the player and goons are drawn as small canvas-primitive
   humanoids — a head circle, torso rect, and two arm/leg rects each
   pivoting from their own shoulder/hip point — rather than flat blobs.
-  Limbs swing on a continuous phase for the player's run cycle and a
-  fixed reach-for-the-web pose while swinging; goons get a subtle idle
-  sway with one arm raised toward their gun, and go limp when stunned.
-  Still pure `fillRect`/`arc` shapes, no images or animation library,
-  same as everything else on this page.
+  Limbs swing on a continuous phase for the player's run cycle, a fixed
+  reach-for-the-web pose while swinging, and a fixed flying-kick pose
+  (front leg driven straight out) when kicking; goons get a subtle idle
+  sway with one arm raised toward their weapon, and go limp when
+  stunned. RPG goons are a different body color with a launcher instead
+  of a pistol, so they're identifiable before they fire. Still pure
+  `fillRect`/`arc` shapes, no images or animation library, same as
+  everything else on this page.
 - **Ragdoll:** dying (out of HP, or falling past street level) triggers
   a lightweight tumble — a couple of independently falling, rotating
   body pieces with their own simple gravity — rather than a real
