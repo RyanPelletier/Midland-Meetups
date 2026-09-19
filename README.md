@@ -651,6 +651,15 @@ rooftops while taking down goons.
   carry a rocket launcher instead of a pistol — slower shots and a
   longer reload, but a hit explodes on impact for 2 hit points instead
   of the usual 1.
+- **Regen:** HP trickles back on its own after a stretch of not getting
+  hit — deliberately slow, so it rewards staying alive and playing
+  carefully rather than acting as a crutch. Getting hit at all resets
+  the clock, so there's no way to "outrun" a fight by tanking a hit and
+  immediately healing it back. Roughly 5 seconds out of combat before it
+  starts, then about 8 seconds per HP after that (`REGEN_DELAY_FRAMES`/
+  `REGEN_INTERVAL_FRAMES` in `webrunner.js`) — the next HP pip in the HUD
+  fills in gradually so there's a visible readout of how close the next
+  tick actually is.
 - **Characters:** the player and goons are drawn as small canvas-primitive
   humanoids — a head circle, torso rect, and two arm/leg rects each
   pivoting from their own shoulder/hip point — rather than flat blobs.

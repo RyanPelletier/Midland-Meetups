@@ -26,7 +26,10 @@
    (Left/Right/Up/Down) instead — see controlKeys() and the
    #webrunner-control-scheme checkbox in initGame(). Some goons carry
    rocket launchers instead of pistols — their shots explode on impact
-   for 2 hit points instead of 1.
+   for 2 hit points instead of 1. HP regenerates slowly on its own after
+   a stretch of not getting hit — see REGEN_DELAY_FRAMES/
+   REGEN_INTERVAL_FRAMES/updateRegen() — deliberately slow so it's a
+   reward for careful play, not a crutch.
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -128,6 +131,12 @@
   const INVULN_AFTER_HIT_FRAMES = 55;
   const RAGDOLL_GRAVITY = 0.5;
 
+  // Regenerative healing — a slow trickle, not a crutch: roughly 5s out
+  // of combat before it kicks in, then about 8s per HP after that, so
+  // recovering from a big hit takes real time spent staying unhit.
+  const REGEN_DELAY_FRAMES = 300;
+  const REGEN_INTERVAL_FRAMES = 480;
+
   const DEBUG = false;
   /* ==================== end config ==================== */
 
@@ -174,6 +183,7 @@
       mode: "airborne", // "running" | "airborne" | "swinging" | "kicking" | "dead"
       hp: PLAYER_MAX_HP,
       invulnFrames: 0,
+      regenDelay: 0, regenTimer: 0,
       hand: {
         left:  { holdFrames: 0, cooldown: 0, active: false },
         right: { holdFrames: 0, cooldown: 0, active: false }
@@ -470,7 +480,21 @@
     if (player.invulnFrames > 0 || player.mode === "dead") return;
     player.hp -= amount || 1;
     player.invulnFrames = INVULN_AFTER_HIT_FRAMES;
+    player.regenDelay = REGEN_DELAY_FRAMES; // getting hit resets the out-of-combat clock, not just full HP
+    player.regenTimer = 0;
     if (player.hp <= 0) startRagdoll();
+  }
+
+  // A slow trickle back toward full HP after a stretch of not getting
+  // hit — see REGEN_DELAY_FRAMES/REGEN_INTERVAL_FRAMES for the pacing.
+  function updateRegen(){
+    if (player.hp >= PLAYER_MAX_HP){ player.regenTimer = 0; return; }
+    if (player.regenDelay > 0){ player.regenDelay--; return; }
+    player.regenTimer++;
+    if (player.regenTimer >= REGEN_INTERVAL_FRAMES){
+      player.hp++;
+      player.regenTimer = 0;
+    }
   }
 
   function startRagdoll(){
@@ -541,6 +565,7 @@
     if (player.y > GROUND_Y){ startRagdoll(); return; }
 
     if (player.invulnFrames > 0) player.invulnFrames--;
+    updateRegen();
 
     // rooftop obstacles — only threaten while actually running along the roof
     if (player.mode === "running"){
@@ -896,6 +921,13 @@
     for (let i = 0; i < PLAYER_MAX_HP; i++){
       ctx.fillStyle = i < player.hp ? COLORS.hpFull : COLORS.hpEmpty;
       ctx.fillRect(12 + i * 16, 12, 12, 12);
+      // The next pip fills in gradually as regen progresses, so there's a
+      // visible readout of how close the next HP tick actually is.
+      if (i === player.hp && player.regenDelay <= 0 && player.hp < PLAYER_MAX_HP){
+        const t = clamp(player.regenTimer / REGEN_INTERVAL_FRAMES, 0, 1);
+        ctx.fillStyle = COLORS.hpFull;
+        ctx.fillRect(12 + i * 16, 12, 12 * t, 12);
+      }
     }
   }
 
@@ -952,8 +984,9 @@
       forward — alternate for momentum), and the web auto-climbs while
       you hang on for extra height. Swing or run into a webbed goon to
       take them down; an armed one hurts you back, and some carry rocket
-      launchers that hit twice as hard. Prefer arrow keys? Flip the
-      toggle below the game.</p>
+      launchers that hit twice as hard. HP trickles back on its own if
+      you stay unhit for a while — slow, so it's not a crutch. Prefer
+      arrow keys? Flip the toggle below the game.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
