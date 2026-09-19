@@ -585,13 +585,53 @@ function doomSaveScore(name, password, score){
    so the live URL picks up the change (same step as any other script
    edit — see Part 1 above).
 
-**A technical note for future changes:** since three games now share
-one page, `game.js`, `walter.js`, and `doom.js` each check that their
-*own* canvas is the focused element before responding to a keypress
-(see `document.activeElement !== canvas` near the top of each file's
-keydown handler). If you add a fourth game to this page later, it'll
-need the same guard, or its controls will collide with the other
-three.
+**A technical note for future changes:** since four games now share
+one page, `game.js`, `walter.js`, `doom.js`, and `webrunner.js` each
+check that their *own* canvas is the focused element before responding
+to a keypress (see `document.activeElement !== canvas` near the top of
+each file's keydown handler). If you add a fifth game to this page
+later, it'll need the same guard, or its controls will collide with the
+other four.
+
+## How Arachnid Guy works
+
+A fourth game on the same page (`game.html`), built in its own file,
+`webrunner.js`. You play a rooftop-swinging vigilante scrolling right
+across the city, jumping and web-slinging between procedurally generated
+rooftops while taking down goons.
+
+- **Move:** there's no direct left/right input — the world scrolls
+  automatically, like the other three games. Space jumps (only while
+  running along a rooftop). A and D are your left and right web-shooters,
+  and each does double duty depending on how long you hold it: **tap**
+  either one to fire a web shot, **hold** either one to swing. Holding
+  auto-attaches to the nearest valid anchor point (a pole placed above
+  any gap too wide to jump) within reach — no manual aiming — and you
+  swing from it with real pendulum physics (gravity pulls you back
+  toward hanging straight down; building up angular momentum before you
+  let go is what launches you up and onward instead of just dropping).
+  Release to let go, carrying whatever velocity the swing built up into
+  the jump that follows. Falling past street level is a death, same
+  stakes as missing a jump in a real platformer.
+- **Combat:** a web shot doesn't damage a goon outright — it webs them
+  in place (stunned) for a few seconds. Swinging or running into a
+  *stunned* goon takes them down for a score bonus; touching an *armed*
+  one (or catching one of their bullets) costs you a hit instead. Goon
+  guns aim at wherever you actually are the instant they fire — no
+  homing after that — using the exact same `aimAt()` targeting Doom
+  Scroller's projectiles use; your own web shots use it too, auto-aimed
+  at the nearest un-stunned goon ahead of you (or straight ahead if none
+  are in range).
+- **Ragdoll:** dying (out of HP, or falling past street level) triggers
+  a lightweight tumble — a couple of independently falling, rotating
+  body pieces with their own simple gravity — rather than a real
+  joint-constrained physics simulation. Cheap, reliable, and matches the
+  flat-shape/no-library approach every other game on this page uses.
+- **No score saving yet.** Unlike Wizards & Waffles and Doom Scroller,
+  Arachnid Guy doesn't touch the Sheet or the leaderboard at all right
+  now — score is shown live and at game over, nothing more. A Sheet-backed
+  best score (and a slot on the shared leaderboard) is planned but not
+  built yet.
 
 ## Adding a new page (or renaming/reordering nav links)
 
@@ -636,10 +676,10 @@ that instead).
 1. Create a new repository on GitHub (public repos get free Pages hosting).
 2. Upload the website files — `index.html`, `rsvps.html`, `lore.html`,
    `submit.html`, `squad.html`, `chat.html`, `game.html`, `nav.html`,
-   `style.css`, `app.js`, `game.js`, `walter.js`, `doom.js`, `config.js`
-   (with your URL already pasted in). You don't need to upload the
-   `apps-script` folder; that code lives in the Sheet's Apps Script
-   editor, not on GitHub.
+   `style.css`, `app.js`, `game.js`, `walter.js`, `doom.js`,
+   `webrunner.js`, `config.js` (with your URL already pasted in). You
+   don't need to upload the `apps-script` folder; that code lives in the
+   Sheet's Apps Script editor, not on GitHub.
 3. In the repo, go to **Settings → Pages**.
 4. Under "Build and deployment," set **Source** to "Deploy from a branch,"
    pick the `main` branch and the `/ (root)` folder, then **Save**.
