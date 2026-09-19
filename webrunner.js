@@ -150,6 +150,25 @@
   // tick and it costs nothing.
   const OBSTACLE_DAMAGE_INTERVAL_FRAMES = REGEN_INTERVAL_FRAMES / 2;
 
+  // Shop — permanent, account-bound upgrades bought with Tech Points
+  // (earned 1:1 with score at the end of every logged-in run, added to a
+  // running balance regardless of whether it's a new best). See
+  // hasWebShooterUpgrade()/effectiveRegenInterval() for where these
+  // actually change behavior.
+  //
+  // Web Shooter Auto-Targeting — a one-time unlock. Without it, a web
+  // shot fires in a fixed direction (left hand up-and-back, right hand
+  // up-and-forward, same as the old no-target fallback) — landing a hit
+  // takes real aim. With it, shots auto-track the nearest un-stunned
+  // goon in either direction, same as every shot has since it was built.
+  const WEB_SHOOTER_UPGRADE_COST = 800;
+  // Health Regen Boost — repeatable, each purchase multiplies regen
+  // speed by 1.2x. Capped at 5 levels (~2.5x total) so it stays a
+  // meaningful grind rather than making regen trivially fast.
+  const REGEN_UPGRADE_MULTIPLIER = 1.2;
+  const REGEN_UPGRADE_MAX_LEVEL = 5;
+  const REGEN_UPGRADE_BASE_COST = 400; // cost for level N+1 is this * (N+1)
+
   const DEBUG = false;
   /* ==================== end config ==================== */
 
@@ -188,6 +207,67 @@
     return controlScheme === "arrows"
       ? { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp", kick: "ArrowDown" }
       : { left: "KeyA", right: "KeyD", jump: "KeyW", kick: "KeyS" };
+  }
+
+  /* ---------------- account / shop state ---------------- */
+  // Login mirrors Doom Scroller's name+password pattern (see
+  // showLoginOverlay()/attemptLogin()) — kept in memory only, never
+  // written to localStorage, so it clears on reload same as Doom's.
+  // Guests get the exact same bestScore/techPoints/shopLevels state,
+  // just persisted to localStorage instead of the Sheet (see
+  // loadGuestSave()/saveGuestState()) — never synced or shared, same
+  // "this device only" deal every guest mode on this site already makes.
+  // These live outside resetState() on purpose: they're account-level,
+  // carried across every run, not per-run state.
+  const GUEST_SAVE_KEY = "webrunner-guest-save";
+  let wrName, wrPassword, wrGuestMode, wrLoginComplete;
+  let wrBestScore = 0, wrTechPoints = 0;
+  let wrShopLevels = { webShooter: 0, regen: 0 };
+
+  function hasWebShooterUpgrade(){ return wrShopLevels.webShooter >= 1; }
+  function regenUpgradeLevel(){ return wrShopLevels.regen || 0; }
+  function effectiveRegenInterval(){
+    return REGEN_INTERVAL_FRAMES / Math.pow(REGEN_UPGRADE_MULTIPLIER, regenUpgradeLevel());
+  }
+  function regenUpgradeCost(){
+    return REGEN_UPGRADE_BASE_COST * (regenUpgradeLevel() + 1);
+  }
+
+  // "ws:0,regen:3" — a compact, hand-editable string (same idea as
+  // Walter's progress save) so future shop items don't need new Sheet
+  // columns, just another key:value pair here.
+  function parseShopLevels(str){
+    const levels = { webShooter: 0, regen: 0 };
+    String(str || "").split(",").forEach(pair => {
+      const [key, val] = pair.split(":");
+      if (key === "ws") levels.webShooter = clamp(Number(val) || 0, 0, 1);
+      if (key === "regen") levels.regen = clamp(Number(val) || 0, 0, REGEN_UPGRADE_MAX_LEVEL);
+    });
+    return levels;
+  }
+  function shopLevelsToString(levels){
+    return "ws:" + (levels.webShooter || 0) + ",regen:" + (levels.regen || 0);
+  }
+
+  function loadGuestSave(){
+    const fallback = { bestScore: 0, techPoints: 0, shopLevels: { webShooter: 0, regen: 0 } };
+    try{
+      const raw = localStorage.getItem(GUEST_SAVE_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return {
+        bestScore: Number(parsed.bestScore) || 0,
+        techPoints: Number(parsed.techPoints) || 0,
+        shopLevels: parseShopLevels(parsed.shopLevels)
+      };
+    }catch(err){
+      return fallback; // corrupted/unreadable save — start fresh rather than crash
+    }
+  }
+  function saveGuestState(){
+    localStorage.setItem(GUEST_SAVE_KEY, JSON.stringify({
+      bestScore: wrBestScore, techPoints: wrTechPoints, shopLevels: shopLevelsToString(wrShopLevels)
+    }));
   }
 
   function resetState(){
@@ -447,11 +527,21 @@
     }
   }
 
+  // Without the Web Shooter Auto-Targeting upgrade, a shot fires in a
+  // fixed direction — up-and-back for the left hand, up-and-forward for
+  // the right, same angle the old no-target fallback always used — so
+  // landing a hit takes real aim. With it, shots auto-track the nearest
+  // un-stunned goon in either direction (see nearestGoonTarget()).
   function fireWebShot(side){
     const originX = player.x + (side === "left" ? 2 : PLAYER_W - 2);
     const originY = player.y + PLAYER_H * 0.3;
-    const target = nearestGoonTarget();
-    const t = target ? { x: target.x + target.w/2, y: target.y + target.h/2 } : { x: originX + 300, y: originY - 40 };
+    let t;
+    if (hasWebShooterUpgrade()){
+      const target = nearestGoonTarget();
+      t = target ? { x: target.x + target.w/2, y: target.y + target.h/2 } : { x: originX + 300, y: originY - 40 };
+    } else {
+      t = { x: originX + (side === "left" ? -300 : 300), y: originY - 40 };
+    }
     const v = aimAt(originX, originY, t.x, t.y, WEB_SHOT_SPEED);
     webShots.push({ x: originX, y: originY, vx: v.vx, vy: v.vy, r: 4 });
   }
@@ -517,12 +607,15 @@
   }
 
   // A slow trickle back toward full HP after a stretch of not getting
-  // hit — see REGEN_DELAY_FRAMES/REGEN_INTERVAL_FRAMES for the pacing.
+  // hit — see REGEN_DELAY_FRAMES/effectiveRegenInterval() for the
+  // pacing. The interval shrinks with each Health Regen Boost purchase
+  // (see effectiveRegenInterval()), so a leveled-up account heals
+  // faster without the base rate itself ever changing.
   function updateRegen(){
     if (player.hp >= PLAYER_MAX_HP){ player.regenTimer = 0; return; }
     if (player.regenDelay > 0){ player.regenDelay--; return; }
     player.regenTimer++;
-    if (player.regenTimer >= REGEN_INTERVAL_FRAMES){
+    if (player.regenTimer >= effectiveRegenInterval()){
       player.hp++;
       player.regenTimer = 0;
     }
@@ -974,7 +1067,7 @@
       // The next pip fills in gradually as regen progresses, so there's a
       // visible readout of how close the next HP tick actually is.
       if (i === player.hp && player.regenDelay <= 0 && player.hp < PLAYER_MAX_HP){
-        const t = clamp(player.regenTimer / REGEN_INTERVAL_FRAMES, 0, 1);
+        const t = clamp(player.regenTimer / effectiveRegenInterval(), 0, 1);
         ctx.fillStyle = COLORS.hpFull;
         ctx.fillRect(12 + i * 16, 12, 12 * t, 12);
       }
@@ -1021,27 +1114,240 @@
   /* ---------------- overlay UI ---------------- */
   function hideOverlay(){ overlay.style.display = "none"; }
 
+  function currentBestDisplay(){ return wrBestScore || 0; }
+
+  /* ---------------- login ---------------- */
+  // Mirrors Doom Scroller's name+password login exactly (see doom.js's
+  // showLoginOverlay()/attemptDoomLogin()) — same flow, same guest
+  // fallback, just its own Sheet tab/account so Arachnid Guy progress
+  // never collides with Doom Scroller's.
+  function showLoginOverlay(){
+    overlay.style.display = "flex";
+    overlayInner.innerHTML = `
+      <h3>Arachnid Guy</h3>
+      <p>Log in with a name and password to save your high score across
+      sessions, see it on the leaderboard above, and bank Tech Points
+      toward shop upgrades. First time using a name creates a fresh save
+      automatically — just remember the password.</p>
+      <div class="form-row"><input type="text" id="webrunner-login-name" placeholder="Name" maxlength="40"></div>
+      <div class="form-row"><input type="password" id="webrunner-login-password" placeholder="Password" maxlength="40"></div>
+      <button type="button" class="btn" id="webrunner-login-btn">Log In &amp; Play</button>
+      <p class="form-note" id="webrunner-login-status"></p>
+      <p class="form-note" style="margin-top:6px;"><a href="#" id="webrunner-guest-link" style="color:inherit;text-decoration:underline;">Play without saving</a></p>
+    `;
+
+    if (typeof getStoredName === "function"){
+      const stored = getStoredName();
+      if (stored) document.getElementById("webrunner-login-name").value = stored;
+    }
+
+    document.getElementById("webrunner-login-btn").addEventListener("click", attemptLogin);
+    document.getElementById("webrunner-guest-link").addEventListener("click", (e) => {
+      e.preventDefault();
+      enterGuestMode();
+      showStartOverlay();
+    });
+  }
+
+  function enterGuestMode(){
+    wrGuestMode = true;
+    wrName = null;
+    wrPassword = null;
+    const saved = loadGuestSave();
+    wrBestScore = saved.bestScore;
+    wrTechPoints = saved.techPoints;
+    wrShopLevels = saved.shopLevels;
+    wrLoginComplete = true;
+  }
+
+  async function attemptLogin(){
+    const nameInput = document.getElementById("webrunner-login-name");
+    const passwordInput = document.getElementById("webrunner-login-password");
+    const statusEl = document.getElementById("webrunner-login-status");
+    const name = nameInput.value.trim();
+    const password = passwordInput.value;
+
+    if (!name || !password){
+      statusEl.textContent = "Enter both a name and a password.";
+      statusEl.style.color = "var(--red)";
+      return;
+    }
+
+    if (!isConfigured()){
+      statusEl.textContent = "Not connected to a Google Sheet yet — see config.js. Playing without saving.";
+      statusEl.style.color = "var(--red)";
+      enterGuestMode();
+      setTimeout(showStartOverlay, 1200);
+      return;
+    }
+
+    const btn = document.getElementById("webrunner-login-btn");
+    btn.disabled = true;
+    statusEl.textContent = "Logging in…";
+    statusEl.style.color = "var(--muted)";
+
+    try{
+      const res = await apiPost({ action: "webrunnerLogin", name, password });
+      if (!res.success){
+        statusEl.textContent = res.error || "Couldn't log in — try again.";
+        statusEl.style.color = "var(--red)";
+        btn.disabled = false;
+        return;
+      }
+      wrGuestMode = false;
+      wrName = name;
+      wrPassword = password;
+      wrBestScore = Number(res.bestScore) || 0;
+      wrTechPoints = Number(res.techPoints) || 0;
+      wrShopLevels = parseShopLevels(res.shopLevels);
+      if (typeof setStoredName === "function") setStoredName(name);
+      wrLoginComplete = true;
+      showStartOverlay();
+    }catch(err){
+      console.error("[Arachnid Guy] login failed", err);
+      statusEl.textContent = "Couldn't reach the server — check your connection and try again.";
+      statusEl.style.color = "var(--red)";
+      btn.disabled = false;
+    }
+  }
+
   function showStartOverlay(){
     overlay.style.display = "flex";
+    const whoLine = wrGuestMode
+      ? `<p style="font-size:0.78rem;opacity:0.7;">Playing as guest — score and Tech Points stay on this device only.</p>`
+      : `<p style="font-size:0.78rem;opacity:0.7;">Logged in as ${escapeHTML(wrName)}.</p>`;
     overlayInner.innerHTML = `
       <h3>Arachnid Guy</h3>
       <p>Swing, run, and jump across the rooftops. W to jump, S for a
       flying kick — locks onto the nearest goon ahead and takes it down
       outright, stunned or not. A and D are your left and right
-      web-shooters — tap either to fire a web shot (auto-aimed at the
-      nearest goon, ahead or behind, webbing it in place), hold either
-      to swing (left pulls you back, right pulls you
-      forward — alternate for momentum), and the web auto-climbs while
-      you hang on for extra height. Swing or run into a webbed goon to
-      take them down; an armed one hurts you back, and some carry rocket
-      launchers that hit twice as hard. Rooftop obstacles block your way
-      rather than hurting you outright — jump them, or standing in one
-      costs HP slowly the longer you stay put. HP trickles back on its
-      own if you stay unhit for a while — slow, so it's not a crutch.
-      Prefer arrow keys? Flip the toggle below the game.</p>
+      web-shooters — tap either to fire a web shot, hold either to swing
+      (left pulls you back, right pulls you forward — alternate for
+      momentum), and the web auto-climbs while you hang on for extra
+      height. Swing or run into a webbed goon to take them down; an
+      armed one hurts you back, and some carry rocket launchers that hit
+      twice as hard. Rooftop obstacles block your way rather than
+      hurting you outright — jump them, or standing in one costs HP
+      slowly the longer you stay put. HP trickles back on its own if you
+      stay unhit for a while — slow, so it's not a crutch. Prefer arrow
+      keys? Flip the toggle below the game.</p>
+      ${whoLine}
+      <p style="font-size:0.82rem;opacity:0.85;">Your best: ${currentBestDisplay()} &middot; Tech Points: ${wrTechPoints}</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
+      <button type="button" class="btn light" id="webrunner-shop-btn">Shop</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
+    document.getElementById("webrunner-shop-btn").addEventListener("click", showShopOverlay);
+  }
+
+  /* ---------------- shop ---------------- */
+  // Permanent, account-bound upgrades — see the CONFIG comments above
+  // WEB_SHOOTER_UPGRADE_COST for what each one actually does. Purchases
+  // save immediately (Sheet for a logged-in account, localStorage for a
+  // guest), no separate confirm step.
+  function showShopOverlay(){
+    overlay.style.display = "flex";
+    const owned = hasWebShooterUpgrade();
+    const wsCost = WEB_SHOOTER_UPGRADE_COST;
+    const wsAffordable = !owned && wrTechPoints >= wsCost;
+    const regenLevel = regenUpgradeLevel();
+    const regenMaxed = regenLevel >= REGEN_UPGRADE_MAX_LEVEL;
+    const regenCost = regenUpgradeCost();
+    const regenAffordable = !regenMaxed && wrTechPoints >= regenCost;
+
+    overlayInner.innerHTML = `
+      <h3>Shop</h3>
+      <p style="font-size:0.82rem;opacity:0.85;">Tech Points: ${wrTechPoints}</p>
+      <div class="form-row">
+        <p style="margin:0 0 4px;font-weight:700;">Web Shooter: Auto-Targeting</p>
+        <p style="font-size:0.78rem;opacity:0.8;margin:0 0 8px;">Web shots auto-track the nearest goon instead of firing straight. One-time unlock.</p>
+        <button type="button" class="btn" id="webrunner-buy-ws-btn" ${owned || !wsAffordable ? "disabled" : ""}>${owned ? "Owned" : "Buy (" + wsCost + " Tech Points)"}</button>
+      </div>
+      <div class="form-row">
+        <p style="margin:0 0 4px;font-weight:700;">Health Regen Boost — level ${regenLevel}/${REGEN_UPGRADE_MAX_LEVEL}</p>
+        <p style="font-size:0.78rem;opacity:0.8;margin:0 0 8px;">Each purchase makes HP regen 1.2&times; faster.</p>
+        <button type="button" class="btn" id="webrunner-buy-regen-btn" ${regenMaxed || !regenAffordable ? "disabled" : ""}>${regenMaxed ? "Maxed out" : "Buy (" + regenCost + " Tech Points)"}</button>
+      </div>
+      <p class="form-note" id="webrunner-shop-status"></p>
+      <button type="button" class="btn light" id="webrunner-shop-back-btn">Back</button>
+    `;
+
+    document.getElementById("webrunner-buy-ws-btn").addEventListener("click", () => buyUpgrade("webShooter"));
+    document.getElementById("webrunner-buy-regen-btn").addEventListener("click", () => buyUpgrade("regen"));
+    document.getElementById("webrunner-shop-back-btn").addEventListener("click", showStartOverlay);
+  }
+
+  async function buyUpgrade(key){
+    let cost;
+    if (key === "webShooter"){
+      if (hasWebShooterUpgrade()) return;
+      cost = WEB_SHOOTER_UPGRADE_COST;
+    } else {
+      if (regenUpgradeLevel() >= REGEN_UPGRADE_MAX_LEVEL) return;
+      cost = regenUpgradeCost();
+    }
+    if (wrTechPoints < cost) return;
+
+    const nextLevels = Object.assign({}, wrShopLevels);
+    if (key === "webShooter") nextLevels.webShooter = 1;
+    else nextLevels.regen = (nextLevels.regen || 0) + 1;
+    const nextTechPoints = wrTechPoints - cost;
+
+    if (wrGuestMode || !isConfigured()){
+      wrTechPoints = nextTechPoints;
+      wrShopLevels = nextLevels;
+      saveGuestState();
+      showShopOverlay();
+      return;
+    }
+
+    const statusEl = document.getElementById("webrunner-shop-status");
+    if (statusEl){ statusEl.textContent = "Saving…"; statusEl.style.color = "var(--muted)"; }
+    try{
+      const res = await apiPost({
+        action: "webrunnerSaveShop", name: wrName, password: wrPassword,
+        techPoints: nextTechPoints, shopLevels: shopLevelsToString(nextLevels)
+      });
+      if (!res.success){
+        if (statusEl){ statusEl.textContent = res.error || "Couldn't save that purchase — try again."; statusEl.style.color = "var(--red)"; }
+        return;
+      }
+      wrTechPoints = res.techPoints != null ? Number(res.techPoints) : nextTechPoints;
+      wrShopLevels = parseShopLevels(res.shopLevels != null ? res.shopLevels : shopLevelsToString(nextLevels));
+      showShopOverlay();
+    }catch(err){
+      console.error("[Arachnid Guy] couldn't save shop purchase:", err);
+      if (statusEl){ statusEl.textContent = "Couldn't reach the server — check your connection and try again."; statusEl.style.color = "var(--red)"; }
+    }
+  }
+
+  /* ---------------- game over / score save ---------------- */
+  // Every run's score is added to the Tech Points balance unconditionally
+  // (not just new bests) — see the CONFIG comment above
+  // WEB_SHOOTER_UPGRADE_COST. bestScore (the leaderboard stat) only ever
+  // goes up, same as Doom Scroller's.
+  async function saveRun(finalScore){
+    const isNewBest = finalScore > (wrBestScore || 0);
+    if (wrGuestMode || !isConfigured()){
+      if (isNewBest) wrBestScore = finalScore;
+      wrTechPoints += finalScore;
+      saveGuestState();
+      return { isNewBest, saved: false };
+    }
+    try{
+      const res = await apiPost({ action: "webrunnerSaveScore", name: wrName, password: wrPassword, score: finalScore });
+      if (res && res.success){
+        if (res.bestScore != null) wrBestScore = Number(res.bestScore);
+        if (res.techPoints != null) wrTechPoints = Number(res.techPoints);
+        if (typeof renderLeaderboard === "function") renderLeaderboard();
+        return { isNewBest, saved: true };
+      }
+      console.error("[Arachnid Guy] webrunnerSaveScore rejected:", res && res.error);
+      return { isNewBest, saved: false };
+    }catch(err){
+      console.error("[Arachnid Guy] couldn't save score to the Sheet:", err);
+      return { isNewBest, saved: false };
+    }
   }
 
   function showGameOverOverlay(){
@@ -1050,9 +1356,31 @@
     overlayInner.innerHTML = `
       <h3>Web's Cut</h3>
       <p>Score: ${finalScore}</p>
+      <p style="font-size:0.78rem;opacity:0.8;margin-top:-10px;" id="webrunner-best-line">Your best: ${currentBestDisplay()} &middot; Tech Points: ${wrTechPoints}</p>
+      <p class="form-note" id="webrunner-save-status">Saving…</p>
       <button type="button" class="btn" id="webrunner-again-btn">Play Again</button>
+      <button type="button" class="btn light" id="webrunner-shop-again-btn">Shop</button>
     `;
     document.getElementById("webrunner-again-btn").addEventListener("click", startGame);
+    document.getElementById("webrunner-shop-again-btn").addEventListener("click", showShopOverlay);
+
+    const statusEl = document.getElementById("webrunner-save-status");
+    const bestLineEl = document.getElementById("webrunner-best-line");
+
+    saveRun(finalScore).then((result) => {
+      if (bestLineEl) bestLineEl.textContent = "Your best: " + currentBestDisplay() + " · Tech Points: " + wrTechPoints;
+      if (!statusEl) return;
+      if (result.saved){
+        statusEl.textContent = (result.isNewBest ? "New best! " : "") + "+" + finalScore + " Tech Points saved.";
+        statusEl.style.color = "var(--green)";
+      }else if (wrGuestMode || !isConfigured()){
+        statusEl.textContent = "+" + finalScore + " Tech Points (this device only — log in to save for real).";
+        statusEl.style.color = "var(--muted)";
+      }else{
+        statusEl.textContent = "Couldn't save to the leaderboard — check your connection.";
+        statusEl.style.color = "var(--red)";
+      }
+    });
   }
 
   /* ---------------- input ---------------- */
@@ -1083,8 +1411,9 @@
 
     ctx = canvas.getContext("2d");
     resetState();
+    wrLoginComplete = false;
     draw();
-    showStartOverlay();
+    showLoginOverlay();
 
     if (controlToggle){
       controlToggle.checked = controlScheme === "arrows";
@@ -1103,6 +1432,7 @@
       const keys = controlKeys();
 
       if (!started || over){
+        if (!wrLoginComplete) return; // still on the login screen — its own button handles input
         if (e.code === keys.jump || e.code === keys.left || e.code === keys.right || e.code === keys.kick){
           e.preventDefault();
           startGame();

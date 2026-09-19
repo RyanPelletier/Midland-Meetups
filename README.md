@@ -19,9 +19,9 @@ Your Google Sheet  <---->  Apps Script Web App  <---->  This website (GitHub Pag
   (the database)         (the API in between)          (what people see/use)
 ```
 
-- **The Sheet** has eight tabs: `Events`, `Memories`, `RSVPs`, `Squad`,
-  `Chat`, `Scores`, `WalterProgress`, `DoomScores`. You can look at and
-  hand-edit any of it any time.
+- **The Sheet** has nine tabs: `Events`, `Memories`, `RSVPs`, `Squad`,
+  `Chat`, `Scores`, `WalterProgress`, `DoomScores`, `WebrunnerScores`.
+  You can look at and hand-edit any of it any time.
 - **The Apps Script** (`apps-script/Code.gs`) is code that lives *inside*
   that Sheet (via Extensions → Apps Script) and exposes it to the website
   through a URL. It also emails you when something needs review, and
@@ -110,6 +110,18 @@ and the site is deployed (see below), it should be pulling live data.
   "Doom" column (see below). Playing as a guest skips this tab entirely —
   guest scores stay in `localStorage` only, same as before this feature
   existed.
+- **WebrunnerScores tab:** columns are `name`, `password`, `bestScore`,
+  `techPoints`, `shopLevels`, `updatedAt` — same name+password login
+  pattern as `DoomScores`, plus Arachnid Guy's shop. `techPoints` is a
+  running balance that goes up by that run's score on every save (not
+  just new bests); `shopLevels` is a compact string like `ws:1,regen:3`
+  holding how many levels of each shop upgrade the account owns, read by
+  `parseShopLevels()`/written by `shopLevelsToString()` in `webrunner.js`
+  — a new upgrade later just needs another `key:value` in that string,
+  not a new column. Powers Arachnid Guy's login and the shared
+  leaderboard's "Web" column (see below). Playing as a guest skips this
+  tab entirely — guest bestScore/techPoints/shopLevels stay in
+  `localStorage` only, same deal as Doom Scroller's guest mode.
 - **Chat tab:** columns are `id`, `name`, `message`, `timestamp`. Messages
   post immediately with no approval step (a review queue would defeat the
   point of a live chat). The page polls for new messages every 8 seconds.
@@ -492,9 +504,9 @@ Logged-in scores auto-save the instant a run beats your previous best —
 there's no separate "save" button to click, since your identity is
 already established by the login. That best score also feeds the shared
 leaderboard at the top of this page (see `renderLeaderboard()` in
-`app.js`), which now shows one row per player with both games' high
-scores side by side — a name that's only played one of the two games
-just shows "—" in the other column.
+`app.js`), which now shows one row per player with each game's high
+score side by side — a name that's only played some of the games just
+shows "—" in the others.
 
 **This needs a small Apps Script addition to work** — see "Apps Script
 setup for Doom Scroller's login" right below. Until that's added to your
@@ -585,6 +597,143 @@ function doomSaveScore(name, password, score){
    so the live URL picks up the change (same step as any other script
    edit — see Part 1 above).
 
+**Arachnid Guy now has a login and a shop**, the same name+password
+pattern as Doom Scroller, plus a persistent **Tech Points** balance and
+account-bound upgrades. The first thing you see is a login screen; a
+**"Play without saving"** guest link plays exactly the same game, shop
+included, just with everything (best score, Tech Points, owned
+upgrades) kept in `localStorage` on that one device instead of the
+Sheet. Every run — not just new bests — adds that run's score to your
+Tech Points balance, spent in the Shop (reachable from the start screen
+or the game-over screen) on:
+
+- **Web Shooter: Auto-Targeting** — a one-time unlock. Without it, a web
+  shot fires in a fixed direction and landing a hit takes real aim; with
+  it, shots auto-track the nearest un-stunned goon in either direction
+  (see `fireWebShot()`/`hasWebShooterUpgrade()` in `webrunner.js`).
+- **Health Regen Boost** — repeatable, each purchase multiplies HP regen
+  speed by 1.2x, capped at 5 levels (~2.5x total) so it stays a genuine
+  grind rather than making regen trivially fast (see
+  `effectiveRegenInterval()`).
+
+**This needs a small Apps Script addition to work**, same deal as Doom
+Scroller's — see "Apps Script setup for Arachnid Guy's login and shop"
+right below. Until that's added to your live deployment, the login
+screen will show a "couldn't reach the server" error; nothing on the
+rest of the site breaks.
+
+### Apps Script setup for Arachnid Guy's login and shop
+
+Same idea as Doom Scroller's section above — this repo can't ship the
+backend half of this feature for you, since `Code.gs` lives in your
+Sheet's Apps Script editor, not on GitHub. Open **Extensions → Apps
+Script** on your Sheet and:
+
+1. Add a new tab to the Sheet named exactly `WebrunnerScores`, with a
+   header row: `name`, `password`, `bestScore`, `techPoints`,
+   `shopLevels`, `updatedAt`.
+2. Paste these functions into `Code.gs` anywhere at the top level:
+
+```js
+function getWebrunnerScoresSheet_(){
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("WebrunnerScores");
+  if (!sheet) throw new Error("WebrunnerScores tab not found — create it with headers: name, password, bestScore, techPoints, shopLevels, updatedAt");
+  return sheet;
+}
+
+function getWebrunnerScores(){
+  const sheet = getWebrunnerScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < rows.length; i++){
+    const name = rows[i][0], bestScore = rows[i][2];
+    if (!name) continue;
+    out.push({ name: String(name), score: Number(bestScore) || 0 });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
+function webrunnerLogin(name, password){
+  name = String(name || "").trim();
+  password = String(password || "");
+  if (!name || !password) return { success: false, error: "Enter both a name and a password." };
+
+  const sheet = getWebrunnerScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()){
+      if (String(rows[i][1]) !== password) return { success: false, error: "Wrong password for that name." };
+      return {
+        success: true,
+        bestScore: Number(rows[i][2]) || 0,
+        techPoints: Number(rows[i][3]) || 0,
+        shopLevels: String(rows[i][4] || "")
+      };
+    }
+  }
+  sheet.appendRow([name, password, 0, 0, "", new Date().toISOString()]); // brand-new name — fresh save
+  return { success: true, bestScore: 0, techPoints: 0, shopLevels: "" };
+}
+
+function webrunnerSaveScore(name, password, score){
+  name = String(name || "").trim();
+  password = String(password || "");
+  score = Number(score) || 0;
+
+  const sheet = getWebrunnerScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()){
+      if (String(rows[i][1]) !== password) return { success: false, error: "Wrong password for that name." };
+      const currentBest = Number(rows[i][2]) || 0;
+      const newBest = Math.max(currentBest, score);
+      const newTechPoints = (Number(rows[i][3]) || 0) + score; // every run adds Tech Points, not just new bests
+      sheet.getRange(i + 1, 3).setValue(newBest);
+      sheet.getRange(i + 1, 4).setValue(newTechPoints);
+      sheet.getRange(i + 1, 6).setValue(new Date().toISOString());
+      return { success: true, bestScore: newBest, techPoints: newTechPoints };
+    }
+  }
+  return { success: false, error: "Not logged in — log in first." };
+}
+
+function webrunnerSaveShop(name, password, techPoints, shopLevels){
+  name = String(name || "").trim();
+  password = String(password || "");
+  techPoints = Number(techPoints) || 0;
+  shopLevels = String(shopLevels || "");
+
+  const sheet = getWebrunnerScoresSheet_();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][0]).trim().toLowerCase() === name.toLowerCase()){
+      if (String(rows[i][1]) !== password) return { success: false, error: "Wrong password for that name." };
+      sheet.getRange(i + 1, 4).setValue(techPoints);
+      sheet.getRange(i + 1, 5).setValue(shopLevels);
+      sheet.getRange(i + 1, 6).setValue(new Date().toISOString());
+      return { success: true, techPoints: techPoints, shopLevels: shopLevels };
+    }
+  }
+  return { success: false, error: "Not logged in — log in first." };
+}
+```
+
+3. Wire those into your existing `doGet`/`doPost` action dispatcher (the
+   same `if`/`switch` that already handles `getDoomScores`, `doomLogin`,
+   etc.) — add cases for `getWebrunnerScores` (GET), `webrunnerLogin`
+   (POST, needs `name` + `password`), `webrunnerSaveScore` (POST, needs
+   `name` + `password` + `score`), and `webrunnerSaveShop` (POST, needs
+   `name` + `password` + `techPoints` + `shopLevels`), each returning
+   that function's result wrapped in whatever response helper your other
+   actions already use. The exact wiring depends on how your dispatcher
+   is written, since only the Sheet-side of this script is yours to edit
+   here — the website side (`webrunner.js`, `app.js`) already calls
+   these four action names and expects exactly the shapes above.
+4. **Deploy → Manage deployments → pencil icon → New version → Deploy**
+   so the live URL picks up the change (same step as any other script
+   edit — see Part 1 above).
+
 **A technical note for future changes:** since four games now share
 one page, `game.js`, `walter.js`, `doom.js`, and `webrunner.js` each
 check that their *own* canvas is the focused element before responding
@@ -644,13 +793,15 @@ rooftops while taking down goons.
   one (or catching one of their bullets) costs you a hit instead. Goon
   guns aim at wherever you actually are the instant they fire — no
   homing after that — using the exact same `aimAt()` targeting Doom
-  Scroller's projectiles use; your own web shots use it too, auto-aimed
-  at the nearest un-stunned goon in *either* direction — ahead of you or
-  already behind you — rather than only ever looking forward (or
-  straight ahead if none are in range). A fraction of spawned goons
-  carry a rocket launcher instead of a pistol — slower shots and a
-  longer reload, but a hit explodes on impact for 2 hit points instead
-  of the usual 1.
+  Scroller's projectiles use. Your own web shots only auto-aim (at the
+  nearest un-stunned goon in *either* direction — ahead of you or already
+  behind you) once the Web Shooter: Auto-Targeting shop upgrade is
+  bought; without it, a shot fires in a fixed direction (left hand
+  up-and-back, right hand up-and-forward) and landing a hit takes real
+  aim — see the Shop bullet below. A fraction of spawned goons carry a
+  rocket launcher instead of a pistol — slower shots and a longer
+  reload, but a hit explodes on impact for 2 hit points instead of the
+  usual 1.
 - **Obstacles:** running into one blocks forward progress rather than
   being an instant hit — it stops dead against the player instead of
   scrolling through them, so it's a wall to jump over, not an ambush.
@@ -682,11 +833,19 @@ rooftops while taking down goons.
   body pieces with their own simple gravity — rather than a real
   joint-constrained physics simulation. Cheap, reliable, and matches the
   flat-shape/no-library approach every other game on this page uses.
-- **No score saving yet.** Unlike Wizards & Waffles and Doom Scroller,
-  Arachnid Guy doesn't touch the Sheet or the leaderboard at all right
-  now — score is shown live and at game over, nothing more. A Sheet-backed
-  best score (and a slot on the shared leaderboard) is planned but not
-  built yet.
+- **Login, leaderboard, and shop:** the first screen is a name+password
+  login, same pattern as Doom Scroller (a "Play without saving" guest
+  link skips it, keeping everything on that device only). Logged-in runs
+  save their best score to the shared leaderboard at the top of the page
+  (the "Web" column), and every run — not just new bests — adds that
+  run's score to a persistent **Tech Points** balance, spent in the
+  **Shop** (reachable from the start screen or the game-over screen) on
+  permanent upgrades: Web Shooter Auto-Targeting (a one-time unlock —
+  see the Combat bullet above) and Health Regen Boost (repeatable, each
+  purchase multiplies regen speed by 1.2x, capped at 5 levels so it stays
+  a real grind rather than trivializing regen — see
+  `effectiveRegenInterval()` in `webrunner.js`). See "Apps Script setup
+  for Arachnid Guy's login and shop" above for the backend half of this.
 
 ## Adding a new page (or renaming/reordering nav links)
 

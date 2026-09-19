@@ -200,11 +200,12 @@ const ICONS = {
 };
 
 /* ---------------- Shared leaderboard (game.html) ---------------- */
-// Merges Wizards & Waffles' scores (getScores) with Doom Scroller's
-// (getDoomScores) into one list, one row per player name, so a name that's
-// played both games shows both high scores side by side. Both games call
-// this again after a successful score save; it also self-refreshes on a
-// timer so scores saved by other people show up without a manual reload.
+// Merges Wizards & Waffles' scores (getScores), Doom Scroller's
+// (getDoomScores), and Arachnid Guy's (getWebrunnerScores) into one list,
+// one row per player name, so a name that's played more than one game
+// shows every high score side by side. All three games call this again
+// after a successful score save; it also self-refreshes on a timer so
+// scores saved by other people show up without a manual reload.
 async function renderLeaderboard(){
   const list = document.getElementById("leaderboard-list");
   if (!list) return;
@@ -214,32 +215,35 @@ async function renderLeaderboard(){
     return;
   }
 
-  let wwScores, doomScores;
+  let wwScores, doomScores, webrunnerScores;
   try{
     const results = await Promise.all([
       apiGet("getScores"),
-      apiGet("getDoomScores").catch(() => []) // older backends without this action yet shouldn't blank the whole board
+      apiGet("getDoomScores").catch(() => []), // older backends without this action yet shouldn't blank the whole board
+      apiGet("getWebrunnerScores").catch(() => [])
     ]);
     wwScores = results[0];
     doomScores = results[1];
+    webrunnerScores = results[2];
   }catch(err){
     console.error(err);
     list.innerHTML = loadErrorNotice();
     return;
   }
 
-  const byName = new Map(); // lowercase, trimmed name -> { name, ww, doom }
+  const byName = new Map(); // lowercase, trimmed name -> { name, ww, doom, webrunner }
   function upsert(rawName, field, rawScore){
     const key = String(rawName).toLowerCase().trim();
     if (!key) return;
-    if (!byName.has(key)) byName.set(key, { name: rawName, ww: null, doom: null });
+    if (!byName.has(key)) byName.set(key, { name: rawName, ww: null, doom: null, webrunner: null });
     byName.get(key)[field] = Math.floor(Number(rawScore));
   }
   (wwScores || []).forEach(s => upsert(s.name, "ww", s.score));
   (doomScores || []).forEach(s => upsert(s.name, "doom", s.score));
+  (webrunnerScores || []).forEach(s => upsert(s.name, "webrunner", s.score));
 
   const rows = Array.from(byName.values())
-    .sort((a, b) => Math.max(b.ww || 0, b.doom || 0) - Math.max(a.ww || 0, a.doom || 0))
+    .sort((a, b) => Math.max(b.ww || 0, b.doom || 0, b.webrunner || 0) - Math.max(a.ww || 0, a.doom || 0, a.webrunner || 0))
     .slice(0, 20);
 
   if (rows.length === 0){
@@ -254,6 +258,7 @@ async function renderLeaderboard(){
       <span class="leaderboard-scores">
         <span class="leaderboard-score" title="Wizards &amp; Waffles">${r.ww != null ? r.ww : "—"}</span>
         <span class="leaderboard-score leaderboard-score-doom" title="Doom Scroller">${r.doom != null ? r.doom : "—"}</span>
+        <span class="leaderboard-score leaderboard-score-webrunner" title="Arachnid Guy">${r.webrunner != null ? r.webrunner : "—"}</span>
       </span>
     </li>
   `).join("");
