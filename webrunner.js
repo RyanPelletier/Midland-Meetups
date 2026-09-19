@@ -11,8 +11,10 @@
 
    CONTROLS: Space to jump. KeyA/KeyD are the left/right web-shooters —
    tap either to fire a web shot (stuns a goon on a hit), hold either to
-   swing from the nearest valid anchor point ahead. Release to let go of
-   a swing, launching you onward with whatever momentum you built up.
+   swing — always works, comic-Spider-Man style, no city anchor point
+   needed. Release to let go, launching you onward with whatever
+   momentum you built up. Hold W while swinging to climb the web and
+   gain height.
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -47,18 +49,22 @@
   const PLATFORM_MIN_W = 100;
   const PLATFORM_MAX_W = 190;
   const GAP_SMALL_MIN = 70, GAP_SMALL_MAX = 120;   // jumpable without swinging
-  const GAP_BIG_MIN = 160, GAP_BIG_MAX = 250;      // needs a swing — gets an anchor point
+  const GAP_BIG_MIN = 160, GAP_BIG_MAX = 250;      // wide enough that swinging is the practical way across
   const BIG_GAP_CHANCE = 0.45;
-  const ANCHOR_HEIGHT_ABOVE = 120; // how far above the higher flanking rooftop an anchor sits
   const OBSTACLE_CHANCE = 0.35; // chance a platform gets a rooftop obstacle to jump over
 
   // Dual web-shooters — tap fires a shot, hold (past the threshold)
-  // starts a swing. See updateHands() / attemptSwingAttach().
+  // starts a swing. Swinging always works, comic-Spider-Man style — no
+  // city anchor point to find, it just shoots up into the skyline. See
+  // updateHands() / attemptSwingAttach().
   const HAND_TAP_THRESHOLD_FRAMES = 9;
   const WEB_SHOT_SPEED = 10.5;
   const WEB_HAND_COOLDOWN_FRAMES = 20;
-  const SWING_ROPE_MAX_REACH = 260; // max distance to an anchor point for auto-attach
+  const SWING_VIRTUAL_HEIGHT = 150; // how high above the player the web's attach point sits
+  const SWING_FORWARD_OFFSET = 50;  // how far ahead of the player, so the arc actually carries you forward
   const SWING_DAMPING = 0.999;
+  const SWING_CLIMB_RATE = 1.6; // px/frame the rope shortens while W is held
+  const SWING_MIN_ROPE = 40;
 
   const GOON_W = 22, GOON_H = 34;
   const GOON_SPAWN_CHANCE = 0.5; // per eligible platform
@@ -84,7 +90,6 @@
     street: "#D8CDBA",
     rooftop: "#F6C945", rooftopTrim: "#E0982E",
     obstacle: "#9CA3AF",
-    anchorPole: "#B8B4C0",
     hero: "#E5484D", heroTrim: "#2851E3", heroMask: "#1A1A22",
     web: "#FFFFFF",
     goon: "#3A3F5C", goonGun: "#22263A", goonStunned: "#B8B4C0",
@@ -94,7 +99,7 @@
   };
 
   let canvas, ctx, overlay, overlayInner;
-  let player, platforms, anchors, obstacles, goons, webShots, goonBullets, tumbles;
+  let player, platforms, obstacles, goons, webShots, goonBullets, tumbles;
   let scrollSpeed, score, frame, running, over, started, animId;
   let genCursorX; // screen-x out to which platforms/gaps have already been generated
   const keysDown = {};
@@ -113,7 +118,6 @@
       ragdoll: null
     };
     platforms = [];
-    anchors = [];
     obstacles = [];
     goons = [];
     webShots = [];
@@ -162,10 +166,6 @@
     const nextY = randBetween(minY, maxY);
     const w = randBetween(PLATFORM_MIN_W, PLATFORM_MAX_W);
     const x = last.x + last.w + gap;
-
-    if (big){
-      anchors.push({ x: x - gap/2, y: Math.min(prevY, nextY) - ANCHOR_HEIGHT_ABOVE });
-    }
 
     const plat = { x, y: nextY, w };
     platforms.push(plat);
@@ -217,25 +217,20 @@
     });
   }
 
-  function nearestAnchorAhead(){
-    let best = null, bestDist = Infinity;
-    for (const a of anchors){
-      if (a.x < player.x - 20) continue; // already behind, not grabbable
-      const d = Math.hypot(a.x - player.x, a.y - player.y);
-      if (d <= SWING_ROPE_MAX_REACH && d < bestDist){ best = a; bestDist = d; }
-    }
-    return best;
-  }
-
+  // Swinging always works, comic-Spider-Man style — no city anchor point
+  // to find or be in range of, the web just shoots up into the skyline.
+  // The attach point is a "virtual" spot a fixed height above and a bit
+  // ahead of wherever the player currently is, so the arc actually
+  // carries them forward; it then scrolls with the world like everything
+  // else (see updateSwing()) rather than staying nailed to one screen x.
   function attemptSwingAttach(side){
-    const anchor = nearestAnchorAhead();
-    if (!anchor) return;
+    if (player.mode === "dead") return;
     player.mode = "swinging";
     player.swingHand = side;
     player.hand[side].active = true;
-    player.anchorX = anchor.x;
-    player.anchorY = anchor.y;
-    const dx = player.x - anchor.x, dy = player.y - anchor.y;
+    player.anchorX = player.x + SWING_FORWARD_OFFSET;
+    player.anchorY = player.y - SWING_VIRTUAL_HEIGHT;
+    const dx = player.x - player.anchorX, dy = player.y - player.anchorY;
     player.ropeLen = Math.max(30, Math.hypot(dx, dy));
     player.angle = Math.atan2(dx, dy); // 0 = hanging straight down
     // Carry existing momentum into the swing as initial angular velocity
@@ -256,6 +251,14 @@
   }
 
   function updateSwing(){
+    player.anchorX -= scrollSpeed; // the attach point is part of the world, scrolls with it like everything else
+
+    // Holding W reels the web in, climbing toward the anchor for extra
+    // height — a straight radius change, not real conserved angular
+    // momentum (which would also spin you faster) — simple and readable
+    // beats "physically exact" here, same call as the ragdoll's.
+    if (keysDown.KeyW) player.ropeLen = Math.max(SWING_MIN_ROPE, player.ropeLen - SWING_CLIMB_RATE);
+
     const angAccel = -(GRAVITY / player.ropeLen) * Math.sin(player.angle);
     player.angularVel += angAccel;
     player.angularVel *= SWING_DAMPING;
@@ -454,11 +457,11 @@
     if (player.mode !== "dead") score += scrollSpeed * 0.05;
 
     platforms.forEach(p => p.x -= scrollSpeed);
-    anchors.forEach(a => a.x -= scrollSpeed);
     obstacles.forEach(o => o.x -= scrollSpeed);
     platforms = platforms.filter(p => p.x + p.w > -30);
-    anchors = anchors.filter(a => a.x > -30);
     obstacles = obstacles.filter(o => o.x + o.w > -30);
+    genCursorX -= scrollSpeed; // the generation cursor is screen-space too — it has to scroll with
+    // everything else, or it goes stale after the first batch and the world stops generating
     updateGeneration();
 
     updatePlayer();
@@ -504,11 +507,6 @@
       ctx.fillStyle = COLORS.rooftopTrim;
       ctx.fillRect(p.x, p.y, p.w, 4);
       ctx.fillStyle = COLORS.rooftop;
-    });
-    ctx.fillStyle = COLORS.anchorPole;
-    anchors.forEach(a => {
-      ctx.fillRect(a.x - 2, a.y, 4, 40);
-      ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI*2); ctx.fill();
     });
     ctx.fillStyle = COLORS.obstacle;
     obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
@@ -661,9 +659,10 @@
       <h3>Arachnid Guy</h3>
       <p>Swing, run, and jump across the rooftops. Space to jump. A and D
       are your left and right web-shooters — tap either to fire a web
-      shot (webs up a goon in place), hold either to swing from the
-      nearest ledge or pole ahead. Swing or run into a webbed goon to
-      take them down; an armed one hurts you back.</p>
+      shot (webs up a goon in place), hold either to swing — always
+      works, no city anchor point needed. Hold W while swinging to climb
+      the web and gain height. Swing or run into a webbed goon to take
+      them down; an armed one hurts you back.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
@@ -721,7 +720,7 @@
       if (e.code === "Space"){
         e.preventDefault();
         if (!e.repeat) jump();
-      } else if (e.code === "KeyA" || e.code === "KeyD"){
+      } else if (e.code === "KeyA" || e.code === "KeyD" || e.code === "KeyW"){
         e.preventDefault();
         keysDown[e.code] = true;
       }
@@ -731,6 +730,7 @@
       if (document.activeElement !== canvas) return;
       if (e.code === "KeyA"){ keysDown.KeyA = false; releaseHand("left"); }
       else if (e.code === "KeyD"){ keysDown.KeyD = false; releaseHand("right"); }
+      else if (e.code === "KeyW"){ keysDown.KeyW = false; }
     });
   }
 
