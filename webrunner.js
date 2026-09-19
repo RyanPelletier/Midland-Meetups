@@ -9,25 +9,32 @@
    Scroller, so this file only reacts to input when its OWN canvas is
    focused — see initGame() at the bottom (same guard those three use).
 
-   CONTROLS: W to jump, S for a flying kick. KeyA/KeyD are the left/right
-   web-shooters — tap either to fire a web shot (stuns a goon on a hit),
-   hold either to swing — always works, comic-Spider-Man style, no city
-   anchor point needed. The left hand's web pulls you backward (anchored
-   15% in from the left edge), the right hand's pulls you forward
-   (anchored 10% in from the right edge) — alternate hands for a real
-   back-and-forth swinging rhythm. Release to let go, launching you
-   onward with whatever momentum you built up. The web auto-climbs while
-   you swing, so you gain height without any extra input. The flying
-   kick locks onto the nearest goon ahead and closes the distance
-   instantly — the goon is the anchor point and the "climb" runs at
-   100% speed instead of the usual slow auto-climb — defeating it
-   outright (stunned or not) and sending it into a ragdoll tumble. An
-   on-page toggle swaps the whole scheme to arrow keys
+   CONTROLS: W to jump, S for a flying kick, Space to fire both
+   web-shooters at once (whichever hand isn't currently swinging and is
+   off cooldown). KeyA/KeyD each grab onto a swing the instant they're
+   pressed and let go on release — always works, comic-Spider-Man style,
+   no city anchor point needed. The left hand's web pulls you backward
+   (anchored 15% in from the left edge), the right hand's pulls you
+   forward (anchored 10% in from the right edge) — alternate hands for a
+   real back-and-forth swinging rhythm. Releasing launches you onward
+   with whatever momentum you built up. The web auto-climbs while you
+   swing, so you gain height without any extra input. The flying kick
+   locks onto the nearest goon (or the flying goblin) ahead and closes
+   the distance instantly — the target is the anchor point and the
+   "climb" runs at 100% speed instead of the usual slow auto-climb —
+   defeating it outright (stunned or not) and sending it into a ragdoll
+   tumble. An on-page toggle swaps the whole scheme to arrow keys
    (Left/Right/Up/Down) instead — see controlKeys() and the
    #webrunner-control-scheme checkbox in initGame(). Some goons carry
    rocket launchers instead of pistols — their shots explode on impact
-   for 2 hit points instead of 1. HP regenerates slowly on its own after
-   a stretch of not getting hit — see REGEN_DELAY_FRAMES/
+   for 2 hit points instead of 1, same as a regular bullet now too (see
+   GOON_BULLET_DAMAGE). A wiggly squiggle appears over the player's head
+   whenever some enemy projectile is genuinely about to pass close by —
+   see isThreatIncoming()/drawAlertSquiggles(). A rare flying goblin on a
+   hoverboard occasionally shows up and chases the player, throwing
+   exploding pumpkins, until either it or the player goes down — see
+   trySpawnGoblin()/updateGoblin(). HP regenerates slowly on its own
+   after a stretch of not getting hit — see REGEN_DELAY_FRAMES/
    REGEN_INTERVAL_FRAMES/updateRegen() — deliberately slow so it's a
    reward for careful play, not a crutch. Rooftop obstacles block
    forward progress rather than being an instant hit — running into one
@@ -36,9 +43,9 @@
    OBSTACLE_DAMAGE_INTERVAL_FRAMES/applyObstacleDamage()); jump clear
    before the first tick and it costs nothing.
 
-   No score saving yet — this is a first pass at the game itself; a
-   Sheet-backed leaderboard entry is planned for later, same as Doom
-   Scroller's.
+   Login/leaderboard/shop: see showLoginOverlay()/showShopOverlay() —
+   an account-bound Tech Points balance buys permanent upgrades, same as
+   Doom Scroller's login pattern but with its own account/Sheet tab.
 
    TUNING: every number worth playing with lives in CONFIG below.
    ===================================================================== */
@@ -84,11 +91,12 @@
   const OBSTACLE_MIN_GAP = 50; // min slot width, so obstacles never cluster/overlap
   const OBSTACLE_MAX_COUNT = 3;
 
-  // Dual web-shooters — tap fires a shot, hold (past the threshold)
-  // starts a swing. Swinging always works, comic-Spider-Man style — no
-  // city anchor point to find, it just shoots up into the skyline. See
-  // updateHands() / attemptSwingAttach().
-  const HAND_TAP_THRESHOLD_FRAMES = 9;
+  // Dual web-shooters — Space fires both hands at once (each still gated
+  // by its own cooldown, and skipped if that hand is currently the one
+  // swinging); A/D each grab onto a swing the instant they're pressed
+  // and let go on release. Swinging always works, comic-Spider-Man
+  // style — no city anchor point to find, it just shoots up into the
+  // skyline. See fireBothHands() / attemptSwingAttach().
   const WEB_SHOT_SPEED = 10.5;
   const WEB_HAND_COOLDOWN_FRAMES = 20;
   const SWING_VIRTUAL_HEIGHT = 150; // how high above the anchor's screen-x the web's attach point sits
@@ -118,9 +126,19 @@
   const GOON_SPAWN_CHANCE = 0.5; // per eligible platform
   const GOON_FIRE_COOLDOWN_MIN = 70, GOON_FIRE_COOLDOWN_MAX = 140;
   const GOON_BULLET_SPEED = 6.5;
+  const GOON_BULLET_DAMAGE = 2;
   const GOON_RANGE = 420;
   const STUN_DURATION_FRAMES = 150;
   const SCORE_PER_GOON = 40;
+
+  // Incoming-fire alert — a wiggly squiggle over the player's head
+  // whenever some enemy projectile (bullet, rocket, or pumpkin — any
+  // entry in goonBullets) is on a straight-line path that will pass
+  // close by soon, using the true closest-approach point along its
+  // trajectory rather than just its current distance. See
+  // isThreatIncoming()/drawAlertSquiggles().
+  const ALERT_LOOKAHEAD_FRAMES = 45;
+  const ALERT_RADIUS = 30;
 
   // RPG goons — a subset of spawned goons carry a rocket launcher instead
   // of a pistol. Slower shots, longer reload, but a hit explodes for
@@ -169,6 +187,24 @@
   const REGEN_UPGRADE_MAX_LEVEL = 5;
   const REGEN_UPGRADE_BASE_COST = 400; // cost for level N+1 is this * (N+1)
 
+  // Flying Goblin — a rare, persistent chase enemy on a hoverboard.
+  // Unlike regular goons (which spawn with the scrolling city and get
+  // left behind), it actively repositions to stay near the player and
+  // never leaves on its own — only defeating it (or the player dying)
+  // ends the encounter. See trySpawnGoblin()/updateGoblin().
+  const GOBLIN_MIN_SPAWN_FRAME = 900; // no goblin in the first ~15s
+  const GOBLIN_SPAWN_CHECK_INTERVAL_FRAMES = 600; // ~10s between spawn rolls
+  const GOBLIN_SPAWN_CHANCE = 0.35; // per roll, while none is currently active
+  const GOBLIN_W = 26, GOBLIN_H = 30;
+  const GOBLIN_FOLLOW_DX = 190; // stays roughly this far ahead of the player
+  const GOBLIN_FOLLOW_DY = 130; // and this far above
+  const GOBLIN_CHASE_EASE = 0.04; // how quickly it eases toward its target spot each frame
+  const GOBLIN_THROW_COOLDOWN_MIN = 90, GOBLIN_THROW_COOLDOWN_MAX = 160;
+  const PUMPKIN_SPEED = 5.5;
+  const PUMPKIN_R = 7;
+  const PUMPKIN_DAMAGE = 2;
+  const SCORE_PER_GOBLIN = 150;
+
   const DEBUG = false;
   /* ==================== end config ==================== */
 
@@ -185,16 +221,19 @@
     web: "#FFFFFF",
     goon: "#3A3F5C", goonGun: "#22263A", goonStunned: "#B8B4C0",
     rpgGoon: "#6B2FA0", rpgLauncher: "#3D2247",
-    bullet: "#F6A93B", rocket: "#FF6B35",
+    goblin: "#4CAF50", goblinDark: "#1B5E20",
+    hoverboard: "#5C3A21", hoverboardGlow: "#9B6FD6",
+    bullet: "#F6A93B", rocket: "#FF6B35", pumpkin: "#FF7A1A",
+    alert: "#FF2D55",
     hpFull: "#E5484D", hpEmpty: "#E4DCC8",
     scoreText: "#1F2430"
   };
 
   let canvas, ctx, overlay, overlayInner, controlToggle;
   let player, platforms, obstacles, goons, webShots, goonBullets, tumbles, explosions;
+  let goblin, goblinSpawnTimer; // goblin is null when none is currently active
   let scrollSpeed, score, frame, running, over, started, animId;
   let genCursorX; // screen-x out to which platforms/gaps have already been generated
-  const keysDown = {};
 
   // Control scheme — WASD-style (A/D web-shooters, W jump, S kick) or
   // arrow keys (Left/Right web-shooters, Up jump, Down kick), swapped via
@@ -203,10 +242,12 @@
   // never a hardcoded key.
   const CONTROL_SCHEME_KEY = "webrunner-control-scheme";
   let controlScheme = localStorage.getItem(CONTROL_SCHEME_KEY) === "arrows" ? "arrows" : "wasd";
+  // Space always fires (shoot()); it isn't part of either scheme since
+  // it's a neutral key neither layout otherwise uses.
   function controlKeys(){
     return controlScheme === "arrows"
-      ? { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp", kick: "ArrowDown" }
-      : { left: "KeyA", right: "KeyD", jump: "KeyW", kick: "KeyS" };
+      ? { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp", kick: "ArrowDown", shoot: "Space" }
+      : { left: "KeyA", right: "KeyD", jump: "KeyW", kick: "KeyS", shoot: "Space" };
   }
 
   /* ---------------- account / shop state ---------------- */
@@ -279,8 +320,8 @@
       regenDelay: 0, regenTimer: 0,
       obstacleContactFrames: 0,
       hand: {
-        left:  { holdFrames: 0, cooldown: 0, active: false },
-        right: { holdFrames: 0, cooldown: 0, active: false }
+        left:  { cooldown: 0 },
+        right: { cooldown: 0 }
       },
       swingHand: null, anchorX: 0, anchorY: 0, ropeLen: 0, angle: 0, angularVel: 0,
       kickCooldown: 0, kickFrames: 0, kickTargetGoon: null,
@@ -293,12 +334,13 @@
     goonBullets = [];
     tumbles = [];
     explosions = [];
+    goblin = null;
+    goblinSpawnTimer = GOBLIN_SPAWN_CHECK_INTERVAL_FRAMES;
     scrollSpeed = SCROLL_START;
     score = 0;
     frame = 0;
     running = false;
     over = false;
-    for (const k in keysDown) delete keysDown[k];
 
     // Seed a safe starting rooftop right under the player so the run
     // doesn't open with an instant fall.
@@ -388,24 +430,9 @@
     return null;
   }
 
-  function updateHands(){
-    const keys = controlKeys();
-    ["left","right"].forEach(side => {
-      const h = player.hand[side];
-      if (h.cooldown > 0) h.cooldown--;
-      const code = side === "left" ? keys.left : keys.right;
-      // Pause hold-tracking on the *other* hand once one is already
-      // swinging — otherwise holding both at once leaves the second
-      // hand's press stuck past the tap threshold, so releasing it
-      // later fires nothing instead of a web shot.
-      if (player.mode === "swinging" && player.swingHand !== side) return;
-      if (keysDown[code] && h.cooldown <= 0 && player.mode !== "dead"){
-        h.holdFrames++;
-        if (!h.active && h.holdFrames >= HAND_TAP_THRESHOLD_FRAMES && player.mode !== "swinging"){
-          attemptSwingAttach(side);
-        }
-      }
-    });
+  function updateHandCooldowns(){
+    if (player.hand.left.cooldown > 0) player.hand.left.cooldown--;
+    if (player.hand.right.cooldown > 0) player.hand.right.cooldown--;
   }
 
   // Swinging always works, comic-Spider-Man style — no city anchor point
@@ -417,11 +444,15 @@
   // world position. Each hand anchors to a different screen-x — left
   // pulls backward, right pulls forward — so alternating them gives a
   // real back-and-forth swing instead of both arms doing the same thing.
+  // Triggers instantly on keydown (see initGame()) — player.swingHand is
+  // the single source of truth for which hand, if any, is busy holding
+  // the rope, so there's no separate "is this hand active" flag to keep
+  // in sync with it.
   function attemptSwingAttach(side){
-    if (player.mode === "dead") return;
+    if (player.mode === "dead" || player.mode === "swinging") return;
+    if (player.hand[side].cooldown > 0) return;
     player.mode = "swinging";
     player.swingHand = side;
-    player.hand[side].active = true;
     player.anchorX = CANVAS_W * (side === "left" ? SWING_ANCHOR_X_FRACTION_LEFT : SWING_ANCHOR_X_FRACTION_RIGHT);
     player.anchorY = player.y - SWING_VIRTUAL_HEIGHT;
     const dx = player.x - player.anchorX, dy = player.y - player.anchorY;
@@ -441,6 +472,7 @@
     player.vx = player.angularVel * player.ropeLen * cosA;
     player.vy = -player.angularVel * player.ropeLen * sinA;
     player.mode = "airborne";
+    player.hand[player.swingHand].cooldown = WEB_HAND_COOLDOWN_FRAMES;
     player.swingHand = null;
   }
 
@@ -464,7 +496,8 @@
   // Nearest still-alive goon ahead of the player within range — unlike
   // nearestGoonTarget() (web shots, which skip already-stunned goons
   // since they don't need re-stunning), the kick works on ANY alive
-  // goon, stunned or not, so it can finish an armed one outright.
+  // goon, stunned or not, so it can finish an armed one outright. The
+  // goblin (same {x,y,w,h,alive} shape as a goon) is a valid target too.
   function nearestAliveGoonAhead(maxDist){
     let best = null, bestDist = Infinity;
     for (const g of goons){
@@ -473,6 +506,13 @@
       if (gx < player.x) continue;
       const d = Math.hypot(gx - (player.x + PLAYER_W/2), gy - playerCenterY());
       if (d <= maxDist && d < bestDist){ best = g; bestDist = d; }
+    }
+    if (goblin && goblin.alive){
+      const gx = goblin.x + goblin.w/2, gy = goblin.y + goblin.h/2;
+      if (gx >= player.x){
+        const d = Math.hypot(gx - (player.x + PLAYER_W/2), gy - playerCenterY());
+        if (d <= maxDist && d < bestDist){ best = goblin; bestDist = d; }
+      }
     }
     return best;
   }
@@ -513,7 +553,7 @@
       const g = player.kickTargetGoon;
       if (g.alive){
         g.alive = false;
-        score += SCORE_PER_KICK;
+        score += g.type === "goblin" ? SCORE_PER_GOBLIN : SCORE_PER_KICK;
         spawnGoonRagdoll(g);
       }
       player.kickTargetGoon = null;
@@ -560,17 +600,19 @@
     return best;
   }
 
-  function releaseHand(side){
-    const h = player.hand[side];
-    if (h.active){
-      // was the swinging hand — let go of the rope
-      if (player.swingHand === side) releaseSwing();
-      h.active = false;
-    } else if (h.holdFrames > 0 && h.holdFrames < HAND_TAP_THRESHOLD_FRAMES){
+  // Space fires whichever hands are actually free — skips a hand that's
+  // currently the one holding the swing rope, and each hand still
+  // respects its own cooldown independently, so it's not a full reset
+  // of both at once if only one just fired or just let go of a swing.
+  function fireBothHands(){
+    if (player.mode === "dead") return;
+    ["left","right"].forEach(side => {
+      if (side === player.swingHand) return;
+      const h = player.hand[side];
+      if (h.cooldown > 0) return;
       fireWebShot(side);
-    }
-    h.holdFrames = 0;
-    h.cooldown = WEB_HAND_COOLDOWN_FRAMES;
+      h.cooldown = WEB_HAND_COOLDOWN_FRAMES;
+    });
   }
 
   function jump(){
@@ -647,7 +689,7 @@
   // own death ragdoll (startRagdoll()), just pushed through the existing
   // tumbles list instead of a separate system.
   function spawnGoonRagdoll(g){
-    const color = g.type === "rpg" ? COLORS.rpgGoon : COLORS.goon;
+    const color = g.type === "rpg" ? COLORS.rpgGoon : g.type === "goblin" ? COLORS.goblin : COLORS.goon;
     const kickDir = player.x <= g.x ? 1 : -1; // which way the kick sent it flying
     tumbles.push(
       { x: g.x, y: g.y, w: g.w, h: g.h * 0.55, vx: kickDir * 3 + randBetween(-1,1), vy: -5, rot: 0, rotVel: randBetween(-0.2,-0.1), life: 55, color },
@@ -658,7 +700,7 @@
   function updatePlayer(){
     if (player.mode === "dead"){ updateRagdoll(); return; }
 
-    updateHands();
+    updateHandCooldowns();
     if (player.kickCooldown > 0) player.kickCooldown--;
 
     if (player.mode === "swinging"){
@@ -758,6 +800,10 @@
           return false;
         }
       }
+      if (goblin && goblin.alive && goblin.stunFrames <= 0 && rectOverlap(p.x-p.r, p.y-p.r, p.r*2, p.r*2, goblin.x, goblin.y, goblin.w, goblin.h)){
+        goblin.stunFrames = STUN_DURATION_FRAMES;
+        return false;
+      }
       return true;
     });
   }
@@ -779,8 +825,11 @@
         if (p.type === "rocket"){
           spawnExplosion(p.x, p.y);
           takeHit(ROCKET_DAMAGE);
+        } else if (p.type === "pumpkin"){
+          spawnExplosion(p.x, p.y);
+          takeHit(PUMPKIN_DAMAGE);
         } else {
-          takeHit();
+          takeHit(GOON_BULLET_DAMAGE);
         }
         return false;
       }
@@ -790,8 +839,8 @@
 
   // Contact resolution: a stunned goon touched by the player (running,
   // airborne, or mid-swing — any state) goes down; an armed goon hurts
-  // the player instead. This is what makes the tap-to-stun/hold-to-swing
-  // split meaningful — swinging *into* a webbed goon is the payoff.
+  // the player instead. This is what makes stunning-then-touching a goon
+  // meaningful — swinging *into* a webbed one is the payoff.
   function checkGoonContact(){
     if (player.mode === "dead") return;
     goons.forEach(g => {
@@ -806,6 +855,82 @@
       }
     });
     goons = goons.filter(g => g.alive);
+  }
+
+  // Same idea as checkGoonContact() but for the singular goblin — a
+  // ragdoll tumble on defeat (like a kick kill) rather than the plainer
+  // regular-goon tumble, since it's the rarer/tougher enemy.
+  function checkGoblinContact(){
+    if (!goblin || !goblin.alive || player.mode === "dead") return;
+    if (!rectOverlap(player.x, player.y, PLAYER_W, PLAYER_H, goblin.x, goblin.y, goblin.w, goblin.h)) return;
+    if (goblin.stunFrames > 0){
+      goblin.alive = false;
+      score += SCORE_PER_GOBLIN;
+      spawnGoonRagdoll(goblin);
+      goblin = null;
+    } else {
+      takeHit();
+    }
+  }
+
+  // Rolls for the flying goblin to appear — rare, and only one at a
+  // time. Once it exists it doesn't despawn on its own; see
+  // updateGoblin()/checkGoblinContact() for how the encounter ends.
+  function trySpawnGoblin(){
+    if (goblin || frame < GOBLIN_MIN_SPAWN_FRAME) return;
+    goblinSpawnTimer--;
+    if (goblinSpawnTimer > 0) return;
+    goblinSpawnTimer = GOBLIN_SPAWN_CHECK_INTERVAL_FRAMES;
+    if (Math.random() < GOBLIN_SPAWN_CHANCE){
+      goblin = {
+        x: player.x + GOBLIN_FOLLOW_DX, y: player.y - GOBLIN_FOLLOW_DY,
+        w: GOBLIN_W, h: GOBLIN_H, type: "goblin", alive: true, stunFrames: 0,
+        throwCooldown: randBetween(GOBLIN_THROW_COOLDOWN_MIN, GOBLIN_THROW_COOLDOWN_MAX)
+      };
+    }
+  }
+
+  // Doesn't scroll with the world like everything else — it actively
+  // eases toward a spot near the player every frame (a weaving hover,
+  // not a straight line), which is what makes it read as "following"
+  // rather than just another scrolling hazard.
+  function updateGoblin(){
+    if (!goblin) return;
+    if (!goblin.alive){ goblin = null; return; }
+    if (player.mode === "dead") return; // freeze in place once the run's over
+
+    const targetX = player.x + GOBLIN_FOLLOW_DX + Math.sin(frame * 0.02) * 40;
+    const targetY = player.y - GOBLIN_FOLLOW_DY + Math.sin(frame * 0.035) * 22;
+    goblin.x += (targetX - goblin.x) * GOBLIN_CHASE_EASE;
+    goblin.y += (targetY - goblin.y) * GOBLIN_CHASE_EASE;
+
+    if (goblin.stunFrames > 0){ goblin.stunFrames--; return; }
+
+    goblin.throwCooldown--;
+    if (goblin.throwCooldown <= 0){
+      const v = aimAt(goblin.x, goblin.y + goblin.h/2, player.x + PLAYER_W/2, playerCenterY(), PUMPKIN_SPEED);
+      goonBullets.push({ x: goblin.x, y: goblin.y + goblin.h/2, vx: v.vx, vy: v.vy, r: PUMPKIN_R, type: "pumpkin" });
+      goblin.throwCooldown = randBetween(GOBLIN_THROW_COOLDOWN_MIN, GOBLIN_THROW_COOLDOWN_MAX);
+    }
+  }
+
+  // Whether any currently-airborne enemy projectile (bullet, rocket, or
+  // pumpkin — anything in goonBullets) is on a straight-line path that
+  // will pass close to the player soon, using the true closest-approach
+  // point along its trajectory rather than just its current distance —
+  // a fast projectile can be far away right now and still be a fraction
+  // of a second from a hit. Drives the head-squiggle alert in drawPlayer().
+  function isThreatIncoming(){
+    const cx = player.x + PLAYER_W/2, cy = playerCenterY();
+    for (const p of goonBullets){
+      const speedSq = p.vx*p.vx + p.vy*p.vy;
+      if (speedSq < 0.0001) continue;
+      const t = -((p.x - cx)*p.vx + (p.y - cy)*p.vy) / speedSq;
+      if (t < 0 || t > ALERT_LOOKAHEAD_FRAMES) continue;
+      const closestX = p.x + p.vx*t, closestY = p.y + p.vy*t;
+      if (Math.hypot(closestX - cx, closestY - cy) < ALERT_RADIUS) return true;
+    }
+    return false;
   }
 
   function updateTumbles(){
@@ -832,9 +957,12 @@
 
     updatePlayer();
     updateGoons();
+    trySpawnGoblin();
+    updateGoblin();
     updateWebShots();
     updateGoonBullets();
     checkGoonContact();
+    checkGoblinContact();
     updateTumbles();
     updateExplosions();
   }
@@ -924,6 +1052,8 @@
     ctx.beginPath();
     ctx.arc(headCX, headCY, headR, 0, Math.PI*2);
     ctx.fill();
+
+    return { headCX, headCY, headR };
   }
 
   function drawGoons(){
@@ -963,6 +1093,41 @@
         }
       }
     });
+  }
+
+  function drawGoblin(){
+    if (!goblin) return;
+    const bob = Math.sin(frame * 0.1) * 3;
+    const by = goblin.y + bob;
+
+    ctx.fillStyle = COLORS.hoverboardGlow;
+    ctx.fillRect(goblin.x - 2, by + goblin.h + 3, goblin.w + 4, 2);
+    ctx.fillStyle = COLORS.hoverboard;
+    ctx.fillRect(goblin.x - 4, by + goblin.h - 2, goblin.w + 8, 5);
+
+    const stunned = goblin.stunFrames > 0;
+    const bodyColor = stunned ? COLORS.goonStunned : COLORS.goblin;
+    let armAngleL, armAngleR, legAngleL, legAngleR;
+    if (stunned){
+      armAngleL = 0.3; armAngleR = -0.3;
+      legAngleL = 0.2; legAngleR = -0.2;
+    } else {
+      const sway = Math.sin(frame * 0.08) * 0.2;
+      armAngleL = sway; armAngleR = -0.8 + sway * 0.3; // one arm cocked back, winding up to throw
+      legAngleL = 0.15; legAngleR = -0.15;
+    }
+    drawHumanoidFigure(goblin.x, by, goblin.w, goblin.h, COLORS.goblinDark, bodyColor, bodyColor, armAngleL, armAngleR, legAngleL, legAngleR);
+
+    if (stunned){
+      ctx.strokeStyle = COLORS.web;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++){
+        ctx.beginPath();
+        ctx.moveTo(goblin.x, by + i*10);
+        ctx.lineTo(goblin.x + goblin.w, by + goblin.h - i*8);
+        ctx.stroke();
+      }
+    }
   }
 
   function drawWebLine(){
@@ -1016,16 +1181,38 @@
       armAngleL = -0.7; armAngleR = 0.5;
     }
 
-    drawHumanoidFigure(player.x, player.y, PLAYER_W, PLAYER_H, COLORS.heroMask, COLORS.hero, COLORS.heroTrim, armAngleL, armAngleR, legAngleL, legAngleR);
+    const head = drawHumanoidFigure(player.x, player.y, PLAYER_W, PLAYER_H, COLORS.heroMask, COLORS.hero, COLORS.heroTrim, armAngleL, armAngleR, legAngleL, legAngleR);
 
     if (flicker) ctx.globalAlpha = 1;
+
+    if (isThreatIncoming()) drawAlertSquiggles(head.headCX, head.headCY - head.headR);
+  }
+
+  // Three small wavy lines fanning above the head, animated over time —
+  // a "spidey sense" cue that only appears while isThreatIncoming() is
+  // true, so it reads as a real warning rather than constant decoration.
+  function drawAlertSquiggles(headCX, headTopY){
+    ctx.strokeStyle = COLORS.alert;
+    ctx.lineWidth = 2;
+    const wiggle = frame * 0.5;
+    [-11, 0, 11].forEach((dx, i) => {
+      const baseX = headCX + dx, baseY = headTopY - 4;
+      ctx.beginPath();
+      for (let s = 0; s <= 4; s++){
+        const t = s / 4;
+        const px = baseX + Math.sin(wiggle + i * 2 + t * Math.PI * 2) * 3;
+        const py = baseY - t * 12;
+        if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    });
   }
 
   function drawProjectiles(){
     ctx.fillStyle = COLORS.web;
     webShots.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); });
     goonBullets.forEach(p => {
-      ctx.fillStyle = p.type === "rocket" ? COLORS.rocket : COLORS.bullet;
+      ctx.fillStyle = p.type === "rocket" ? COLORS.rocket : p.type === "pumpkin" ? COLORS.pumpkin : COLORS.bullet;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
     });
   }
@@ -1078,6 +1265,7 @@
     drawBackground();
     drawPlatforms();
     drawGoons();
+    drawGoblin();
     drawWebLine();
     drawTumbles();
     drawPlayer();
@@ -1219,18 +1407,21 @@
     overlayInner.innerHTML = `
       <h3>Arachnid Guy</h3>
       <p>Swing, run, and jump across the rooftops. W to jump, S for a
-      flying kick — locks onto the nearest goon ahead and takes it down
-      outright, stunned or not. A and D are your left and right
-      web-shooters — tap either to fire a web shot, hold either to swing
+      flying kick — locks onto the nearest threat ahead and takes it
+      down outright, stunned or not. Space fires both web-shooters at
+      once; A and D each grab onto a swing the instant you press them
       (left pulls you back, right pulls you forward — alternate for
       momentum), and the web auto-climbs while you hang on for extra
       height. Swing or run into a webbed goon to take them down; an
       armed one hurts you back, and some carry rocket launchers that hit
-      twice as hard. Rooftop obstacles block your way rather than
-      hurting you outright — jump them, or standing in one costs HP
-      slowly the longer you stay put. HP trickles back on its own if you
-      stay unhit for a while — slow, so it's not a crutch. Prefer arrow
-      keys? Flip the toggle below the game.</p>
+      twice as hard. Watch for a wiggly squiggle over your head — it
+      means a shot is about to come close. A rare flying goblin on a
+      hoverboard occasionally shows up and chases you with exploding
+      pumpkins until one of you goes down. Rooftop obstacles block your
+      way rather than hurting you outright — jump them, or standing in
+      one costs HP slowly the longer you stay put. HP trickles back on
+      its own if you stay unhit for a while — slow, so it's not a
+      crutch. Prefer arrow keys? Flip the toggle below the game.</p>
       ${whoLine}
       <p style="font-size:0.82rem;opacity:0.85;">Your best: ${currentBestDisplay()} &middot; Tech Points: ${wrTechPoints}</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
@@ -1384,21 +1575,12 @@
   }
 
   /* ---------------- input ---------------- */
-  // Clears held keys and drops any in-progress swing/hold — used both
-  // when the canvas loses focus and when the control scheme is swapped
-  // mid-game, since either one can leave a key "stuck" held under a
-  // mapping that no longer matches what's actually down.
+  // Drops any in-progress swing — used both when the canvas loses focus
+  // and when the control scheme is swapped mid-game, since either one
+  // can leave the player permanently "holding" a rope with no way left
+  // to release it under the new mapping.
   function resetInputState(){
-    for (const k in keysDown) delete keysDown[k];
-    if (player){
-      if (player.hand.left.active || player.hand.right.active){
-        if (player.swingHand) releaseSwing();
-        player.hand.left.active = false;
-        player.hand.right.active = false;
-      }
-      player.hand.left.holdFrames = 0;
-      player.hand.right.holdFrames = 0;
-    }
+    if (player && player.swingHand) releaseSwing();
   }
 
   function initGame(){
@@ -1433,7 +1615,7 @@
 
       if (!started || over){
         if (!wrLoginComplete) return; // still on the login screen — its own button handles input
-        if (e.code === keys.jump || e.code === keys.left || e.code === keys.right || e.code === keys.kick){
+        if (e.code === keys.jump || e.code === keys.left || e.code === keys.right || e.code === keys.kick || e.code === keys.shoot){
           e.preventDefault();
           startGame();
         }
@@ -1446,17 +1628,20 @@
       } else if (e.code === keys.kick){
         e.preventDefault();
         if (!e.repeat) attemptFlyingKick();
+      } else if (e.code === keys.shoot){
+        e.preventDefault();
+        if (!e.repeat) fireBothHands();
       } else if (e.code === keys.left || e.code === keys.right){
         e.preventDefault();
-        keysDown[e.code] = true;
+        if (!e.repeat) attemptSwingAttach(e.code === keys.left ? "left" : "right");
       }
     });
 
     document.addEventListener("keyup", (e) => {
       if (document.activeElement !== canvas) return;
       const keys = controlKeys();
-      if (e.code === keys.left){ keysDown[e.code] = false; releaseHand("left"); }
-      else if (e.code === keys.right){ keysDown[e.code] = false; releaseHand("right"); }
+      if (e.code === keys.left && player.swingHand === "left") releaseSwing();
+      else if (e.code === keys.right && player.swingHand === "right") releaseSwing();
     });
   }
 
