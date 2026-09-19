@@ -13,8 +13,8 @@
    tap either to fire a web shot (stuns a goon on a hit), hold either to
    swing — always works, comic-Spider-Man style, no city anchor point
    needed. Release to let go, launching you onward with whatever
-   momentum you built up. Hold W while swinging to climb the web and
-   gain height.
+   momentum you built up. The web auto-climbs while you swing, so you
+   gain height without any extra input.
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -71,10 +71,10 @@
   const HAND_TAP_THRESHOLD_FRAMES = 9;
   const WEB_SHOT_SPEED = 10.5;
   const WEB_HAND_COOLDOWN_FRAMES = 20;
-  const SWING_VIRTUAL_HEIGHT = 150; // how high above the player the web's attach point sits
-  const SWING_FORWARD_OFFSET = 50;  // how far ahead of the player, so the arc actually carries you forward
+  const SWING_VIRTUAL_HEIGHT = 150; // how high above the anchor's screen-x the web's attach point sits
+  const SWING_ANCHOR_X_FRACTION = 0.9; // anchor sits at this fraction of canvas width (10% in from the right edge) — fixed on screen, not tied to the player's position, so the auto-scroll can't outrun it and drag the player backward mid-swing
   const SWING_DAMPING = 0.999;
-  const SWING_CLIMB_RATE = 1.6; // px/frame the rope shortens while W is held
+  const SWING_AUTO_CLIMB_RATE = 0.05; // fraction the rope shortens by, automatically, every frame while swinging
   const SWING_MIN_ROPE = 40;
 
   const GOON_W = 22, GOON_H = 34;
@@ -247,16 +247,17 @@
 
   // Swinging always works, comic-Spider-Man style — no city anchor point
   // to find or be in range of, the web just shoots up into the skyline.
-  // The attach point is a "virtual" spot a fixed height above and a bit
-  // ahead of wherever the player currently is, so the arc actually
-  // carries them forward; it then scrolls with the world like everything
-  // else (see updateSwing()) rather than staying nailed to one screen x.
+  // The attach point is a "virtual" spot fixed at 10% in from the right
+  // edge of the screen (not relative to the player's own x) so the
+  // auto-scroll can't outrun it mid-swing and drag the player backward;
+  // it then scrolls with the world like everything else (see
+  // updateSwing()) rather than staying nailed to one world position.
   function attemptSwingAttach(side){
     if (player.mode === "dead") return;
     player.mode = "swinging";
     player.swingHand = side;
     player.hand[side].active = true;
-    player.anchorX = player.x + SWING_FORWARD_OFFSET;
+    player.anchorX = CANVAS_W * SWING_ANCHOR_X_FRACTION;
     player.anchorY = player.y - SWING_VIRTUAL_HEIGHT;
     const dx = player.x - player.anchorX, dy = player.y - player.anchorY;
     player.ropeLen = Math.max(30, Math.hypot(dx, dy));
@@ -281,11 +282,11 @@
   function updateSwing(){
     player.anchorX -= scrollSpeed; // the attach point is part of the world, scrolls with it like everything else
 
-    // Holding W reels the web in, climbing toward the anchor for extra
-    // height — a straight radius change, not real conserved angular
-    // momentum (which would also spin you faster) — simple and readable
-    // beats "physically exact" here, same call as the ragdoll's.
-    if (keysDown.KeyW) player.ropeLen = Math.max(SWING_MIN_ROPE, player.ropeLen - SWING_CLIMB_RATE);
+    // Auto-climb: the web reels itself in a little every frame, no key
+    // needed — a straight proportional radius decay, not real conserved
+    // angular momentum (which would also spin you faster) — simple and
+    // readable beats "physically exact" here, same call as the ragdoll's.
+    player.ropeLen = Math.max(SWING_MIN_ROPE, player.ropeLen * (1 - SWING_AUTO_CLIMB_RATE));
 
     const angAccel = -(GRAVITY / player.ropeLen) * Math.sin(player.angle);
     player.angularVel += angAccel;
@@ -540,11 +541,71 @@
     obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
   }
 
+  // Shared mini-humanoid rig: head circle + torso rect + two arm rects +
+  // two leg rects, each limb pivoting from its shoulder/hip point via
+  // save/translate/rotate — used for both the player and goons so they
+  // read as actual figures instead of flat blobs, while staying pure
+  // canvas primitives (no images, no physics/animation library). Angle 0
+  // means a limb hanging straight down; positive angles swing it toward
+  // -x (screen-back), negative toward +x (screen-front), which is all
+  // callers need to fake a running/aiming/dangling gait.
+  function drawHumanoidFigure(x, y, w, h, headColor, torsoColor, limbColor, armAngleL, armAngleR, legAngleL, legAngleR){
+    const headR = w * 0.30;
+    const headCX = x + w/2, headCY = y + headR + 1;
+    const torsoTop = headCY + headR * 0.85;
+    const torsoBottom = y + h * 0.68;
+    const torsoW = w * 0.56;
+    const shoulderY = torsoTop + (torsoBottom - torsoTop) * 0.12;
+    const hipY = torsoBottom;
+    const legLen = (y + h) - hipY;
+    const armLen = (torsoBottom - torsoTop) * 0.88;
+    const limbThick = w * 0.22;
+
+    function limb(pivotX, pivotY, len, angle){
+      ctx.save();
+      ctx.translate(pivotX, pivotY);
+      ctx.rotate(angle);
+      ctx.fillStyle = limbColor;
+      ctx.fillRect(-limbThick/2, 0, limbThick, len);
+      ctx.restore();
+    }
+
+    // Back-side limbs first, then the torso, then front-side limbs on
+    // top of it, then the head — cheap layering that reads correctly
+    // without any real depth sorting.
+    limb(x + w*0.28, hipY, legLen, legAngleL);
+    limb(x + w*0.28, shoulderY, armLen, armAngleL);
+
+    ctx.fillStyle = torsoColor;
+    ctx.fillRect(x + (w - torsoW)/2, torsoTop, torsoW, torsoBottom - torsoTop);
+
+    limb(x + w*0.72, hipY, legLen, legAngleR);
+    limb(x + w*0.72, shoulderY, armLen, armAngleR);
+
+    ctx.fillStyle = headColor;
+    ctx.beginPath();
+    ctx.arc(headCX, headCY, headR, 0, Math.PI*2);
+    ctx.fill();
+  }
+
   function drawGoons(){
     goons.forEach(g => {
-      ctx.fillStyle = g.stunFrames > 0 ? COLORS.goonStunned : COLORS.goon;
-      ctx.fillRect(g.x, g.y, g.w, g.h);
-      if (g.stunFrames <= 0){
+      const stunned = g.stunFrames > 0;
+      const bodyColor = stunned ? COLORS.goonStunned : COLORS.goon;
+      let armAngleL, armAngleR, legAngleL, legAngleR;
+      if (stunned){
+        // Limp and dangling — no animation, sells "webbed in place".
+        armAngleL = 0.35; armAngleR = -0.25;
+        legAngleL = 0.15; legAngleR = -0.12;
+      } else {
+        const sway = Math.sin(frame * 0.06 + g.x * 0.01) * 0.12;
+        armAngleL = -0.9; // gun arm, raised toward the player
+        armAngleR = sway;
+        legAngleL = sway * 0.5;
+        legAngleR = -sway * 0.5;
+      }
+      drawHumanoidFigure(g.x, g.y, g.w, g.h, COLORS.goonGun, bodyColor, bodyColor, armAngleL, armAngleR, legAngleL, legAngleR);
+      if (!stunned){
         ctx.fillStyle = COLORS.goonGun;
         ctx.fillRect(g.x - 8, g.y + g.h*0.45, 10, 4);
       } else {
@@ -586,26 +647,27 @@
     const flicker = player.invulnFrames > 0 && Math.floor(frame/4) % 2 === 0;
     if (flicker) ctx.globalAlpha = 0.4;
 
-    ctx.fillStyle = COLORS.hero;
-    ctx.fillRect(player.x, player.y, PLAYER_W, PLAYER_H * 0.7);
-    ctx.fillStyle = COLORS.heroTrim;
-    ctx.fillRect(player.x, player.y + PLAYER_H * 0.32, PLAYER_W, 5);
-    ctx.fillStyle = COLORS.heroMask;
-    ctx.fillRect(player.x + 4, player.y, PLAYER_W - 8, 10);
-    ctx.fillStyle = COLORS.heroTrim;
-    if (player.mode !== "swinging"){
-      const legPhase = Math.floor(frame / 6) % 2;
-      if (player.mode !== "running"){
-        ctx.fillRect(player.x + 3, player.y + PLAYER_H - 8, 6, 8);
-        ctx.fillRect(player.x + PLAYER_W - 9, player.y + PLAYER_H - 8, 6, 8);
-      } else if (legPhase === 0){
-        ctx.fillRect(player.x + 3, player.y + PLAYER_H - 8, 6, 8);
-        ctx.fillRect(player.x + PLAYER_W - 9, player.y + PLAYER_H - 8, 6, 6);
-      } else {
-        ctx.fillRect(player.x + 3, player.y + PLAYER_H - 8, 6, 6);
-        ctx.fillRect(player.x + PLAYER_W - 9, player.y + PLAYER_H - 8, 6, 8);
-      }
+    let armAngleL, armAngleR, legAngleL, legAngleR;
+    if (player.mode === "swinging"){
+      const sway = Math.sin(frame * 0.2) * 0.12;
+      const reach = 2.6;       // swinging hand reaches up toward the web
+      const trail = 0.45 + sway; // everything else trails behind in the wind
+      if (player.swingHand === "left"){ armAngleL = reach; armAngleR = trail; }
+      else { armAngleR = reach; armAngleL = trail; }
+      legAngleL = trail * 0.7;
+      legAngleR = trail * 0.7 + sway;
+    } else if (player.mode === "running"){
+      const phase = frame * 0.35;
+      legAngleL = Math.sin(phase) * 0.6;
+      legAngleR = Math.sin(phase + Math.PI) * 0.6;
+      armAngleL = Math.sin(phase + Math.PI) * 0.45;
+      armAngleR = Math.sin(phase) * 0.45;
+    } else { // airborne — a simple fixed tucked pose
+      legAngleL = -0.4; legAngleR = 0.35;
+      armAngleL = -0.7; armAngleR = 0.5;
     }
+
+    drawHumanoidFigure(player.x, player.y, PLAYER_W, PLAYER_H, COLORS.heroMask, COLORS.hero, COLORS.heroTrim, armAngleL, armAngleR, legAngleL, legAngleR);
 
     if (flicker) ctx.globalAlpha = 1;
   }
@@ -688,9 +750,9 @@
       <p>Swing, run, and jump across the rooftops. Space to jump. A and D
       are your left and right web-shooters — tap either to fire a web
       shot (webs up a goon in place), hold either to swing — always
-      works, no city anchor point needed. Hold W while swinging to climb
-      the web and gain height. Swing or run into a webbed goon to take
-      them down; an armed one hurts you back.</p>
+      works, no city anchor point needed, and the web auto-climbs while
+      you hang on for extra height. Swing or run into a webbed goon to
+      take them down; an armed one hurts you back.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
@@ -748,7 +810,7 @@
       if (e.code === "Space"){
         e.preventDefault();
         if (!e.repeat) jump();
-      } else if (e.code === "KeyA" || e.code === "KeyD" || e.code === "KeyW"){
+      } else if (e.code === "KeyA" || e.code === "KeyD"){
         e.preventDefault();
         keysDown[e.code] = true;
       }
@@ -758,7 +820,6 @@
       if (document.activeElement !== canvas) return;
       if (e.code === "KeyA"){ keysDown.KeyA = false; releaseHand("left"); }
       else if (e.code === "KeyD"){ keysDown.KeyD = false; releaseHand("right"); }
-      else if (e.code === "KeyW"){ keysDown.KeyW = false; }
     });
   }
 
