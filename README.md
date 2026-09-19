@@ -601,24 +601,28 @@ across the city, jumping and web-slinging between procedurally generated
 rooftops while taking down goons.
 
 - **Move:** there's no direct left/right input — the world scrolls
-  automatically, like the other three games. Space jumps (only while
-  running along a rooftop). A and D are your left and right web-shooters,
-  and each does double duty depending on how long you hold it: **tap**
-  either one to fire a web shot, **hold** either one to swing. Swinging
-  always works, comic-Spider-Man style — no city anchor point to find or
-  be in range of, the web just shoots up into the skyline (a "virtual"
-  attach point fixed at 10% in from the right edge of the screen, which
-  then scrolls with the world like everything else — pinning it to the
-  screen rather than to wherever you currently are keeps the auto-scroll
-  from ever outrunning it and dragging you backward mid-swing) — and you
-  swing from it with real pendulum physics (gravity pulls you back
-  toward hanging straight down; building up angular momentum before you
-  let go is what launches you up and onward instead of just dropping).
-  The web auto-climbs a little every frame while you're swinging — no
-  key needed — so you gain height mid-arc automatically. Release A/D to
-  let go, carrying whatever velocity the swing built up into the jump
-  that follows. Falling past street level is a death, same stakes as
-  missing a jump in a real platformer.
+  automatically, like the other three games. W jumps (only while running
+  along a rooftop). A and D are your left and right web-shooters, and
+  each does double duty depending on how long you hold it: **tap** either
+  one to fire a web shot, **hold** either one to swing. Swinging always
+  works, comic-Spider-Man style — no city anchor point to find or be in
+  range of, the web just shoots up into the skyline (a "virtual" attach
+  point fixed at 10% in from the right edge of the screen, which then
+  scrolls with the world like everything else — pinning it to the screen
+  rather than to wherever you currently are keeps the auto-scroll from
+  ever outrunning it and dragging you backward mid-swing) — and you swing
+  from it with real pendulum physics (gravity pulls you back toward
+  hanging straight down; building up angular momentum before you let go
+  is what launches you up and onward instead of just dropping). The web
+  auto-climbs a little every frame while you're swinging — no key needed
+  — so you gain height mid-arc automatically. Release A/D to let go,
+  carrying whatever velocity the swing built up into the jump that
+  follows. Falling past street level is a death, same stakes as missing
+  a jump in a real platformer. A toggle below the game swaps the whole
+  scheme to arrow keys (Left/Right web-shooters, Up jump) instead of
+  A/D/W, remembered across visits via `localStorage` — both schemes
+  just read from `controlKeys()` in `webrunner.js`, so there's no
+  duplicated input-handling logic to keep in sync.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*

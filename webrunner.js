@@ -9,12 +9,14 @@
    Scroller, so this file only reacts to input when its OWN canvas is
    focused — see initGame() at the bottom (same guard those three use).
 
-   CONTROLS: Space to jump. KeyA/KeyD are the left/right web-shooters —
-   tap either to fire a web shot (stuns a goon on a hit), hold either to
+   CONTROLS: W to jump. KeyA/KeyD are the left/right web-shooters — tap
+   either to fire a web shot (stuns a goon on a hit), hold either to
    swing — always works, comic-Spider-Man style, no city anchor point
    needed. Release to let go, launching you onward with whatever
    momentum you built up. The web auto-climbs while you swing, so you
-   gain height without any extra input.
+   gain height without any extra input. An on-page toggle swaps the
+   whole scheme to arrow keys (Left/Right/Up) instead — see
+   controlKeys() and the #webrunner-control-scheme checkbox in initGame().
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -74,7 +76,7 @@
   const SWING_VIRTUAL_HEIGHT = 150; // how high above the anchor's screen-x the web's attach point sits
   const SWING_ANCHOR_X_FRACTION = 0.9; // anchor sits at this fraction of canvas width (10% in from the right edge) — fixed on screen, not tied to the player's position, so the auto-scroll can't outrun it and drag the player backward mid-swing
   const SWING_DAMPING = 0.999;
-  const SWING_AUTO_CLIMB_RATE = 0.05; // fraction the rope shortens by, automatically, every frame while swinging
+  const SWING_AUTO_CLIMB_RATE = 0.0375; // fraction the rope shortens by, automatically, every frame while swinging (75% of the original 0.05 rate — slower climb)
   const SWING_MIN_ROPE = 40;
 
   const GOON_W = 22, GOON_H = 34;
@@ -109,11 +111,23 @@
     scoreText: "#1F2430"
   };
 
-  let canvas, ctx, overlay, overlayInner;
+  let canvas, ctx, overlay, overlayInner, controlToggle;
   let player, platforms, obstacles, goons, webShots, goonBullets, tumbles;
   let scrollSpeed, score, frame, running, over, started, animId;
   let genCursorX; // screen-x out to which platforms/gaps have already been generated
   const keysDown = {};
+
+  // Control scheme — WASD-style (A/D web-shooters, W jump) or arrow keys
+  // (Left/Right web-shooters, Up jump), swapped via the on-page toggle and
+  // remembered across visits. Everything else keys off e.code, so the rest
+  // of the game only ever reads the mapping, never a hardcoded key.
+  const CONTROL_SCHEME_KEY = "webrunner-control-scheme";
+  let controlScheme = localStorage.getItem(CONTROL_SCHEME_KEY) === "arrows" ? "arrows" : "wasd";
+  function controlKeys(){
+    return controlScheme === "arrows"
+      ? { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" }
+      : { left: "KeyA", right: "KeyD", jump: "KeyW" };
+  }
 
   function resetState(){
     player = {
@@ -227,10 +241,11 @@
   }
 
   function updateHands(){
+    const keys = controlKeys();
     ["left","right"].forEach(side => {
       const h = player.hand[side];
       if (h.cooldown > 0) h.cooldown--;
-      const code = side === "left" ? "KeyA" : "KeyD";
+      const code = side === "left" ? keys.left : keys.right;
       // Pause hold-tracking on the *other* hand once one is already
       // swinging — otherwise holding both at once leaves the second
       // hand's press stuck past the tap threshold, so releasing it
@@ -747,12 +762,13 @@
     overlay.style.display = "flex";
     overlayInner.innerHTML = `
       <h3>Arachnid Guy</h3>
-      <p>Swing, run, and jump across the rooftops. Space to jump. A and D
+      <p>Swing, run, and jump across the rooftops. W to jump. A and D
       are your left and right web-shooters — tap either to fire a web
       shot (webs up a goon in place), hold either to swing — always
       works, no city anchor point needed, and the web auto-climbs while
       you hang on for extra height. Swing or run into a webbed goon to
-      take them down; an armed one hurts you back.</p>
+      take them down; an armed one hurts you back. Prefer arrow keys?
+      Flip the toggle below the game.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
@@ -770,11 +786,29 @@
   }
 
   /* ---------------- input ---------------- */
+  // Clears held keys and drops any in-progress swing/hold — used both
+  // when the canvas loses focus and when the control scheme is swapped
+  // mid-game, since either one can leave a key "stuck" held under a
+  // mapping that no longer matches what's actually down.
+  function resetInputState(){
+    for (const k in keysDown) delete keysDown[k];
+    if (player){
+      if (player.hand.left.active || player.hand.right.active){
+        if (player.swingHand) releaseSwing();
+        player.hand.left.active = false;
+        player.hand.right.active = false;
+      }
+      player.hand.left.holdFrames = 0;
+      player.hand.right.holdFrames = 0;
+    }
+  }
+
   function initGame(){
     if (DEBUG) console.log("[Arachnid Guy] webrunner.js loaded");
     canvas = document.getElementById("webrunner-canvas");
     overlay = document.getElementById("webrunner-overlay");
     overlayInner = document.getElementById("webrunner-overlay-inner");
+    controlToggle = document.getElementById("webrunner-control-scheme");
     if (!canvas || !overlay) return;
 
     ctx = canvas.getContext("2d");
@@ -782,35 +816,34 @@
     draw();
     showStartOverlay();
 
+    if (controlToggle){
+      controlToggle.checked = controlScheme === "arrows";
+      controlToggle.addEventListener("change", () => {
+        controlScheme = controlToggle.checked ? "arrows" : "wasd";
+        localStorage.setItem(CONTROL_SCHEME_KEY, controlScheme);
+        resetInputState();
+      });
+    }
+
     canvas.addEventListener("click", () => canvas.focus());
-    canvas.addEventListener("blur", () => {
-      for (const k in keysDown) delete keysDown[k];
-      if (player){
-        if (player.hand.left.active || player.hand.right.active){
-          if (player.swingHand) releaseSwing();
-          player.hand.left.active = false;
-          player.hand.right.active = false;
-        }
-        player.hand.left.holdFrames = 0;
-        player.hand.right.holdFrames = 0;
-      }
-    });
+    canvas.addEventListener("blur", resetInputState);
 
     document.addEventListener("keydown", (e) => {
       if (document.activeElement !== canvas) return; // don't steal input meant for the other games on this page
+      const keys = controlKeys();
 
       if (!started || over){
-        if (e.code === "Space" || e.code === "KeyA" || e.code === "KeyD"){
+        if (e.code === keys.jump || e.code === keys.left || e.code === keys.right){
           e.preventDefault();
           startGame();
         }
         return;
       }
 
-      if (e.code === "Space"){
+      if (e.code === keys.jump){
         e.preventDefault();
         if (!e.repeat) jump();
-      } else if (e.code === "KeyA" || e.code === "KeyD"){
+      } else if (e.code === keys.left || e.code === keys.right){
         e.preventDefault();
         keysDown[e.code] = true;
       }
@@ -818,8 +851,9 @@
 
     document.addEventListener("keyup", (e) => {
       if (document.activeElement !== canvas) return;
-      if (e.code === "KeyA"){ keysDown.KeyA = false; releaseHand("left"); }
-      else if (e.code === "KeyD"){ keysDown.KeyD = false; releaseHand("right"); }
+      const keys = controlKeys();
+      if (e.code === keys.left){ keysDown[e.code] = false; releaseHand("left"); }
+      else if (e.code === keys.right){ keysDown[e.code] = false; releaseHand("right"); }
     });
   }
 
