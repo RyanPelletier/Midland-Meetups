@@ -75,20 +75,22 @@
   const DEBUG = false;
   /* ==================== end config ==================== */
 
+  // Bright, happy daytime palette — bold primary colors on a clear blue
+  // sky fading to a warm sunny horizon, matching the mid-century modern
+  // look the rest of the site's games use.
   const COLORS = {
-    skyTop: "#3A2E55", skyBottom: "#C97A4A",
-    farBuildings: "#2E2440", nearBuildings: "#1E1830",
-    street: "#232030",
-    rooftop: "#4A4060", rooftopEdge: "#burnt", rooftopTrim: "#5C5074",
-    obstacle: "#7A6E8C",
-    anchorPole: "#8B8A94",
-    hero: "#C43A3A", heroTrim: "#2C3E8F", heroMask: "#1A1A22",
-    web: "#E8E4F0",
-    goon: "#3E4A3E", goonGun: "#2A2A2A", goonStunned: "#7A7A88",
+    skyTop: "#5EC1F0", skyBottom: "#FBE79A",
+    farBuildings: "#8FCFE0", nearBuildings: "#F2A65A",
+    street: "#D8CDBA",
+    rooftop: "#F6C945", rooftopTrim: "#E0982E",
+    obstacle: "#9CA3AF",
+    anchorPole: "#B8B4C0",
+    hero: "#E5484D", heroTrim: "#2851E3", heroMask: "#1A1A22",
+    web: "#FFFFFF",
+    goon: "#3A3F5C", goonGun: "#22263A", goonStunned: "#B8B4C0",
     bullet: "#F6A93B",
-    hud: "#1F2430",
-    hpFull: "#E14B3C", hpEmpty: "#3A2A2A",
-    scoreText: "#F5F0E6"
+    hpFull: "#E5484D", hpEmpty: "#E4DCC8",
+    scoreText: "#1F2430"
   };
 
   let canvas, ctx, overlay, overlayInner;
@@ -474,6 +476,11 @@
     grad.addColorStop(1, COLORS.skyBottom);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
+
+    ctx.fillStyle = "#FDF3C4";
+    ctx.beginPath();
+    ctx.arc(CANVAS_W - 90, 60, 34, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.fillStyle = COLORS.farBuildings;
     for (let i = -1; i < 8; i++){
