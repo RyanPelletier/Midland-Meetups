@@ -651,6 +651,12 @@ rooftops while taking down goons.
   carry a rocket launcher instead of a pistol — slower shots and a
   longer reload, but a hit explodes on impact for 2 hit points instead
   of the usual 1.
+- **Obstacles:** running into one blocks forward progress rather than
+  being an instant hit — it stops dead against the player instead of
+  scrolling through them, so it's a wall to jump over, not an ambush.
+  Only sustained contact costs HP, at half the pace of a regen tick (see
+  `OBSTACLE_DAMAGE_INTERVAL_FRAMES`), so jumping clear before that first
+  tick costs nothing at all.
 - **Regen:** HP trickles back on its own after a stretch of not getting
   hit — deliberately slow, so it rewards staying alive and playing
   carefully rather than acting as a crutch. Getting hit at all resets

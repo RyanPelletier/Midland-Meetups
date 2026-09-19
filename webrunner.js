@@ -29,7 +29,12 @@
    for 2 hit points instead of 1. HP regenerates slowly on its own after
    a stretch of not getting hit — see REGEN_DELAY_FRAMES/
    REGEN_INTERVAL_FRAMES/updateRegen() — deliberately slow so it's a
-   reward for careful play, not a crutch.
+   reward for careful play, not a crutch. Rooftop obstacles block
+   forward progress rather than being an instant hit — running into one
+   stops it dead against the player instead of passing through, and only
+   sustained contact costs HP, at a slow drip (see
+   OBSTACLE_DAMAGE_INTERVAL_FRAMES/applyObstacleDamage()); jump clear
+   before the first tick and it costs nothing.
 
    No score saving yet — this is a first pass at the game itself; a
    Sheet-backed leaderboard entry is planned for later, same as Doom
@@ -137,6 +142,14 @@
   const REGEN_DELAY_FRAMES = 300;
   const REGEN_INTERVAL_FRAMES = 480;
 
+  // Rooftop obstacles now block forward progress instead of being an
+  // instant hit — running into one stops it dead against the player
+  // (see updatePlayer()) rather than letting the player pass through,
+  // and only sustained contact costs HP, at a slow drip (2x the regen
+  // rate above) rather than a single burst. Jump clear before the first
+  // tick and it costs nothing.
+  const OBSTACLE_DAMAGE_INTERVAL_FRAMES = REGEN_INTERVAL_FRAMES / 2;
+
   const DEBUG = false;
   /* ==================== end config ==================== */
 
@@ -184,6 +197,7 @@
       hp: PLAYER_MAX_HP,
       invulnFrames: 0,
       regenDelay: 0, regenTimer: 0,
+      obstacleContactFrames: 0,
       hand: {
         left:  { holdFrames: 0, cooldown: 0, active: false },
         right: { holdFrames: 0, cooldown: 0, active: false }
@@ -485,6 +499,23 @@
     if (player.hp <= 0) startRagdoll();
   }
 
+  // The obstacle drip — deliberately NOT gated by invulnFrames like
+  // takeHit(), since that gate exists to give breathing room after a
+  // one-off burst hit, and gating a continuous drip the same way would
+  // just turn it back into "one hit then free," exactly what this is
+  // replacing. It still sets invulnFrames afterward (a brief flicker and
+  // a short mercy window against other damage sources), just doesn't
+  // check it on the way in. Rate-limited by OBSTACLE_DAMAGE_INTERVAL_FRAMES
+  // in the caller, not by this.
+  function applyObstacleDamage(){
+    if (player.mode === "dead") return;
+    player.hp -= 1;
+    player.invulnFrames = INVULN_AFTER_HIT_FRAMES;
+    player.regenDelay = REGEN_DELAY_FRAMES;
+    player.regenTimer = 0;
+    if (player.hp <= 0) startRagdoll();
+  }
+
   // A slow trickle back toward full HP after a stretch of not getting
   // hit — see REGEN_DELAY_FRAMES/REGEN_INTERVAL_FRAMES for the pacing.
   function updateRegen(){
@@ -567,11 +598,30 @@
     if (player.invulnFrames > 0) player.invulnFrames--;
     updateRegen();
 
-    // rooftop obstacles — only threaten while actually running along the roof
+    // Rooftop obstacles — only threaten while actually running along the
+    // roof (jump clear and there's no overlap at all). Contact blocks
+    // forward progress instead of an instant hit: the obstacle stops
+    // dead against the player's leading edge rather than scrolling
+    // through them, so standing there is a choice, not an ambush. Only
+    // sustained contact costs HP, at OBSTACLE_DAMAGE_INTERVAL_FRAMES per
+    // tick — jump away before the first tick and it costs nothing.
     if (player.mode === "running"){
+      let touchingObstacle = false;
       obstacles.forEach(o => {
-        if (rectOverlap(player.x, player.y, PLAYER_W, PLAYER_H, o.x, o.y, o.w, o.h)) takeHit();
+        if (rectOverlap(player.x, player.y, PLAYER_W, PLAYER_H, o.x, o.y, o.w, o.h)){
+          touchingObstacle = true;
+          o.x = player.x + PLAYER_W;
+        }
       });
+      if (touchingObstacle){
+        player.obstacleContactFrames++;
+        if (player.obstacleContactFrames >= OBSTACLE_DAMAGE_INTERVAL_FRAMES){
+          applyObstacleDamage();
+          player.obstacleContactFrames = 0;
+        }
+      } else {
+        player.obstacleContactFrames = 0;
+      }
     }
   }
 
@@ -984,9 +1034,11 @@
       forward — alternate for momentum), and the web auto-climbs while
       you hang on for extra height. Swing or run into a webbed goon to
       take them down; an armed one hurts you back, and some carry rocket
-      launchers that hit twice as hard. HP trickles back on its own if
-      you stay unhit for a while — slow, so it's not a crutch. Prefer
-      arrow keys? Flip the toggle below the game.</p>
+      launchers that hit twice as hard. Rooftop obstacles block your way
+      rather than hurting you outright — jump them, or standing in one
+      costs HP slowly the longer you stay put. HP trickles back on its
+      own if you stay unhit for a while — slow, so it's not a crutch.
+      Prefer arrow keys? Flip the toggle below the game.</p>
       <button type="button" class="btn" id="webrunner-play-btn">Play</button>
     `;
     document.getElementById("webrunner-play-btn").addEventListener("click", startGame);
