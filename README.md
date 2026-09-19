@@ -607,16 +607,18 @@ rooftops while taking down goons.
   either one to fire a web shot, **hold** either one to swing. Swinging
   always works, comic-Spider-Man style — no city anchor point to find or
   be in range of, the web just shoots up into the skyline (a "virtual"
-  attach point a fixed height and distance ahead of wherever you
-  currently are, which then scrolls with the world like everything
-  else) — and you swing from it with real pendulum physics (gravity
-  pulls you back toward hanging straight down; building up angular
-  momentum before you let go is what launches you up and onward instead
-  of just dropping). Hold **W** while swinging to reel the web in and
-  climb, gaining height mid-arc. Release A/D to let go, carrying
-  whatever velocity the swing built up into the jump that follows.
-  Falling past street level is a death, same stakes as missing a jump in
-  a real platformer.
+  attach point fixed at 10% in from the right edge of the screen, which
+  then scrolls with the world like everything else — pinning it to the
+  screen rather than to wherever you currently are keeps the auto-scroll
+  from ever outrunning it and dragging you backward mid-swing) — and you
+  swing from it with real pendulum physics (gravity pulls you back
+  toward hanging straight down; building up angular momentum before you
+  let go is what launches you up and onward instead of just dropping).
+  The web auto-climbs a little every frame while you're swinging — no
+  key needed — so you gain height mid-arc automatically. Release A/D to
+  let go, carrying whatever velocity the swing built up into the jump
+  that follows. Falling past street level is a death, same stakes as
+  missing a jump in a real platformer.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*
@@ -626,6 +628,14 @@ rooftops while taking down goons.
   Scroller's projectiles use; your own web shots use it too, auto-aimed
   at the nearest un-stunned goon ahead of you (or straight ahead if none
   are in range).
+- **Characters:** the player and goons are drawn as small canvas-primitive
+  humanoids — a head circle, torso rect, and two arm/leg rects each
+  pivoting from their own shoulder/hip point — rather than flat blobs.
+  Limbs swing on a continuous phase for the player's run cycle and a
+  fixed reach-for-the-web pose while swinging; goons get a subtle idle
+  sway with one arm raised toward their gun, and go limp when stunned.
+  Still pure `fillRect`/`arc` shapes, no images or animation library,
+  same as everything else on this page.
 - **Ragdoll:** dying (out of HP, or falling past street level) triggers
   a lightweight tumble — a couple of independently falling, rotating
   body pieces with their own simple gravity — rather than a real
