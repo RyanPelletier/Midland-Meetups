@@ -908,6 +908,9 @@ textarea{ resize: vertical; min-height: 110px; }
 .leaderboard-score-doom{
   color: var(--red);
 }
+.leaderboard-score-webrunner{
+  color: var(--green-ink);
+}
 .leaderboard-header{
   display: flex;
   align-items: center;
