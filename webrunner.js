@@ -46,12 +46,23 @@
   const ROOFTOP_MIN_Y = 200;
   const ROOFTOP_MAX_Y = 300;
   const ROOFTOP_MAX_STEP = 55; // max height change platform-to-platform
-  const PLATFORM_MIN_W = 100;
-  const PLATFORM_MAX_W = 190;
+  const PLATFORM_MIN_W = 150;
+  const PLATFORM_MAX_W = 300;
   const GAP_SMALL_MIN = 70, GAP_SMALL_MAX = 120;   // jumpable without swinging
   const GAP_BIG_MIN = 160, GAP_BIG_MAX = 250;      // wide enough that swinging is the practical way across
   const BIG_GAP_CHANCE = 0.45;
-  const OBSTACLE_CHANCE = 0.35; // chance a platform gets a rooftop obstacle to jump over
+
+  // Rooftop obstacles — a platform can get more than one now that
+  // platforms run longer. Placement divides the platform's usable span
+  // (inside the edge margin on both sides) into `count` equal slots and
+  // drops one obstacle with a little jitter in each, which guarantees
+  // both the edge margin AND minimum spacing between obstacles in one
+  // pass — no rejection-sampling/retry loop needed.
+  const OBSTACLE_CHANCE = 0.5; // chance a platform gets any obstacles at all
+  const OBSTACLE_W = 20, OBSTACLE_H = 22;
+  const OBSTACLE_EDGE_MARGIN = 34; // min clearance from either platform edge
+  const OBSTACLE_MIN_GAP = 50; // min slot width, so obstacles never cluster/overlap
+  const OBSTACLE_MAX_COUNT = 3;
 
   // Dual web-shooters — tap fires a shot, hold (past the threshold)
   // starts a swing. Swinging always works, comic-Spider-Man style — no
@@ -171,8 +182,25 @@
     platforms.push(plat);
     genCursorX = x + w;
 
-    if (Math.random() < OBSTACLE_CHANCE && w > 90){
-      obstacles.push({ x: x + w * 0.4, y: nextY - 22, w: 20, h: 22 });
+    if (Math.random() < OBSTACLE_CHANCE){
+      const availableSpan = w - 2 * OBSTACLE_EDGE_MARGIN;
+      // Hard ceiling on how many obstacles could possibly fit at
+      // OBSTACLE_W each without a slot ever shrinking below the
+      // obstacle's own width — the jitter below can't go negative (and
+      // so can't spill into the margin or the next slot) as long as
+      // count never exceeds this.
+      const hardMaxCount = Math.floor(availableSpan / OBSTACLE_W);
+      if (hardMaxCount >= 1){
+        const softMax = Math.max(1, Math.min(OBSTACLE_MAX_COUNT, hardMaxCount, Math.floor(availableSpan / (OBSTACLE_W + OBSTACLE_MIN_GAP)) + 1));
+        const count = 1 + Math.floor(Math.random() * softMax);
+        const slotW = availableSpan / count;
+        const jitterRange = slotW - OBSTACLE_W; // always >= 0 since count <= hardMaxCount
+        for (let i = 0; i < count; i++){
+          const slotStart = x + OBSTACLE_EDGE_MARGIN + i * slotW;
+          const ox = slotStart + Math.random() * jitterRange;
+          obstacles.push({ x: ox, y: nextY - OBSTACLE_H, w: OBSTACLE_W, h: OBSTACLE_H });
+        }
+      }
     }
     if (Math.random() < GOON_SPAWN_CHANCE && w > 80){
       goons.push({
