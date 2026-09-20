@@ -65,8 +65,8 @@
   const JUMP_VELOCITY = -11.5;
 
   const SCROLL_START = 3.0;
-  const SCROLL_MAX = 6.0;
-  const SCROLL_RAMP = 0.0005; // per frame
+  const SCROLL_MAX = 9.0; // higher ceiling so a long run keeps visibly escalating instead of plateauing early
+  const SCROLL_RAMP = 0.0005; // per frame — now takes ~200s to hit SCROLL_MAX instead of ~100s
 
   // Rooftop generation — heights vary within this band so jumps/swings
   // stay fair, never a sheer unreachable cliff.
@@ -124,7 +124,7 @@
 
   const GOON_W = 22, GOON_H = 34;
   const GOON_SPAWN_CHANCE = 0.5; // per eligible platform
-  const GOON_FIRE_COOLDOWN_MIN = 70, GOON_FIRE_COOLDOWN_MAX = 140;
+  const GOON_FIRE_COOLDOWN_MIN = 45, GOON_FIRE_COOLDOWN_MAX = 85; // faster than before — goons open fire more often
   const GOON_BULLET_SPEED = 6.5;
   const GOON_BULLET_DAMAGE = 2;
   const GOON_RANGE = 420;
