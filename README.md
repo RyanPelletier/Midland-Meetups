@@ -751,9 +751,11 @@ rooftops while taking down goons.
 
 - **Move:** there's no direct left/right input — the world scrolls
   automatically, like the other three games. W jumps (only while running
-  along a rooftop). A and D are your left and right web-shooters, and
-  each does double duty depending on how long you hold it: **tap** either
-  one to fire a web shot, **hold** either one to swing. Swinging always
+  along a rooftop). Space fires both web-shooters at once — whichever
+  hand isn't currently the one swinging and is off cooldown (see
+  `fireBothHands()`). A and D each grab onto a swing the instant they're
+  pressed, letting go on release — no more tap-vs-hold ambiguity to time,
+  since shooting has its own dedicated button now. Swinging always
   works, comic-Spider-Man style — no city anchor point to find or be in
   range of, the web just shoots up into the skyline. Each hand anchors to
   a different fixed screen-x rather than both sharing one spot: the left
@@ -771,37 +773,54 @@ rooftops while taking down goons.
   carrying whatever velocity the swing built up into the jump that
   follows. Falling past street level is a death, same stakes as missing
   a jump in a real platformer. A toggle below the game swaps the whole
-  scheme to arrow keys (Left/Right web-shooters, Up jump, Down kick)
-  instead of A/D/W/S, remembered across visits via `localStorage` — both
-  schemes just read from `controlKeys()` in `webrunner.js`, so there's no
-  duplicated input-handling logic to keep in sync.
-- **Flying kick:** S (or Down) locks onto the nearest alive goon ahead,
-  within range, and closes the distance in a single beat — the goon
-  becomes the anchor point and the same rope-climb math the swing uses
-  runs at 100% instead of its usual slow auto-climb rate, so the rope
-  collapses to the anchor in one frame instead of reeling in gradually
-  (see `attemptFlyingKick()`/`updateKick()`). Unlike a body-contact
-  takedown, the kick works on a goon whether it's stunned or not, so it's
-  the way to finish an armed one outright without webbing it first. The
-  player animates into a flying-kick pose for the move's short recovery
-  window, and a defeated goon gets a two-piece ragdoll tumble — the same
+  scheme to arrow keys (Left/Right web-shooters, Up jump, Down kick) —
+  Space stays Space either way, since it isn't part of either layout —
+  remembered across visits via `localStorage`; both schemes just read
+  from `controlKeys()` in `webrunner.js`, so there's no duplicated
+  input-handling logic to keep in sync.
+- **Flying kick:** S (or Down) locks onto the nearest alive threat ahead
+  within range — a goon or the flying goblin — and closes the distance
+  in a single beat — the target becomes the anchor point and the same
+  rope-climb math the swing uses runs at 100% instead of its usual slow
+  auto-climb rate, so the rope collapses to the anchor in one frame
+  instead of reeling in gradually (see
+  `attemptFlyingKick()`/`updateKick()`). Unlike a body-contact takedown,
+  the kick works whether the target is stunned or not, so it's the way
+  to finish an armed one outright without webbing it first. The player
+  animates into a flying-kick pose for the move's short recovery window,
+  and a defeated target gets a two-piece ragdoll tumble — the same
   lightweight independently-falling-segments approach as the player's own
   death ragdoll, just reused through the existing tumble-effects list.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*
-  one (or catching one of their bullets) costs you a hit instead. Goon
-  guns aim at wherever you actually are the instant they fire — no
-  homing after that — using the exact same `aimAt()` targeting Doom
-  Scroller's projectiles use. Your own web shots only auto-aim (at the
-  nearest un-stunned goon in *either* direction — ahead of you or already
-  behind you) once the Web Shooter: Auto-Targeting shop upgrade is
-  bought; without it, a shot fires in a fixed direction (left hand
-  up-and-back, right hand up-and-forward) and landing a hit takes real
-  aim — see the Shop bullet below. A fraction of spawned goons carry a
-  rocket launcher instead of a pistol — slower shots and a longer
-  reload, but a hit explodes on impact for 2 hit points instead of the
-  usual 1.
+  one costs you a hit instead, and catching one of their bullets costs 2
+  hit points (up from 1). Goon guns aim at wherever you actually are the
+  instant they fire — no homing after that — using the exact same
+  `aimAt()` targeting Doom Scroller's projectiles use. Your own web
+  shots only auto-aim (at the nearest un-stunned goon in *either*
+  direction — ahead of you or already behind you) once the Web Shooter:
+  Auto-Targeting shop upgrade is bought; without it, a shot fires in a
+  fixed direction (left hand up-and-back, right hand up-and-forward) and
+  landing a hit takes real aim — see the Shop bullet below. A fraction
+  of spawned goons carry a rocket launcher instead of a pistol — slower
+  shots and a longer reload, but a hit explodes on impact for 2 hit
+  points instead of the usual 1.
+- **Incoming-fire alert:** a wiggly squiggle animates above the player's
+  head whenever some enemy projectile — a bullet, rocket, or pumpkin —
+  is genuinely on a path that will pass close by soon, not just moving
+  vaguely toward you. It's computed from the true closest-approach point
+  along each projectile's straight-line trajectory (see
+  `isThreatIncoming()`), so a fast shot that's still far away can trigger
+  it well before it actually arrives, giving real reaction time.
+- **Flying Goblin:** a rare, persistent enemy that occasionally appears
+  on a hoverboard and chases the player — weaving through the air to
+  stay nearby rather than scrolling past like a regular goon — throwing
+  exploding pumpkins (2 hit points, same as a rocket) on a cooldown. It
+  doesn't leave on its own once it shows up; only stunning-then-touching
+  it, kicking it, or the player dying ends the encounter (see
+  `trySpawnGoblin()`/`updateGoblin()`). Worth a bigger score bonus than a
+  regular goon takedown given how much tougher it is to pin down.
 - **Obstacles:** running into one blocks forward progress rather than
   being an instant hit — it stops dead against the player instead of
   scrolling through them, so it's a wall to jump over, not an ambush.
