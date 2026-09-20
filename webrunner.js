@@ -194,7 +194,7 @@
   // ends the encounter. See trySpawnGoblin()/updateGoblin().
   const GOBLIN_MIN_SPAWN_FRAME = 900; // no goblin in the first ~15s
   const GOBLIN_SPAWN_CHECK_INTERVAL_FRAMES = 600; // ~10s between spawn rolls
-  const GOBLIN_SPAWN_CHANCE = 0.35; // per roll, while none is currently active
+  const GOBLIN_SPAWN_CHANCE = 0.525; // per roll, while none is currently active (50% higher than the original 0.35)
   const GOBLIN_W = 26, GOBLIN_H = 30;
   const GOBLIN_FOLLOW_DX = 190; // stays roughly this far ahead of the player
   const GOBLIN_FOLLOW_DY = 130; // and this far above
