@@ -39,8 +39,24 @@
    stops one continued overlap from scoring every frame. The floating
    "+X" popup only ever appears on the screen of whoever actually
    scored — never the other player's, even though both fighters' scores
-   live in the same host-broadcast state. See the "scoring" section
-   below and the guestScoreEvent comment near the other module state.
+   live in the same host-broadcast state. A shield in the off hand
+   blocks instead — it scores nothing, but a weapon tip that touches it
+   is deflected before the body-part checks even run, and both players
+   see a shared "Blocked!" popup (not private, unlike points — everyone
+   just watched it happen). See the "scoring" section below and the
+   guestScoreEvent/lastBlockEvent comments near the other module state.
+
+   ROUNDS: the host picks a point ceiling and a round count (1-5) at
+   match setup (showHostSetupOverlay()). Reaching the ceiling ends the
+   round and tallies a win for whoever got there (endRound()); after the
+   last round, whoever won more rounds wins the match (a tie is possible
+   with an even round count). Between rounds both fighters reset to
+   their starting pose/position and the in-round score resets to 0, but
+   the round-win tally carries the whole match. Whoever won the
+   *previous* round wears a small crown next to their head for the
+   round that follows — nobody does in round 1 (lastRoundWinner starts
+   null). This is all just more host-broadcast state, same pattern as
+   scoring — the guest never decides any of it, only displays it.
 
    MULTIPLAYER: host-authoritative, not lockstep or peer-simulated —
    floating point ragdoll physics is exactly the kind of chaotic system
@@ -94,6 +110,19 @@
   const HIT_COOLDOWN_FRAMES = 24; // ~0.4s at 60fps — stops one continued overlap from scoring every frame
   const FLOAT_TEXT_LIFE_FRAMES = 50; // ~0.8s at 60fps
 
+  // A shield in the off hand blocks — it scores nothing itself, but a
+  // weapon tip that touches it is deflected instead of landing on
+  // whatever's behind it. See findHitScore()/drawShield().
+  const SHIELD_REACH = 30;
+  const SHIELD_R = 16;
+  const SHIELD_INVMASS = 0.7;
+
+  // Host-selected at match setup — see showHostSetupOverlay().
+  const POINT_CEILING_OPTIONS = [25, 50, 75, 100, 150, 200];
+  const POINT_CEILING_DEFAULT = 50;
+  const ROUND_COUNT_MIN = 1, ROUND_COUNT_MAX = 5, ROUND_COUNT_DEFAULT = 1;
+  const ROUND_TRANSITION_MS = 3500; // how long the round-over banner shows before the next round starts
+
   // Multiplayer starting spots — apart and facing each other, close
   // enough that dragging toward the middle brings weapons into range
   // quickly rather than requiring a long walk that doesn't exist here
@@ -111,7 +140,15 @@
     mineMarker: "#F6C945",
     scoreText: "#1F2430",
     floatingText: "#F6C945",
-    floatingTextOutline: "#1A1A22"
+    floatingTextOutline: "#1A1A22",
+    blockText: "#E8ECF0",
+    shieldFace: "#B8823D",
+    shieldRim: "#5C3A21",
+    shieldBoss: "#8B8F99",
+    crownGold: "#FFD24C",
+    crownOutline: "#8A5A00",
+    bannerBg: "rgba(20,24,31,0.6)",
+    bannerText: "#FFFFFF"
   };
   // Two distinct suit palettes so two fighters on screen together are
   // easy to tell apart at a glance — practice mode always uses "a".
@@ -141,7 +178,7 @@
   // disagree mid-transition; not a concern here since host and guest
   // always load the exact same floppy.js from the same page.
   const PARTICLE_NAMES = ["head", "torso", "hip", "elbowL", "handL", "elbowR", "handR",
-    "kneeL", "footL", "kneeR", "footR", "weaponTip"];
+    "kneeL", "footL", "kneeR", "footR", "weaponTip", "shieldTip"];
 
   // How often the host pushes a state snapshot / the guest pushes its
   // input, independent of the 60fps render loop — no need to spend
@@ -187,6 +224,27 @@
   let lastGuestScoreEvent = { id: 0, amount: 0 };
   let guestOwnScore = 0, guestLastSeenScoreEventId = 0;
   let floatingTexts = [];
+
+  // Blocks are a shared event, unlike points — whoever swung sees it
+  // failed and whoever blocked sees it worked, so both clients react to
+  // every block regardless of who was involved, the same "id changed"
+  // pattern as guestScoreEvent but without the "only if it's mine" gate.
+  let lastBlockEvent = { id: 0, x: 0, y: 0 };
+  let guestLastSeenBlockEventId = 0;
+
+  // Match/round structure — host-selected at setup (showHostSetupOverlay),
+  // host-authoritative like everything else. currentRound/hostRoundsWon/
+  // guestRoundsWon/matchPhase/lastRoundWinner are the host's own live
+  // values; guestMatchInfo mirrors all of it from the state broadcast so
+  // the guest's HUD/banner/crown can read the same shape either way.
+  let matchPointCeiling = POINT_CEILING_DEFAULT, matchRoundCount = ROUND_COUNT_DEFAULT;
+  let currentRound = 1, hostRoundsWon = 0, guestRoundsWon = 0;
+  let matchPhase = "playing"; // "playing" | "round-over" | "match-over"
+  let lastRoundWinner = null; // "host" | "guest" | null — null until a round has been won, so round 1 shows no crown
+  let roundTransitionTimer = null;
+  let guestMatchInfo = { phase: "playing", currentRound: 1, roundCount: 1,
+    hostRoundsWon: 0, guestRoundsWon: 0, pointCeiling: POINT_CEILING_DEFAULT, lastRoundWinner: null };
+  let guestMatchOverShown = false;
 
   /* ==================== particle/stick engine ==================== */
   function makeParticle(x, y, invMass, r){
@@ -287,8 +345,9 @@
     const footR = makeParticle(baseX + STANCE_HALF_WIDTH, footY, 1);
 
     const weaponTip = makeParticle(handR.x + 6, handR.y + weapon.reach * 0.98, weapon.invMass, 5);
+    const shieldTip = makeParticle(handL.x - 6, handL.y + SHIELD_REACH * 0.98, SHIELD_INVMASS, SHIELD_R);
 
-    const particles = [head, torso, hip, elbowL, handL, elbowR, handR, kneeL, footL, kneeR, footR, weaponTip];
+    const particles = [head, torso, hip, elbowL, handL, elbowR, handR, kneeL, footL, kneeR, footR, weaponTip, shieldTip];
     const sticks = [
       makeStick(head, torso, NECK_LEN),
       makeStick(torso, hip, SPINE_LEN),
@@ -301,6 +360,7 @@
       makeStick(hip, kneeR, UPPER_LEG_LEN),
       makeStick(kneeR, footR, LOWER_LEG_LEN),
       makeStick(handR, weaponTip, weapon.reach),
+      makeStick(handL, shieldTip, SHIELD_REACH),
       // Brace between the feet, same width as their resting stance —
       // without it the two legs have nothing keeping them apart, and a
       // hip balanced directly above two independent legs is the classic
@@ -313,7 +373,7 @@
     ];
 
     return { particles, sticks, head, torso, hip, elbowL, handL, elbowR, handR,
-      kneeL, footL, kneeR, footR, weaponTip, weaponKey,
+      kneeL, footL, kneeR, footR, weaponTip, shieldTip, weaponKey,
       palette: SUIT_PALETTES[paletteIndex || 0],
       dragging: false, dragX: 0, dragY: 0, hitCooldown: 0 };
   }
@@ -354,12 +414,14 @@
     return Math.hypot(b.x - a.x, b.y - a.y) <= a.r + b.r + 1; // +1: a hair of slack for floating-point settling
   }
 
-  // Checks one attacker's weapon tip against a defender's body, closest
-  // (highest-value) part wins if more than one is in range at once —
-  // head first, then torso, then limbs. Only the weapon tip scores, not
-  // general body contact (that's resolveInterFighterCollisions()'s job,
-  // and shouldn't award points on its own).
+  // Checks one attacker's weapon tip against a defender's shield first
+  // (a block beats any hit that would otherwise land), then closest
+  // (highest-value) body part — head, then torso, then limbs. Only the
+  // weapon tip scores, not general body contact (that's
+  // resolveInterFighterCollisions()'s job, and shouldn't award points or
+  // block on its own).
   function findHitScore(attacker, defender){
+    if (particlesTouching(attacker.weaponTip, defender.shieldTip)) return { blocked: true };
     if (particlesTouching(attacker.weaponTip, defender.head)) return { amount: HIT_SCORE_HEAD };
     if (particlesTouching(attacker.weaponTip, defender.torso) || particlesTouching(attacker.weaponTip, defender.hip)){
       return { amount: HIT_SCORE_TORSO };
@@ -373,7 +435,21 @@
   }
 
   function pushFloatingText(x, y, amount){
-    floatingTexts.push({ x, y, text: "+" + amount, life: FLOAT_TEXT_LIFE_FRAMES, maxLife: FLOAT_TEXT_LIFE_FRAMES });
+    floatingTexts.push({ x, y, text: "+" + amount, life: FLOAT_TEXT_LIFE_FRAMES, maxLife: FLOAT_TEXT_LIFE_FRAMES, kind: "score" });
+  }
+  function pushBlockText(x, y){
+    floatingTexts.push({ x, y, text: "Blocked!", life: FLOAT_TEXT_LIFE_FRAMES, maxLife: FLOAT_TEXT_LIFE_FRAMES, kind: "block" });
+  }
+
+  // A block is shown to BOTH players — it's not private like points, it's
+  // a shared event they both just watched happen. The host (which always
+  // sees its own live simulation) pops this locally the instant it
+  // detects a block on either fighter; the guest gets it via the relayed
+  // blockEvent id in the state broadcast, same "id changed" pattern as
+  // guestScoreEvent but reacted to unconditionally.
+  function triggerBlockFeedback(x, y){
+    pushBlockText(x, y - 10);
+    lastBlockEvent = { id: lastBlockEvent.id + 1, x, y: y - 10 };
   }
 
   function updateFloatingTexts(){
@@ -381,32 +457,74 @@
     floatingTexts = floatingTexts.filter((t) => t.life > 0);
   }
 
+  // Ends the current round once a fighter's score reaches the host-
+  // selected point ceiling: tallies the round win, then either starts
+  // the next round after a pause (ROUND_TRANSITION_MS, on-canvas banner
+  // only) or ends the whole match if that was the last one (a real
+  // overlay with a "Back to Menu" button, since there's nowhere left to
+  // auto-advance to). lastRoundWinner is what the crown reads for the
+  // round that's about to start — see drawCrown().
+  function endRound(winnerRole){
+    if (winnerRole === "host") hostRoundsWon++; else guestRoundsWon++;
+    lastRoundWinner = winnerRole;
+
+    if (currentRound >= matchRoundCount){
+      matchPhase = "match-over";
+      showMatchOverOverlay(true, hostRoundsWon, guestRoundsWon);
+    } else {
+      matchPhase = "round-over";
+      roundTransitionTimer = setTimeout(() => {
+        roundTransitionTimer = null;
+        currentRound++;
+        const hWeapon = hostFighter.weaponKey, gWeapon = guestFighter.weaponKey;
+        hostFighter = createFighter(hWeapon, HOST_START_X, 0);
+        guestFighter = createFighter(gWeapon, GUEST_START_X, 1);
+        latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+        hostScore = 0; guestScore = 0;
+        matchPhase = "playing";
+      }, ROUND_TRANSITION_MS);
+    }
+  }
+
   // Host-only — runs once per frame against that frame's settled
   // positions. A per-fighter cooldown (not a per-body-part one) is
   // enough to stop a single resting overlap from scoring every frame,
   // while still letting a fast flurry of distinct swings each score.
   function checkMatchScoring(){
+    if (matchPhase !== "playing") return;
+
     if (hostFighter.hitCooldown > 0){
       hostFighter.hitCooldown--;
     } else {
       const hit = findHitScore(hostFighter, guestFighter);
       if (hit){
-        hostScore += hit.amount;
         hostFighter.hitCooldown = HIT_COOLDOWN_FRAMES;
-        pushFloatingText(hostFighter.head.x, hostFighter.head.y - HEAD_R - 24, hit.amount);
+        if (hit.blocked){
+          triggerBlockFeedback(hostFighter.weaponTip.x, hostFighter.weaponTip.y);
+        } else {
+          hostScore += hit.amount;
+          pushFloatingText(hostFighter.head.x, hostFighter.head.y - HEAD_R - 24, hit.amount);
+          if (hostScore >= matchPointCeiling){ endRound("host"); return; }
+        }
       }
     }
+
     if (guestFighter.hitCooldown > 0){
       guestFighter.hitCooldown--;
     } else {
       const hit = findHitScore(guestFighter, hostFighter);
       if (hit){
-        guestScore += hit.amount;
         guestFighter.hitCooldown = HIT_COOLDOWN_FRAMES;
-        // No local floating text — this is the GUEST's point. It rides
-        // along in the next state broadcast (see beginHostedMatch()) and
-        // the guest pops its own text upon receiving it.
-        lastGuestScoreEvent = { id: lastGuestScoreEvent.id + 1, amount: hit.amount };
+        if (hit.blocked){
+          triggerBlockFeedback(guestFighter.weaponTip.x, guestFighter.weaponTip.y);
+        } else {
+          guestScore += hit.amount;
+          // No local floating text — this is the GUEST's point. It rides
+          // along in the next state broadcast (see beginHostedMatch()) and
+          // the guest pops its own text upon receiving it.
+          lastGuestScoreEvent = { id: lastGuestScoreEvent.id + 1, amount: hit.amount };
+          if (guestScore >= matchPointCeiling){ endRound("guest"); return; }
+        }
       }
     }
   }
@@ -485,6 +603,53 @@
     }
   }
 
+  // The off-hand shield — always present, not weapon-dependent, so
+  // there's no "kind" branching here the way drawWeapon() needs. A
+  // round face with a raised boss reads clearly at this scale and
+  // doesn't get confused with any of the four weapon heads.
+  function drawShield(hand, tip){
+    ctx.strokeStyle = COLORS.shieldRim;
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(hand.x, hand.y);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, SHIELD_R, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.shieldFace;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.shieldRim;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, SHIELD_R * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.shieldBoss;
+    ctx.fill();
+  }
+
+  // Sits above the "mine" marker, not on top of it — see the y offsets
+  // where this is called from drawFighter(). y is the crown's base;
+  // it's drawn upward from there.
+  function drawCrown(x, y){
+    ctx.beginPath();
+    ctx.moveTo(x - 9, y);
+    ctx.lineTo(x - 9, y - 8);
+    ctx.lineTo(x - 5, y - 3);
+    ctx.lineTo(x, y - 10);
+    ctx.lineTo(x + 5, y - 3);
+    ctx.lineTo(x + 9, y - 8);
+    ctx.lineTo(x + 9, y);
+    ctx.closePath();
+    ctx.fillStyle = COLORS.crownGold;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.crownOutline;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   // Draws one fighter from anything shaped like { head:{x,y}, torso:{x,y},
   // ... weaponKey, palette }, whether that's a live simulated particle
   // set (host, or practice) or a plain interpolated snapshot object
@@ -526,8 +691,12 @@
       ctx.fillStyle = COLORS.mineMarker;
       ctx.fill();
     }
+    if (opts && opts.crowned){
+      drawCrown(f.head.x, f.head.y - HEAD_R - 16);
+    }
 
     drawWeapon(f.handR, f.weaponTip, WEAPONS[f.weaponKey] || WEAPONS.sword);
+    drawShield(f.handL, f.shieldTip);
   }
 
   // Only ever shows your OWN score, never the opponent's — matches the
@@ -544,16 +713,62 @@
 
   function drawFloatingTexts(){
     ctx.textAlign = "center";
-    ctx.font = "bold 20px sans-serif";
     ctx.lineWidth = 3;
     for (const t of floatingTexts){
+      ctx.font = t.kind === "block" ? "bold 15px sans-serif" : "bold 20px sans-serif";
       ctx.globalAlpha = Math.max(0, t.life / t.maxLife);
       ctx.strokeStyle = COLORS.floatingTextOutline;
       ctx.strokeText(t.text, t.x, t.y);
-      ctx.fillStyle = COLORS.floatingText;
+      ctx.fillStyle = t.kind === "block" ? COLORS.blockText : COLORS.floatingText;
       ctx.fillText(t.text, t.x, t.y);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Round/win tally is shown to both players — unlike the "+X" points
+  // popup, it's not private, it's the shared scoreboard both sides need
+  // to follow the match.
+  function drawRoundHud(){
+    if (mode !== "mp-host" && mode !== "mp-guest") return;
+    const info = mode === "mp-host"
+      ? { round: currentRound, total: matchRoundCount, myWins: hostRoundsWon, theirWins: guestRoundsWon, ceiling: matchPointCeiling }
+      : { round: guestMatchInfo.currentRound, total: guestMatchInfo.roundCount, myWins: guestMatchInfo.guestRoundsWon, theirWins: guestMatchInfo.hostRoundsWon, ceiling: guestMatchInfo.pointCeiling };
+    ctx.textAlign = "left";
+    ctx.font = "13px sans-serif";
+    ctx.fillStyle = COLORS.scoreText;
+    ctx.fillText(`Round ${info.round} of ${info.total} — Rounds won: You ${info.myWins}, Opponent ${info.theirWins} (first to ${info.ceiling})`, 12, 42);
+  }
+
+  function roundBannerText(phase, amIHostLocal, currentRoundNum, roundsWinner, hWins, gWins){
+    const myWins = amIHostLocal ? hWins : gWins;
+    const theirWins = amIHostLocal ? gWins : hWins;
+    if (phase === "round-over"){
+      const iWonRound = amIHostLocal ? roundsWinner === "host" : roundsWinner === "guest";
+      return (iWonRound ? "You win Round " : "Opponent wins Round ") + currentRoundNum +
+        `! (Rounds: You ${myWins} — Opponent ${theirWins})`;
+    }
+    return "";
+  }
+
+  function drawRoundBanner(){
+    let phase, amIHostLocal, currentRoundNum, roundsWinner, hWins, gWins;
+    if (mode === "mp-host"){
+      phase = matchPhase; amIHostLocal = true; currentRoundNum = currentRound;
+      roundsWinner = lastRoundWinner; hWins = hostRoundsWon; gWins = guestRoundsWon;
+    } else if (mode === "mp-guest"){
+      phase = guestMatchInfo.phase; amIHostLocal = false; currentRoundNum = guestMatchInfo.currentRound;
+      roundsWinner = guestMatchInfo.lastRoundWinner; hWins = guestMatchInfo.hostRoundsWon; gWins = guestMatchInfo.guestRoundsWon;
+    } else {
+      return;
+    }
+    if (phase !== "round-over") return;
+    const text = roundBannerText(phase, amIHostLocal, currentRoundNum, roundsWinner, hWins, gWins);
+    ctx.fillStyle = COLORS.bannerBg;
+    ctx.fillRect(0, CANVAS_H / 2 - 40, CANVAS_W, 80);
+    ctx.textAlign = "center";
+    ctx.fillStyle = COLORS.bannerText;
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText(text, CANVAS_W / 2, CANVAS_H / 2 + 7);
   }
 
   function draw(){
@@ -567,18 +782,20 @@
     if (mode === "practice" && soloFighter){
       drawFighter(soloFighter, { dragging: soloFighter.dragging });
     } else if (mode === "mp-host" && hostFighter && guestFighter){
-      drawFighter(guestFighter, { dragging: guestFighter.dragging, mine: false });
-      drawFighter(hostFighter, { dragging: hostFighter.dragging, mine: true });
+      drawFighter(guestFighter, { dragging: guestFighter.dragging, mine: false, crowned: lastRoundWinner === "guest" });
+      drawFighter(hostFighter, { dragging: hostFighter.dragging, mine: true, crowned: lastRoundWinner === "host" });
     } else if (mode === "mp-guest"){
       const drawable = guestDrawableFighters();
       if (drawable){
-        drawFighter(drawable.host, { dragging: drawable.hostDragging, mine: false });
-        drawFighter(drawable.guest, { dragging: pendingLocalInput ? pendingLocalInput.dragging : false, mine: true });
+        drawFighter(drawable.host, { dragging: drawable.hostDragging, mine: false, crowned: guestMatchInfo.lastRoundWinner === "host" });
+        drawFighter(drawable.guest, { dragging: pendingLocalInput ? pendingLocalInput.dragging : false, mine: true, crowned: guestMatchInfo.lastRoundWinner === "guest" });
       }
     }
 
     drawScoreHud();
+    drawRoundHud();
     drawFloatingTexts();
+    drawRoundBanner();
   }
 
   function loop(){
@@ -744,6 +961,10 @@
 
   async function leaveMatch(){
     stopNetworkTimers();
+    if (roundTransitionTimer){ clearTimeout(roundTransitionTimer); roundTransitionTimer = null; }
+    matchPhase = "playing";
+    lastRoundWinner = null;
+    guestMatchOverShown = false;
     if (fb && roomCode){
       const roomRef = fb.ref(fb.db, `floppy-rooms/${roomCode}`);
       try {
@@ -769,7 +990,7 @@
     if (animId){ cancelAnimationFrame(animId); animId = null; }
   }
 
-  async function hostMatch(weaponKey){
+  async function hostMatch(weaponKey, pointCeiling, roundCount){
     overlayInner.innerHTML = `<h3>Floppy Swords</h3><p>Connecting…</p>`;
     try {
       await ensureFirebase();
@@ -778,11 +999,18 @@
       return;
     }
     amIHost = true;
+    matchPointCeiling = pointCeiling;
+    matchRoundCount = roundCount;
+    currentRound = 1;
+    hostRoundsWon = 0; guestRoundsWon = 0;
+    lastRoundWinner = null;
+    matchPhase = "playing";
     roomCode = randomRoomCode();
     const roomRef = fb.ref(fb.db, `floppy-rooms/${roomCode}`);
     await fb.set(roomRef, {
       hostUid: fb.uid, guestUid: null,
       hostWeapon: weaponKey, guestWeapon: null,
+      pointCeiling, roundCount,
       status: "waiting", createdAt: Date.now()
     });
     fb.onDisconnect(roomRef).remove();
@@ -828,7 +1056,9 @@
       if (!hostFighter || !guestFighter) return;
       fb.update(roomRef, {
         state: { t: Date.now(), host: serializeFighter(hostFighter), guest: serializeFighter(guestFighter),
-          hostScore, guestScore, guestScoreEvent: lastGuestScoreEvent }
+          hostScore, guestScore, guestScoreEvent: lastGuestScoreEvent, blockEvent: lastBlockEvent,
+          phase: matchPhase, currentRound, roundCount: matchRoundCount,
+          hostRoundsWon, guestRoundsWon, pointCeiling: matchPointCeiling, lastRoundWinner }
       }).catch((err) => { if (DEBUG) console.warn("[Floppy Swords] state push failed:", err); });
     }, STATE_SEND_INTERVAL_MS);
 
@@ -865,7 +1095,8 @@
     mode = "mp-guest";
     started = true;
     pendingLocalInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
-    guestOwnScore = 0; guestLastSeenScoreEventId = 0;
+    guestOwnScore = 0; guestLastSeenScoreEventId = 0; guestLastSeenBlockEventId = 0;
+    guestMatchOverShown = false;
     floatingTexts = [];
     overlay.style.display = "none";
 
@@ -886,6 +1117,25 @@
         // puts "head" first, so no need to deserialize the whole fighter
         // just to place this popup.
         pushFloatingText(stateData.guest.p[0], stateData.guest.p[1] - HEAD_R - 24, ev.amount);
+      }
+      const bEv = stateData.blockEvent;
+      if (bEv && bEv.id > guestLastSeenBlockEventId){
+        guestLastSeenBlockEventId = bEv.id;
+        pushBlockText(bEv.x, bEv.y);
+      }
+
+      guestMatchInfo = {
+        phase: stateData.phase || "playing",
+        currentRound: stateData.currentRound || 1,
+        roundCount: stateData.roundCount || 1,
+        hostRoundsWon: stateData.hostRoundsWon || 0,
+        guestRoundsWon: stateData.guestRoundsWon || 0,
+        pointCeiling: stateData.pointCeiling || POINT_CEILING_DEFAULT,
+        lastRoundWinner: stateData.lastRoundWinner || null
+      };
+      if (guestMatchInfo.phase === "match-over" && !guestMatchOverShown){
+        guestMatchOverShown = true;
+        showMatchOverOverlay(false, guestMatchInfo.hostRoundsWon, guestMatchInfo.guestRoundsWon);
       }
     });
     roomListenerUnsub = f.onValue(roomRef, (snap2) => {
@@ -966,20 +1216,39 @@
       <button type="button" class="btn" id="floppy-join-btn">Join Match</button>
       <p class="form-note" style="margin-top:10px;"><a href="#" id="floppy-back-to-menu-3">&larr; Back</a></p>
     `;
-    document.getElementById("floppy-host-btn").addEventListener("click", showHostWeaponSelectOverlay);
+    document.getElementById("floppy-host-btn").addEventListener("click", showHostSetupOverlay);
     document.getElementById("floppy-join-btn").addEventListener("click", showJoinCodeEntryOverlay);
     document.getElementById("floppy-back-to-menu-3").addEventListener("click", (e) => { e.preventDefault(); showModeSelectOverlay(); });
   }
 
-  function showHostWeaponSelectOverlay(){
+  function showHostSetupOverlay(){
+    const roundOptions = [];
+    for (let n = ROUND_COUNT_MIN; n <= ROUND_COUNT_MAX; n++) roundOptions.push(n);
     overlayInner.innerHTML = `
-      <h3>Choose your weapon</h3>
+      <h3>Set up the match</h3>
+      <div class="form-row">
+        <label for="floppy-ceiling-select">First to how many points wins a round?</label>
+        <select id="floppy-ceiling-select">
+          ${POINT_CEILING_OPTIONS.map(v => `<option value="${v}"${v === POINT_CEILING_DEFAULT ? " selected" : ""}>${v} points</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="floppy-roundcount-select">How many rounds?</label>
+        <select id="floppy-roundcount-select">
+          ${roundOptions.map(v => `<option value="${v}"${v === ROUND_COUNT_DEFAULT ? " selected" : ""}>${v} round${v > 1 ? "s" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <p class="form-note">Pick your weapon to start the match.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
         ${WEAPON_ORDER.map(key => `<button type="button" class="btn" data-weapon="${key}">${WEAPONS[key].label}</button>`).join("")}
       </div>
     `;
     WEAPON_ORDER.forEach(key => {
-      overlayInner.querySelector(`[data-weapon="${key}"]`).addEventListener("click", () => hostMatch(key));
+      overlayInner.querySelector(`[data-weapon="${key}"]`).addEventListener("click", () => {
+        const ceiling = parseInt(document.getElementById("floppy-ceiling-select").value, 10);
+        const rounds = parseInt(document.getElementById("floppy-roundcount-select").value, 10);
+        hostMatch(key, ceiling, rounds);
+      });
     });
   }
 
@@ -1053,6 +1322,30 @@
       <button type="button" class="btn" id="floppy-back-to-menu-6">Back to Menu</button>
     `;
     document.getElementById("floppy-back-to-menu-6").addEventListener("click", showModeSelectOverlay);
+  }
+
+  // Shown on both sides once the last round ends — unlike round-over
+  // (an on-canvas banner that auto-clears), the match is actually done,
+  // so this is a real overlay: nowhere left to auto-advance to. Doesn't
+  // tear the match down itself (the fighters/room stay alive so both
+  // players can see the final positions) — only leaving via the button
+  // does that.
+  function showMatchOverOverlay(amIHostLocal, hWon, gWon){
+    overlay.style.display = "flex";
+    const myWins = amIHostLocal ? hWon : gWon;
+    const theirWins = amIHostLocal ? gWon : hWon;
+    let resultLine;
+    if (hWon === gWon) resultLine = `The match ended in a tie, ${hWon}-${gWon}.`;
+    else resultLine = myWins > theirWins ? `You won the match, ${myWins}-${theirWins}!` : `You lost the match, ${theirWins}-${myWins}.`;
+    overlayInner.innerHTML = `
+      <h3>Match Complete</h3>
+      <p>${resultLine}</p>
+      <button type="button" class="btn" id="floppy-match-over-menu-btn">Back to Menu</button>
+    `;
+    document.getElementById("floppy-match-over-menu-btn").addEventListener("click", async () => {
+      await leaveMatch();
+      showModeSelectOverlay();
+    });
   }
 
   function escapeCodeForDisplay(s){

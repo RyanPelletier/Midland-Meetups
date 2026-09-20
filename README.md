@@ -954,6 +954,36 @@ phones) into a real match over Firebase Realtime Database.
   the host is already rendering its own view live). Floating text itself
   is a purely local visual effect on each client — never sent over the
   network, no id lives in the trace beyond a moment.
+- **Shield:** every fighter also carries a shield in the off hand (a
+  `shieldTip` particle on a stick off `handL`, exactly parallel to how
+  `weaponTip` hangs off `handR` — see `createFighter()`/`drawShield()`).
+  It scores nothing, but `findHitScore()` checks a defender's shield
+  *before* any body part, so a weapon tip that lands there is deflected
+  instead. Unlike points, a block isn't private — both players just
+  watched it happen, so both see a shared "Blocked!" popup: the host
+  pops it locally the instant it detects a block on *either* fighter
+  (it has a live view of both), and relays a `blockEvent` (the same
+  "id changed" pattern as `guestScoreEvent`, but reacted to
+  unconditionally instead of only-if-it's-mine) so the guest pops the
+  same text too.
+- **Rounds:** the host picks a point ceiling and a round count (1-5) at
+  match setup (`showHostSetupOverlay()`), stored on the room once at
+  creation. Reaching the ceiling ends the round (`endRound()`) and
+  tallies a win for whoever got there; reaching it on the *last* round
+  ends the whole match instead — the loser (or a tied score) gets a
+  real overlay with a "Back to Menu" button on both screens
+  (`showMatchOverOverlay()`), since there's nowhere left to
+  auto-advance to. Any other round-end shows a transient on-canvas
+  banner (`drawRoundBanner()`, not the DOM overlay) for
+  `ROUND_TRANSITION_MS` before both fighters reset to their starting
+  pose/position and the in-round score zeroes out — the round-win tally
+  itself carries across the whole match. Whoever won the *previous*
+  round wears a small crown next to their head for the round that
+  follows (`lastRoundWinner`, read by `drawCrown()`) — nobody does in
+  round 1, since that starts `null`. All of this is just more fields on
+  the same host-broadcast `state` object scoring already uses — the
+  guest never decides any of it, only mirrors and displays it
+  (`guestMatchInfo`).
 - **Multiplayer is host-authoritative, not lockstep.** Ragdoll physics is
   exactly the kind of chaotic floating-point system where two independent
   simulations fed "the same" input quietly drift apart, so only one side
