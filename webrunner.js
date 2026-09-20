@@ -120,7 +120,7 @@
   const KICK_CLOSE_RATE = 1.0; // 100% speed — collapses the rope to the anchor in one frame
   const KICK_RECOVERY_FRAMES = 18; // how long the kick pose holds before returning to normal control
   const KICK_COOLDOWN_FRAMES = 30;
-  const SCORE_PER_KICK = 60;
+  const SCORE_PER_KICK = 10; // worth less than a web-shooter takedown — it's the faster, lower-effort finisher
 
   const GOON_W = 22, GOON_H = 34;
   const GOON_SPAWN_CHANCE = 0.5; // per eligible platform
@@ -129,7 +129,7 @@
   const GOON_BULLET_DAMAGE = 2;
   const GOON_RANGE = 420;
   const STUN_DURATION_FRAMES = 150;
-  const SCORE_PER_GOON = 40;
+  const SCORE_PER_GOON = 30; // web-shooter stun + contact takedown
 
   // Incoming-fire alert — a wiggly squiggle over the player's head
   // whenever some enemy projectile (bullet, rocket, or pumpkin — any
@@ -203,7 +203,7 @@
   const PUMPKIN_SPEED = 5.5;
   const PUMPKIN_R = 7;
   const PUMPKIN_DAMAGE = 2;
-  const SCORE_PER_GOBLIN = 150;
+  const SCORE_PER_GOBLIN = 50; // flat, regardless of how it's defeated (kick or web-stun + contact)
 
   const DEBUG = false;
   /* ==================== end config ==================== */
@@ -945,7 +945,8 @@
   function update(){
     frame++;
     scrollSpeed = Math.min(SCROLL_MAX, SCROLL_START + frame * SCROLL_RAMP);
-    if (player.mode !== "dead") score += scrollSpeed * 0.05;
+    // Score only comes from takedowns now (SCORE_PER_KICK/SCORE_PER_GOON/
+    // SCORE_PER_GOBLIN) — no more passive points for distance survived.
 
     platforms.forEach(p => p.x -= scrollSpeed);
     obstacles.forEach(o => o.x -= scrollSpeed);

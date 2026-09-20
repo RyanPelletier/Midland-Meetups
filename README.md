@@ -791,6 +791,13 @@ rooftops while taking down goons.
   and a defeated target gets a two-piece ragdoll tumble — the same
   lightweight independently-falling-segments approach as the player's own
   death ragdoll, just reused through the existing tumble-effects list.
+- **Scoring:** score only comes from takedowns now — no more passive
+  points for distance survived. Web-stunning a goon and then finishing
+  it with contact (a "web-shooter takedown") is worth `SCORE_PER_GOON`
+  (30); a flying-kick takedown is worth less, `SCORE_PER_KICK` (10),
+  since it's the faster, lower-effort finisher; a flying goblin is worth
+  `SCORE_PER_GOBLIN` (50) flat, regardless of which of those two ways
+  it's defeated.
 - **Combat:** a web shot doesn't damage a goon outright — it webs them
   in place (stunned) for a few seconds. Swinging or running into a
   *stunned* goon takes them down for a score bonus; touching an *armed*
@@ -819,8 +826,9 @@ rooftops while taking down goons.
   exploding pumpkins (2 hit points, same as a rocket) on a cooldown. It
   doesn't leave on its own once it shows up; only stunning-then-touching
   it, kicking it, or the player dying ends the encounter (see
-  `trySpawnGoblin()`/`updateGoblin()`). Worth a bigger score bonus than a
-  regular goon takedown given how much tougher it is to pin down.
+  `trySpawnGoblin()`/`updateGoblin()`). Worth a bigger score bonus (see
+  the Scoring bullet above) than a regular goon takedown given how much
+  tougher it is to pin down.
 - **Obstacles:** running into one blocks forward progress rather than
   being an instant hit — it stops dead against the player instead of
   scrolling through them, so it's a wall to jump over, not an ambush.
