@@ -33,6 +33,15 @@
    particle of the other each frame (resolveInterFighterCollisions()) so
    they can't pass through each other.
 
+   SCORING: landing your weapon's tip on an opponent scores points —
+   5 for a limb, 10 for the torso, 15 for the head (checkMatchScoring(),
+   host-only, same authority as the physics). A per-fighter cooldown
+   stops one continued overlap from scoring every frame. The floating
+   "+X" popup only ever appears on the screen of whoever actually
+   scored — never the other player's, even though both fighters' scores
+   live in the same host-broadcast state. See the "scoring" section
+   below and the guestScoreEvent comment near the other module state.
+
    MULTIPLAYER: host-authoritative, not lockstep or peer-simulated —
    floating point ragdoll physics is exactly the kind of chaotic system
    where two independent simulations fed "the same" inputs quietly
@@ -60,10 +69,10 @@
   const GROUND_Y = 380;
 
   const GRAVITY = 0.6;
-  const DAMPING = 0.992; // per-frame velocity carry-over (air resistance)
-  const CONSTRAINT_ITERATIONS = 8; // higher = stiffer/more accurate bones, more expensive
-  const GROUND_BOUNCE = 0.22; // fraction of impact speed returned on landing
-  const GROUND_FRICTION = 0.985; // per-iteration horizontal speed retained while grounded
+  const DAMPING = 0.98; // per-frame velocity carry-over (air resistance) — lower loses energy faster, settles down quicker instead of wobbling
+  const CONSTRAINT_ITERATIONS = 12; // higher = stiffer/more accurate bones, more expensive
+  const GROUND_BOUNCE = 0.12; // fraction of impact speed returned on landing
+  const GROUND_FRICTION = 0.95; // per-iteration horizontal speed retained while grounded — lower grips the ground harder, slides less
   const WALL_BOUNCE = 0.3;
 
   const HEAD_R = 14;
@@ -74,6 +83,16 @@
   const NECK_LEN = 26, SPINE_LEN = 60;
   const UPPER_ARM_LEN = 34, LOWER_ARM_LEN = 34;
   const UPPER_LEG_LEN = 44, LOWER_LEG_LEN = 44;
+  const STANCE_HALF_WIDTH = 12; // each leg's horizontal offset from center — also the footL-footR brace's rest half-width, see createFighter()
+
+  // Hitting a weapon's tip against an opponent's body scores points —
+  // small parts (arms/legs) are easiest to clip and worth least, the
+  // head is hardest to land and worth most. See checkMatchScoring().
+  const HIT_SCORE_LIMB = 5;
+  const HIT_SCORE_TORSO = 10;
+  const HIT_SCORE_HEAD = 15;
+  const HIT_COOLDOWN_FRAMES = 24; // ~0.4s at 60fps — stops one continued overlap from scoring every frame
+  const FLOAT_TEXT_LIFE_FRAMES = 50; // ~0.8s at 60fps
 
   // Multiplayer starting spots — apart and facing each other, close
   // enough that dragging toward the middle brings weapons into range
@@ -89,7 +108,10 @@
     groundTrim: "#B9AC8E",
     head: "#E8A466",
     dragRing: "#FFFFFF",
-    mineMarker: "#F6C945"
+    mineMarker: "#F6C945",
+    scoreText: "#1F2430",
+    floatingText: "#F6C945",
+    floatingTextOutline: "#1A1A22"
   };
   // Two distinct suit palettes so two fighters on screen together are
   // easy to tell apart at a glance — practice mode always uses "a".
@@ -151,6 +173,20 @@
   let stateSendTimer = null, inputSendTimer = null;
   let latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
   let pendingLocalInput = null; // guest's own not-yet-sent drag position
+
+  // Scoring — only the host ever computes hits (see checkMatchScoring()),
+  // same authority model as the physics itself. hostScore/guestScore are
+  // the host's running totals, broadcast to the guest each state tick so
+  // both sides' HUD stays accurate. guestScoreEvent is a tiny separate
+  // "something just happened" signal (an incrementing id + the amount)
+  // that only changes when the GUEST scores — the guest watches its id
+  // to know when to pop its own "+X" text, without ever seeing one for
+  // points the host scored. Floating texts themselves are a purely
+  // local, per-client visual effect and are never sent over the network.
+  let hostScore = 0, guestScore = 0;
+  let lastGuestScoreEvent = { id: 0, amount: 0 };
+  let guestOwnScore = 0, guestLastSeenScoreEventId = 0;
+  let floatingTexts = [];
 
   /* ==================== particle/stick engine ==================== */
   function makeParticle(x, y, invMass, r){
@@ -245,10 +281,10 @@
     const elbowR = makeParticle(baseX + 12, torsoY + UPPER_ARM_LEN * 0.95, 1);
     const handR = makeParticle(baseX + 14, torsoY + UPPER_ARM_LEN + LOWER_ARM_LEN * 0.98, 1);
 
-    const kneeL = makeParticle(baseX - 12, kneeY, 1);
-    const footL = makeParticle(baseX - 12, footY, 1);
-    const kneeR = makeParticle(baseX + 12, kneeY, 1);
-    const footR = makeParticle(baseX + 12, footY, 1);
+    const kneeL = makeParticle(baseX - STANCE_HALF_WIDTH, kneeY, 1);
+    const footL = makeParticle(baseX - STANCE_HALF_WIDTH, footY, 1);
+    const kneeR = makeParticle(baseX + STANCE_HALF_WIDTH, kneeY, 1);
+    const footR = makeParticle(baseX + STANCE_HALF_WIDTH, footY, 1);
 
     const weaponTip = makeParticle(handR.x + 6, handR.y + weapon.reach * 0.98, weapon.invMass, 5);
 
@@ -264,13 +300,22 @@
       makeStick(kneeL, footL, LOWER_LEG_LEN),
       makeStick(hip, kneeR, UPPER_LEG_LEN),
       makeStick(kneeR, footR, LOWER_LEG_LEN),
-      makeStick(handR, weaponTip, weapon.reach)
+      makeStick(handR, weaponTip, weapon.reach),
+      // Brace between the feet, same width as their resting stance —
+      // without it the two legs have nothing keeping them apart, and a
+      // hip balanced directly above two independent legs is the classic
+      // "pencil on its tip" unstable equilibrium: any tiny asymmetry
+      // buckles it instantly. This doesn't fix standing outright (there's
+      // still no active balance), but it meaningfully resists the legs
+      // scissoring/collapsing into each other, so the fighter holds a
+      // stance noticeably longer before flopping.
+      makeStick(footL, footR, STANCE_HALF_WIDTH * 2)
     ];
 
     return { particles, sticks, head, torso, hip, elbowL, handL, elbowR, handR,
       kneeL, footL, kneeR, footR, weaponTip, weaponKey,
       palette: SUIT_PALETTES[paletteIndex || 0],
-      dragging: false, dragX: 0, dragY: 0 };
+      dragging: false, dragX: 0, dragY: 0, hitCooldown: 0 };
   }
 
   /* ==================== simulation step ==================== */
@@ -300,6 +345,68 @@
           if (p === f.head && f.dragging) continue; // let a drag go anywhere, even past the floor/walls
           clampToBounds(p);
         }
+      }
+    }
+  }
+
+  /* ==================== scoring ==================== */
+  function particlesTouching(a, b){
+    return Math.hypot(b.x - a.x, b.y - a.y) <= a.r + b.r + 1; // +1: a hair of slack for floating-point settling
+  }
+
+  // Checks one attacker's weapon tip against a defender's body, closest
+  // (highest-value) part wins if more than one is in range at once —
+  // head first, then torso, then limbs. Only the weapon tip scores, not
+  // general body contact (that's resolveInterFighterCollisions()'s job,
+  // and shouldn't award points on its own).
+  function findHitScore(attacker, defender){
+    if (particlesTouching(attacker.weaponTip, defender.head)) return { amount: HIT_SCORE_HEAD };
+    if (particlesTouching(attacker.weaponTip, defender.torso) || particlesTouching(attacker.weaponTip, defender.hip)){
+      return { amount: HIT_SCORE_TORSO };
+    }
+    const limbs = [defender.elbowL, defender.handL, defender.elbowR, defender.handR,
+      defender.kneeL, defender.footL, defender.kneeR, defender.footR];
+    for (const part of limbs){
+      if (particlesTouching(attacker.weaponTip, part)) return { amount: HIT_SCORE_LIMB };
+    }
+    return null;
+  }
+
+  function pushFloatingText(x, y, amount){
+    floatingTexts.push({ x, y, text: "+" + amount, life: FLOAT_TEXT_LIFE_FRAMES, maxLife: FLOAT_TEXT_LIFE_FRAMES });
+  }
+
+  function updateFloatingTexts(){
+    for (const t of floatingTexts){ t.y -= 0.7; t.life--; }
+    floatingTexts = floatingTexts.filter((t) => t.life > 0);
+  }
+
+  // Host-only — runs once per frame against that frame's settled
+  // positions. A per-fighter cooldown (not a per-body-part one) is
+  // enough to stop a single resting overlap from scoring every frame,
+  // while still letting a fast flurry of distinct swings each score.
+  function checkMatchScoring(){
+    if (hostFighter.hitCooldown > 0){
+      hostFighter.hitCooldown--;
+    } else {
+      const hit = findHitScore(hostFighter, guestFighter);
+      if (hit){
+        hostScore += hit.amount;
+        hostFighter.hitCooldown = HIT_COOLDOWN_FRAMES;
+        pushFloatingText(hostFighter.head.x, hostFighter.head.y - HEAD_R - 24, hit.amount);
+      }
+    }
+    if (guestFighter.hitCooldown > 0){
+      guestFighter.hitCooldown--;
+    } else {
+      const hit = findHitScore(guestFighter, hostFighter);
+      if (hit){
+        guestScore += hit.amount;
+        guestFighter.hitCooldown = HIT_COOLDOWN_FRAMES;
+        // No local floating text — this is the GUEST's point. It rides
+        // along in the next state broadcast (see beginHostedMatch()) and
+        // the guest pops its own text upon receiving it.
+        lastGuestScoreEvent = { id: lastGuestScoreEvent.id + 1, amount: hit.amount };
       }
     }
   }
@@ -352,14 +459,19 @@
       ctx.closePath();
       ctx.fill();
     } else if (weapon.kind === "axe"){
+      // Double-bitted (labrys-style) head — a mirrored blade wedge on
+      // each side of the shaft, larger than a single-sided head so it
+      // reads clearly even at this scale.
       ctx.fillStyle = weapon.headColor;
-      ctx.beginPath();
-      ctx.moveTo(tip.x - ux * 16, tip.y - uy * 16);
-      ctx.lineTo(tip.x + px * 16 + ux * 4, tip.y + py * 16 + uy * 4);
-      ctx.lineTo(tip.x + ux * 10, tip.y + uy * 10);
-      ctx.lineTo(tip.x - px * 10, tip.y - py * 10);
-      ctx.closePath();
-      ctx.fill();
+      [1, -1].forEach((side) => {
+        ctx.beginPath();
+        ctx.moveTo(tip.x - ux * 20, tip.y - uy * 20);
+        ctx.lineTo(tip.x + px * side * 26 + ux * 2, tip.y + py * side * 26 + uy * 2);
+        ctx.lineTo(tip.x + ux * 16, tip.y + uy * 16);
+        ctx.lineTo(tip.x - px * side * 5, tip.y - py * side * 5);
+        ctx.closePath();
+        ctx.fill();
+      });
     } else if (weapon.kind === "hammer"){
       const headLen = 22, headW = 16;
       ctx.fillStyle = weapon.headColor;
@@ -418,6 +530,32 @@
     drawWeapon(f.handR, f.weaponTip, WEAPONS[f.weaponKey] || WEAPONS.sword);
   }
 
+  // Only ever shows your OWN score, never the opponent's — matches the
+  // floating "+X" text below, which also only ever appears for whoever
+  // actually scored the points.
+  function drawScoreHud(){
+    if (mode !== "mp-host" && mode !== "mp-guest") return;
+    const myScore = mode === "mp-host" ? hostScore : guestOwnScore;
+    ctx.textAlign = "left";
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillStyle = COLORS.scoreText;
+    ctx.fillText("Score: " + myScore, 12, 24);
+  }
+
+  function drawFloatingTexts(){
+    ctx.textAlign = "center";
+    ctx.font = "bold 20px sans-serif";
+    ctx.lineWidth = 3;
+    for (const t of floatingTexts){
+      ctx.globalAlpha = Math.max(0, t.life / t.maxLife);
+      ctx.strokeStyle = COLORS.floatingTextOutline;
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillStyle = COLORS.floatingText;
+      ctx.fillText(t.text, t.x, t.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(){
     ctx.fillStyle = COLORS.sky;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -438,6 +576,9 @@
         drawFighter(drawable.guest, { dragging: pendingLocalInput ? pendingLocalInput.dragging : false, mine: true });
       }
     }
+
+    drawScoreHud();
+    drawFloatingTexts();
   }
 
   function loop(){
@@ -448,8 +589,10 @@
       guestFighter.dragX = latestGuestInput.x;
       guestFighter.dragY = latestGuestInput.y;
       stepPhysics([hostFighter, guestFighter]);
+      checkMatchScoring();
     }
     // mp-guest never simulates — it just interpolates + renders below.
+    updateFloatingTexts();
     draw();
     animId = requestAnimationFrame(loop);
   }
@@ -621,6 +764,7 @@
     roomCode = null;
     hostFighter = null; guestFighter = null;
     guestRenderPrev = null; guestRenderNext = null;
+    floatingTexts = [];
     started = false;
     if (animId){ cancelAnimationFrame(animId); animId = null; }
   }
@@ -668,6 +812,9 @@
     hostFighter = createFighter(hostWeaponKey, HOST_START_X, 0);
     guestFighter = createFighter(guestWeaponKey, GUEST_START_X, 1);
     latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+    hostScore = 0; guestScore = 0;
+    lastGuestScoreEvent = { id: 0, amount: 0 };
+    floatingTexts = [];
     started = true;
     overlay.style.display = "none";
 
@@ -680,7 +827,8 @@
     stateSendTimer = setInterval(() => {
       if (!hostFighter || !guestFighter) return;
       fb.update(roomRef, {
-        state: { t: Date.now(), host: serializeFighter(hostFighter), guest: serializeFighter(guestFighter) }
+        state: { t: Date.now(), host: serializeFighter(hostFighter), guest: serializeFighter(guestFighter),
+          hostScore, guestScore, guestScoreEvent: lastGuestScoreEvent }
       }).catch((err) => { if (DEBUG) console.warn("[Floppy Swords] state push failed:", err); });
     }, STATE_SEND_INTERVAL_MS);
 
@@ -717,6 +865,8 @@
     mode = "mp-guest";
     started = true;
     pendingLocalInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+    guestOwnScore = 0; guestLastSeenScoreEventId = 0;
+    floatingTexts = [];
     overlay.style.display = "none";
 
     stateListenerUnsub = f.onValue(f.ref(f.db, `floppy-rooms/${roomCode}/state`), (snap2) => {
@@ -727,6 +877,16 @@
       const now = performance.now();
       if (guestRenderNextAt) guestRenderIntervalEstimate = Math.max(30, Math.min(300, now - guestRenderNextAt));
       guestRenderNextAt = now;
+
+      guestOwnScore = stateData.guestScore || 0;
+      const ev = stateData.guestScoreEvent;
+      if (ev && ev.id > guestLastSeenScoreEventId){
+        guestLastSeenScoreEventId = ev.id;
+        // stateData.guest.p[0]/[1] are the head's x/y — PARTICLE_NAMES
+        // puts "head" first, so no need to deserialize the whole fighter
+        // just to place this popup.
+        pushFloatingText(stateData.guest.p[0], stateData.guest.p[1] - HEAD_R - 24, ev.amount);
+      }
     });
     roomListenerUnsub = f.onValue(roomRef, (snap2) => {
       const roomData = snap2.val();
