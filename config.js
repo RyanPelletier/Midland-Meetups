@@ -33,9 +33,14 @@ const CHAT_PASSWORD = "ryanisthebest";
    README section above), not from hiding this object.
    ===================================================================== */
 const FLOPPY_FIREBASE_CONFIG = {
-  apiKey: "PASTE_YOUR_FIREBASE_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_FIREBASE_AUTH_DOMAIN_HERE",
-  databaseURL: "PASTE_YOUR_FIREBASE_DATABASE_URL_HERE",
-  projectId: "PASTE_YOUR_FIREBASE_PROJECT_ID_HERE",
-  appId: "PASTE_YOUR_FIREBASE_APP_ID_HERE"
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyBiUeH4aQu-TAZvENTnKn09DAK1aJlA9G0",
+  authDomain: "floppyfight-8906f.firebaseapp.com",
+  projectId: "floppyfight-8906f",
+  storageBucket: "floppyfight-8906f.firebasestorage.app",
+  messagingSenderId: "41902840717",
+  appId: "1:41902840717:web:e40870e14304002b96bbc4",
+  measurementId: "G-G1T3QLCFRZ"
+};
 };
