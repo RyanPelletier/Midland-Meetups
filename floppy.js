@@ -80,9 +80,23 @@
   const DEBUG = false;
 
   /* ==================== CONFIG ==================== */
-  const CANVAS_W = 640;
-  const CANVAS_H = 420;
-  const GROUND_Y = 380;
+  // Canvas dimensions aren't const — the "Mobile" button swaps them
+  // between these two presets (see applyOrientation()) by changing the
+  // actual <canvas> element's width/height attributes, not just CSS, so
+  // the internal simulation coordinate space itself gets narrower/taller,
+  // not just the on-screen scaling of a fixed-resolution buffer. Every
+  // other width/height-derived value below (GROUND_Y, and the
+  // soloStartX()/hostStartX()/guestStartX() functions further down) has
+  // to read CANVAS_W/CANVAS_H fresh each time rather than precomputing
+  // once, or it'd stay stale after a switch.
+  const ORIENTATION_PRESETS = {
+    landscape: { w: 640, h: 420 },
+    portrait: { w: 420, h: 680 }
+  };
+  let orientation = "landscape";
+  let CANVAS_W = ORIENTATION_PRESETS.landscape.w;
+  let CANVAS_H = ORIENTATION_PRESETS.landscape.h;
+  let GROUND_Y = CANVAS_H - 40; // same 40px street margin in both orientations
 
   const GRAVITY = 0.6;
   const DAMPING = 0.98; // per-frame velocity carry-over (air resistance) — lower loses energy faster, settles down quicker instead of wobbling
@@ -126,10 +140,12 @@
   // Multiplayer starting spots — apart and facing each other, close
   // enough that dragging toward the middle brings weapons into range
   // quickly rather than requiring a long walk that doesn't exist here
-  // (there's no locomotion, only dragging).
-  const SOLO_START_X = CANVAS_W / 2;
-  const HOST_START_X = CANVAS_W * 0.3;
-  const GUEST_START_X = CANVAS_W * 0.7;
+  // (there's no locomotion, only dragging). Functions, not precomputed
+  // constants, since CANVAS_W changes when the orientation does — these
+  // always read its current value.
+  function soloStartX(){ return CANVAS_W / 2; }
+  function hostStartX(){ return CANVAS_W * 0.3; }
+  function guestStartX(){ return CANVAS_W * 0.7; }
 
   const COLORS = {
     sky: "#5EC1F0",
@@ -191,7 +207,7 @@
   const ROOM_CODE_LEN = 5;
 
   /* ==================== state ==================== */
-  let canvas, ctx, overlay, overlayInner;
+  let canvas, ctx, overlay, overlayInner, orientationBtn;
   let mode = "menu"; // "menu" | "practice" | "mp-host" | "mp-guest"
   let started = false, animId = null;
 
@@ -208,7 +224,7 @@
   let amIHost = false;
   let roomCode = null;
   let stateSendTimer = null, inputSendTimer = null;
-  let latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+  let latestGuestInput = { x: guestStartX(), y: GROUND_Y - 100, dragging: false };
   let pendingLocalInput = null; // guest's own not-yet-sent drag position
 
   // Scoring — only the host ever computes hits (see checkMatchScoring()),
@@ -322,7 +338,7 @@
   /* ==================== fighter rig ==================== */
   function createFighter(weaponKey, startX, paletteIndex){
     const weapon = WEAPONS[weaponKey] || WEAPONS.sword;
-    const baseX = startX != null ? startX : SOLO_START_X;
+    const baseX = startX != null ? startX : soloStartX();
 
     const footY = GROUND_Y;
     const kneeY = footY - LOWER_LEG_LEN;
@@ -477,9 +493,9 @@
         roundTransitionTimer = null;
         currentRound++;
         const hWeapon = hostFighter.weaponKey, gWeapon = guestFighter.weaponKey;
-        hostFighter = createFighter(hWeapon, HOST_START_X, 0);
-        guestFighter = createFighter(gWeapon, GUEST_START_X, 1);
-        latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+        hostFighter = createFighter(hWeapon, hostStartX(), 0);
+        guestFighter = createFighter(gWeapon, guestStartX(), 1);
+        latestGuestInput = { x: guestStartX(), y: GROUND_Y - 100, dragging: false };
         hostScore = 0; guestScore = 0;
         matchPhase = "playing";
       }, ROUND_TRANSITION_MS);
@@ -1010,7 +1026,7 @@
     await fb.set(roomRef, {
       hostUid: fb.uid, guestUid: null,
       hostWeapon: weaponKey, guestWeapon: null,
-      pointCeiling, roundCount,
+      pointCeiling, roundCount, orientation,
       status: "waiting", createdAt: Date.now()
     });
     fb.onDisconnect(roomRef).remove();
@@ -1037,9 +1053,9 @@
 
   function beginHostedMatch(hostWeaponKey, guestWeaponKey){
     mode = "mp-host";
-    hostFighter = createFighter(hostWeaponKey, HOST_START_X, 0);
-    guestFighter = createFighter(guestWeaponKey, GUEST_START_X, 1);
-    latestGuestInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+    hostFighter = createFighter(hostWeaponKey, hostStartX(), 0);
+    guestFighter = createFighter(guestWeaponKey, guestStartX(), 1);
+    latestGuestInput = { x: guestStartX(), y: GROUND_Y - 100, dragging: false };
     hostScore = 0; guestScore = 0;
     lastGuestScoreEvent = { id: 0, amount: 0 };
     floatingTexts = [];
@@ -1083,6 +1099,12 @@
       return;
     }
     amIHost = false;
+    // Joining adopts the host's chosen orientation, not whatever this
+    // client had locally — both sides must agree on CANVAS_W/CANVAS_H,
+    // since the guest renders the host's raw broadcast coordinates
+    // directly with no per-client rescaling. Applied before anything
+    // below reads guestStartX()/GROUND_Y for a default position.
+    applyOrientation(data.orientation || "landscape");
     // Sequential, not a single combined update() — guestWeapon's and
     // status's rules check that guestUid already matches this client,
     // so guestUid has to land (and be readably committed) first. See
@@ -1094,7 +1116,7 @@
 
     mode = "mp-guest";
     started = true;
-    pendingLocalInput = { x: GUEST_START_X, y: GROUND_Y - 100, dragging: false };
+    pendingLocalInput = { x: guestStartX(), y: GROUND_Y - 100, dragging: false };
     guestOwnScore = 0; guestLastSeenScoreEventId = 0; guestLastSeenBlockEventId = 0;
     guestMatchOverShown = false;
     floatingTexts = [];
@@ -1189,7 +1211,7 @@
 
   function startPracticeFight(weaponKey){
     mode = "practice";
-    soloFighter = createFighter(weaponKey, SOLO_START_X, 0);
+    soloFighter = createFighter(weaponKey, soloStartX(), 0);
     started = true;
     overlay.style.display = "none";
     if (!animId) loop();
@@ -1355,6 +1377,30 @@
   }
 
   /* ==================== bootstrap ==================== */
+  // Swaps CANVAS_W/CANVAS_H/GROUND_Y between the landscape/portrait
+  // presets, resizes the actual <canvas> element (its width/height
+  // attributes define the internal pixel-coordinate space the physics
+  // runs in — separate from the CSS size it's displayed at), toggles the
+  // matching CSS class on the wrap div (see .game-wrap.floppy-portrait in
+  // style.css) so the container's own max-width follows suit instead of
+  // stretching a portrait-shaped buffer wide, and updates the button's
+  // own label to whatever it would switch to next. Only ever called
+  // between sessions (see the button handler below and joinMatch()) —
+  // never mid-fight, so there's no "existing fighter's positions are now
+  // nonsense" case to handle.
+  function applyOrientation(newOrientation){
+    orientation = newOrientation === "portrait" ? "portrait" : "landscape";
+    const preset = ORIENTATION_PRESETS[orientation];
+    CANVAS_W = preset.w;
+    CANVAS_H = preset.h;
+    GROUND_Y = CANVAS_H - 40;
+    if (canvas){ canvas.width = CANVAS_W; canvas.height = CANVAS_H; }
+    const wrap = document.getElementById("floppy-game-wrap");
+    if (wrap) wrap.classList.toggle("floppy-portrait", orientation === "portrait");
+    if (orientationBtn) orientationBtn.textContent = orientation === "portrait" ? "Desktop" : "Mobile";
+    if (ctx) draw();
+  }
+
   function initGame(){
     if (DEBUG) console.log("[Floppy Swords] floppy.js loaded");
     canvas = document.getElementById("floppy-canvas");
@@ -1379,7 +1425,15 @@
     });
     const resetBtn = document.getElementById("floppy-reset-btn");
     if (resetBtn) resetBtn.addEventListener("click", () => {
-      if (mode === "practice" && soloFighter) soloFighter = createFighter(soloFighter.weaponKey, SOLO_START_X, 0);
+      if (mode === "practice" && soloFighter) soloFighter = createFighter(soloFighter.weaponKey, soloStartX(), 0);
+    });
+
+    orientationBtn = document.getElementById("floppy-orientation-btn");
+    if (orientationBtn) orientationBtn.addEventListener("click", async () => {
+      started = false;
+      await leaveMatch();
+      applyOrientation(orientation === "portrait" ? "landscape" : "portrait");
+      showModeSelectOverlay();
     });
 
     window.addEventListener("beforeunload", () => { leaveMatch(); });

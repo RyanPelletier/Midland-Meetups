@@ -1017,6 +1017,28 @@ phones) into a real match over Firebase Realtime Database.
   since codes are generated uppercase-only; buttons use the same `.btn`
   sizing as every other overlay on this page, which is already a
   comfortable tap target.
+- **Portrait orientation:** the "Mobile"/"Desktop" button
+  (`applyOrientation()`) swaps `CANVAS_W`/`CANVAS_H`/`GROUND_Y` between
+  a landscape preset (640×420, the default) and a taller, narrower
+  portrait one (420×680) — a real resize of the actual `<canvas>`
+  element's `width`/`height` attributes, which is the internal
+  pixel-coordinate space the physics runs in, not just a CSS scaling
+  trick. `soloStartX()`/`hostStartX()`/`guestStartX()` are functions
+  rather than precomputed constants specifically so they keep reading
+  the *current* `CANVAS_W` after a switch instead of going stale. The
+  button only ever does anything between sessions — clicking it always
+  leaves any active match and returns to the mode-select menu first
+  (same as "Menu"), so there's never a fighter whose already-placed
+  coordinates suddenly stop making sense. In multiplayer this is the
+  host's call alone, made before hosting and stored on the room
+  (`orientation`, alongside `pointCeiling`/`roundCount`) — joining a
+  match applies the host's choice on the guest's client too
+  (`applyOrientation(data.orientation)` in `joinMatch()`), overriding
+  whatever that client had locally. This isn't optional politeness:
+  the guest renders the host's raw broadcast pixel coordinates
+  directly with no independent per-client rescaling, so both sides
+  have to agree on the same `CANVAS_W`/`CANVAS_H` or positions land in
+  the wrong place on one of the two screens.
 - **Firebase is lazy-loaded:** nothing under "Firebase (lazy-loaded)" in
   `floppy.js` — not even the SDK download — runs unless a player actually
   opens the Multiplayer menu. Practice mode, and every other game on this
