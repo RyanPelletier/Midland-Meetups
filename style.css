@@ -939,6 +939,17 @@ textarea{ resize: vertical; min-height: 110px; }
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+/* Floppy Swords' "Mobile" toggle swaps its canvas's own width/height
+   attributes to a taller, narrower intrinsic size (see floppy.js's
+   applyOrientation()) — #floppy-canvas's shared width:100%;height:auto
+   rule then follows that new aspect ratio automatically. Without this
+   override, though, .game-wrap's shared max-width:640px would still
+   stretch the container's CSS width to 640px on anything wider than
+   that, pulling the canvas wide along with it and undoing the whole
+   point of switching to portrait. */
+.game-wrap.floppy-portrait{
+  max-width: 420px;
+}
 #game-canvas,
 #walter-canvas,
 #doom-canvas,
