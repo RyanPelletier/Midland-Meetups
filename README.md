@@ -734,13 +734,16 @@ function webrunnerSaveShop(name, password, techPoints, shopLevels){
    so the live URL picks up the change (same step as any other script
    edit — see Part 1 above).
 
-**A technical note for future changes:** since four games now share
+**A technical note for future changes:** since five games now share
 one page, `game.js`, `walter.js`, `doom.js`, and `webrunner.js` each
 check that their *own* canvas is the focused element before responding
 to a keypress (see `document.activeElement !== canvas` near the top of
-each file's keydown handler). If you add a fifth game to this page
-later, it'll need the same guard, or its controls will collide with the
-other four.
+each file's keydown handler). `floppy.js` is the exception — it's
+controlled entirely by pointer events (drag), which it attaches
+directly to `#floppy-canvas`, so they only ever fire for that canvas in
+the first place and don't need the same guard. If you add a sixth game
+to this page later, it'll need the guard only if it listens on
+`document` the way the keyboard-driven games do.
 
 ## How Arachnid Guy works
 
@@ -873,6 +876,54 @@ rooftops while taking down goons.
   a real grind rather than trivializing regen — see
   `effectiveRegenInterval()` in `webrunner.js`). See "Apps Script setup
   for Arachnid Guy's login and shop" above for the backend half of this.
+
+## How Floppy Swords works
+
+A ragdoll sword-fighting prototype, single-player only for now — `floppy.js`,
+own canvas (`#floppy-canvas`), same page as the other four games. It exists
+to nail down the physics feel before any of the realtime multiplayer/
+database work, so there's deliberately no opponent, win condition, score, or
+login yet.
+
+- **Physics:** a from-scratch Verlet-integration ragdoll — every joint
+  (head, torso, hip, elbows, hands, knees, feet) is a "particle" tracking
+  its current and previous position, with no separate velocity field (the
+  difference between the two positions each frame *is* the velocity, so
+  it's implicit — see `stepPhysics()`). "Sticks" are fixed-length
+  constraints between two particles (bones, plus the hand-to-weapon-tip
+  link); satisfying every stick a handful of times per frame
+  (`CONSTRAINT_ITERATIONS`) is what keeps the body's proportions from
+  collapsing while still letting each joint swing freely. There are no
+  angular joint limits, so elbows and knees can bend any which way — that's
+  the deliberately floppy, slightly-chaotic look the name promises, not a
+  bug. With nothing holding it upright, an idle fighter crumples into a
+  heap within about a second of a weapon being picked — expected for a
+  passive ragdoll with no balance/muscle system, and part of the joke.
+- **Weight:** each particle has an `invMass` — how much it gives way when a
+  stick pulls on it (0 would be immovable). Every body joint uses the same
+  value; only the weapon's tip particle differs, and it's set per weapon in
+  `WEAPONS`. A war hammer's tip has a much lower `invMass` than a sword's,
+  so it resists being dragged along and visibly lags behind the hand
+  mid-swing, while the sword's blade all but keeps up instantly — same
+  constraint-solving code for both, just a different number.
+- **Control:** you drag the fighter around by the head with the mouse or a
+  touch — see `onPointerDown()`/`onPointerMove()`. The head's position is
+  pinned to the pointer every frame while dragging (not just teleported —
+  its previous-frame position is preserved first, so the usual
+  current-minus-previous velocity math still applies), which is what makes
+  releasing mid-drag fling the ragdoll with whatever momentum you built up,
+  for free, with no separate "throw" code path.
+- **Weapons:** four choices at the start overlay — sword, spear, battle
+  axe, and war hammer — each with its own reach (the hand-to-tip stick
+  length) and weight, in `WEAPONS` in `floppy.js`. Choosing one calls
+  `createFighter()`, which also sets the fighter's idle standing pose (see
+  `dropFrom()` — it computes exact joint positions from the body's fixed
+  proportions so nothing "pops" as the constraint solver corrects an
+  approximate pose on the first frame).
+- **No multiplayer yet:** everything above is single-player and entirely
+  client-side. The realtime/database work for actual head-to-head matches
+  is intentionally not started until the physics and controls feel right
+  on their own.
 
 ## Adding a new page (or renaming/reordering nav links)
 

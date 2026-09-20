@@ -941,7 +941,8 @@ textarea{ resize: vertical; min-height: 110px; }
 }
 #game-canvas,
 #walter-canvas,
-#doom-canvas{
+#doom-canvas,
+#floppy-canvas{
   display: block;
   width: 100%;
   height: auto;
@@ -951,9 +952,18 @@ textarea{ resize: vertical; min-height: 110px; }
 }
 #game-canvas:focus-visible,
 #walter-canvas:focus-visible,
-#doom-canvas:focus-visible{
+#doom-canvas:focus-visible,
+#floppy-canvas:focus-visible{
   outline: 2.5px solid var(--blue);
   outline-offset: -2px;
+}
+/* Floppy Swords is drag-based, not tap-based — "manipulation" above
+   still lets the browser treat a press-and-drag as a page scroll
+   gesture on touch, which fights the ragdoll drag. Override to "none"
+   here so a touch drag reaches the game instead. */
+#floppy-canvas{
+  touch-action: none;
+  cursor: grab;
 }
 .game-overlay{
   position: absolute;
