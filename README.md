@@ -901,7 +901,13 @@ phones) into a real match over Firebase Realtime Database.
   idle standing pose is only approximate, not solved exactly against the
   bone lengths, so it always sags a little on the very first frame too —
   cheap and looks the same as if it were exact, since it crumples a moment
-  later either way).
+  later either way). A `footL`-`footR` stance brace, tighter constraint
+  iterations, faster velocity decay, and less bouncy/slidey ground contact
+  (`CONSTRAINT_ITERATIONS`/`DAMPING`/`GROUND_BOUNCE`/`GROUND_FRICTION`) hold
+  a stance noticeably longer before that inevitable crumple — legs with
+  nothing keeping them apart are an unstable "pencil on its tip"
+  equilibrium no amount of stiffness fully fixes without an actual
+  balance controller, which this doesn't have.
 - **Weight:** each particle has an `invMass` — how much it gives way when a
   stick pulls on it (0 would be immovable). Every body joint uses the same
   value; only the weapon's tip particle differs, and it's set per weapon in
@@ -924,7 +930,30 @@ phones) into a real match over Firebase Realtime Database.
   for free, with no separate "throw" code path.
 - **Weapons:** four choices — sword, spear, battle axe, and war hammer —
   each with its own reach (the hand-to-tip stick length) and weight, in
-  `WEAPONS` in `floppy.js`.
+  `WEAPONS` in `floppy.js`. The battle axe is drawn double-bitted (a
+  mirrored blade wedge on each side of the shaft, see the `"axe"` case in
+  `drawWeapon()`) rather than single-sided, and larger than the other
+  weapon heads so it reads clearly at this scale.
+- **Scoring:** landing your weapon's tip on an opponent scores points —
+  5 for a limb, 10 for the torso, 15 for the head
+  (`HIT_SCORE_LIMB`/`HIT_SCORE_TORSO`/`HIT_SCORE_HEAD`, checked in
+  `checkMatchScoring()`, host-only — same authority as the physics itself,
+  so there's only ever one judge of what counted as a hit). A per-fighter
+  cooldown (`HIT_COOLDOWN_FRAMES`) stops one continued overlap from
+  scoring every single frame while still letting a fast flurry of
+  distinct swings each land. The floating "+X" text only ever appears on
+  the screen of whoever actually scored those points — never the other
+  player's — even though both fighters' running totals live in the same
+  host-broadcast `state`. That's `guestScoreEvent`: a tiny separate
+  "something just happened" signal (an id that only increments when the
+  *guest* scores, plus the amount) riding along in the regular state
+  broadcast; the guest client watches that id and pops its own local text
+  when it changes, and never reacts to points the host scored, since the
+  host never has a reason to touch that field for its own hits (those
+  trigger a local popup immediately, no network round-trip needed since
+  the host is already rendering its own view live). Floating text itself
+  is a purely local visual effect on each client — never sent over the
+  network, no id lives in the trace beyond a moment.
 - **Multiplayer is host-authoritative, not lockstep.** Ragdoll physics is
   exactly the kind of chaotic floating-point system where two independent
   simulations fed "the same" input quietly drift apart, so only one side
