@@ -127,7 +127,7 @@
   const GOON_FIRE_COOLDOWN_MIN = 45, GOON_FIRE_COOLDOWN_MAX = 85; // faster than before — goons open fire more often
   const GOON_BULLET_SPEED = 6.5;
   const GOON_BULLET_DAMAGE = 2;
-  const GOON_RANGE = 420;
+  const GOON_RANGE = 600; // wider than the ~470px needed to just barely reach on-screen — at the faster scroll speed, goons need to start their cooldown while still approaching, or they never get a shot off before the player is already past them
   const STUN_DURATION_FRAMES = 150;
   const SCORE_PER_GOON = 30; // web-shooter stun + contact takedown
 
