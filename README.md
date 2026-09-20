@@ -879,11 +879,10 @@ rooftops while taking down goons.
 
 ## How Floppy Swords works
 
-A ragdoll sword-fighting prototype, single-player only for now — `floppy.js`,
-own canvas (`#floppy-canvas`), same page as the other four games. It exists
-to nail down the physics feel before any of the realtime multiplayer/
-database work, so there's deliberately no opponent, win condition, score, or
-login yet.
+A ragdoll sword-fighting game — `floppy.js`, own canvas (`#floppy-canvas`),
+same page as the other four games. Practice mode is a single-fighter
+sandbox; Multiplayer connects two browsers (any two devices, including two
+phones) into a real match over Firebase Realtime Database.
 
 - **Physics:** a from-scratch Verlet-integration ragdoll — every joint
   (head, torso, hip, elbows, hands, knees, feet) is a "particle" tracking
@@ -898,7 +897,11 @@ login yet.
   the deliberately floppy, slightly-chaotic look the name promises, not a
   bug. With nothing holding it upright, an idle fighter crumples into a
   heap within about a second of a weapon being picked — expected for a
-  passive ragdoll with no balance/muscle system, and part of the joke.
+  passive ragdoll with no balance/muscle system, and part of the joke (the
+  idle standing pose is only approximate, not solved exactly against the
+  bone lengths, so it always sags a little on the very first frame too —
+  cheap and looks the same as if it were exact, since it crumples a moment
+  later either way).
 - **Weight:** each particle has an `invMass` — how much it gives way when a
   stick pulls on it (0 would be immovable). Every body joint uses the same
   value; only the weapon's tip particle differs, and it's set per weapon in
@@ -906,24 +909,167 @@ login yet.
   so it resists being dragged along and visibly lags behind the hand
   mid-swing, while the sword's blade all but keeps up instantly — same
   constraint-solving code for both, just a different number.
-- **Control:** you drag the fighter around by the head with the mouse or a
+- **Fighter-vs-fighter collision:** when two fighters share a match, every
+  particle of one is also collision-checked against every particle of the
+  other each physics step (`resolveInterFighterCollisions()`) — same
+  mass-weighted push-apart math as the ground/wall collision, just applied
+  between two ragdolls instead of one ragdoll and the world, so weapons and
+  bodies can't pass through each other.
+- **Control:** you drag a fighter around by the head with the mouse or a
   touch — see `onPointerDown()`/`onPointerMove()`. The head's position is
   pinned to the pointer every frame while dragging (not just teleported —
   its previous-frame position is preserved first, so the usual
   current-minus-previous velocity math still applies), which is what makes
   releasing mid-drag fling the ragdoll with whatever momentum you built up,
   for free, with no separate "throw" code path.
-- **Weapons:** four choices at the start overlay — sword, spear, battle
-  axe, and war hammer — each with its own reach (the hand-to-tip stick
-  length) and weight, in `WEAPONS` in `floppy.js`. Choosing one calls
-  `createFighter()`, which also sets the fighter's idle standing pose (see
-  `dropFrom()` — it computes exact joint positions from the body's fixed
-  proportions so nothing "pops" as the constraint solver corrects an
-  approximate pose on the first frame).
-- **No multiplayer yet:** everything above is single-player and entirely
-  client-side. The realtime/database work for actual head-to-head matches
-  is intentionally not started until the physics and controls feel right
-  on their own.
+- **Weapons:** four choices — sword, spear, battle axe, and war hammer —
+  each with its own reach (the hand-to-tip stick length) and weight, in
+  `WEAPONS` in `floppy.js`.
+- **Multiplayer is host-authoritative, not lockstep.** Ragdoll physics is
+  exactly the kind of chaotic floating-point system where two independent
+  simulations fed "the same" input quietly drift apart, so only one side
+  ever calls `stepPhysics()` for a match: whoever clicked **Host Match**.
+  The joining player (**Join Match** + the room code) never simulates
+  locally — their client sends its own drag position to the host over
+  Realtime Database (`inputs/guest`, ~20 times/sec) and renders whatever
+  position snapshot the host broadcasts back (`state`, also ~20/sec),
+  linearly interpolated between the last two snapshots
+  (`guestDrawableFighters()`) so a 20Hz update rate doesn't look like a
+  slideshow — this matters most on a shaky mobile connection, which is
+  exactly when a naive "just render the latest snapshot" approach would
+  look worst. Rendering doesn't know or care whether a fighter came from a
+  live simulation or a remote snapshot — `drawFighter()` just takes
+  anything shaped like `{ head:{x,y}, torso:{x,y}, ... }`, so multiplayer
+  needed zero changes to any drawing code.
+- **Rooms, identity, and cleanup:** each match gets a short random code
+  (`randomRoomCode()`) under `/floppy-rooms/{code}` in the database. Every
+  browser signs in anonymously on first touching multiplayer
+  (`ensureFirebase()`) — invisible, no login UI, just gives Realtime
+  Database Rules something to check so a random stranger can't write into
+  someone else's match. `onDisconnect()` handlers clean a room up
+  automatically if the host's tab closes, or clear the guest slot if the
+  guest's does, so a dropped connection doesn't leave the other player
+  stuck forever.
+- **Mobile:** the drag controls already worked on touch (Pointer Events
+  unify mouse and touch, and `#floppy-canvas` overrides the shared
+  canvas rule's `touch-action` to `none` — see `style.css` — so a touch
+  drag doesn't also try to scroll the page). The room-code entry field
+  uses `autocapitalize="characters"` and forces uppercase as you type,
+  since codes are generated uppercase-only; buttons use the same `.btn`
+  sizing as every other overlay on this page, which is already a
+  comfortable tap target.
+- **Firebase is lazy-loaded:** nothing under "Firebase (lazy-loaded)" in
+  `floppy.js` — not even the SDK download — runs unless a player actually
+  opens the Multiplayer menu. Practice mode, and every other game on this
+  page, never touch the network. See "Firebase setup for Floppy Swords
+  multiplayer" below for the one-time console setup this depends on.
+
+### Firebase setup for Floppy Swords multiplayer
+
+Unlike the Google Sheet + Apps Script setup above, this isn't something
+that lives in this repo or in your Sheet — it's a separate free Firebase
+project, and it's a one-time setup. Practice mode works with none of this
+done; only the Multiplayer menu needs it, and `floppy.js` shows a friendly
+"not set up yet" message instead of erroring if you skip it.
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com)
+   and click **Add project**. Name it anything (e.g. "midland-meetups").
+   Google Analytics is optional — you can turn it off, it's not used here.
+2. Once the project's created, click the **Web** icon (`</>`) on the
+   project overview page to register a web app. Give it any nickname. You
+   don't need Firebase Hosting — this site already lives on Vercel. After
+   registering, it shows you a `firebaseConfig` object — keep this page
+   open, you'll copy values out of it in step 6.
+3. In the left sidebar: **Build → Realtime Database → Create Database**.
+   Pick a location (closest to where most players actually are is fine).
+   Start in **locked mode** — you're about to paste in real rules, so the
+   default doesn't matter.
+4. Open the **Rules** tab of the Realtime Database you just created,
+   replace everything with this, and click **Publish**:
+
+```json
+{
+  "rules": {
+    "floppy-rooms": {
+      "$room": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && data.child('hostUid').val() === auth.uid && !newData.exists()))",
+        "guestUid": {
+          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && root.child('floppy-rooms').child($room).child('hostUid').exists()) || (data.exists() && data.val() === auth.uid))"
+        },
+        "guestWeapon": {
+          ".write": "auth != null && root.child('floppy-rooms').child($room).child('guestUid').val() === auth.uid"
+        },
+        "status": {
+          ".write": "auth != null && (root.child('floppy-rooms').child($room).child('hostUid').val() === auth.uid || root.child('floppy-rooms').child($room).child('guestUid').val() === auth.uid)"
+        },
+        "state": {
+          ".write": "auth != null && root.child('floppy-rooms').child($room).child('hostUid').val() === auth.uid"
+        },
+        "inputs": {
+          "guest": {
+            ".write": "auth != null && root.child('floppy-rooms').child($room).child('guestUid').val() === auth.uid"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+   What this enforces: anyone signed in (see step 5 — that's every player,
+   automatically) can read room data. The `$room` rule itself only allows
+   creating a brand-new room whose `hostUid` is your own uid (one `set()`,
+   covering `hostUid`/`hostWeapon`/`status`/`createdAt` together — see
+   `hostMatch()`), or deleting a room you host entirely (covers both an
+   explicit leave and the `onDisconnect().remove()` that fires if the
+   host's tab just closes). Everything else is a targeted `update()` to
+   one field at a time, each checked against its own rule below `$room`:
+   `guestUid` can be claimed once (only on a room that already has a
+   host) and cleared again only by whoever claimed it; `guestWeapon` and
+   `inputs/guest` are guest-only; `state` is host-only; `status` is
+   either participant. A stranger who guesses or is handed a room code
+   they didn't create or join can read that match's state but can't
+   write into it. `floppy.js` deliberately never combines a write to
+   `guestUid` with a write to `guestWeapon`/`status` in the same call —
+   see the comments in `joinMatch()`/`leaveMatch()` for why: those rules
+   need to read `guestUid` as already-committed data, and Realtime
+   Database's exact ordering guarantees for cross-field reads *within* a
+   single multi-path update aren't something to lean on when you can
+   just... not need them, with one extra sequential round trip at a
+   moment (joining/leaving) where nobody will notice the difference.
+5. **Build → Authentication → Get started → Sign-in method** tab, enable
+   **Anonymous**, Save. This is what lets `signInAnonymously()` in
+   `floppy.js` give every browser an identity with zero login screen —
+   nothing a player ever sees or types.
+6. **Project settings** (gear icon, top of the sidebar) **→ General** tab
+   **→ Your apps**, find the web app from step 2, and copy `apiKey`,
+   `authDomain`, `databaseURL`, `projectId`, and `appId` into
+   `FLOPPY_FIREBASE_CONFIG` in `config.js` in this repo.
+7. That's it — no server to deploy, no Cloud Functions, nothing else to
+   host. The free "Spark" plan's Realtime Database limits (100 simultaneous
+   connections, 1GB stored, 10GB/month downloaded) are far beyond what a
+   friend-group site will ever use.
+
+**On exposing `FLOPPY_FIREBASE_CONFIG` publicly:** this is different from
+`APPS_SCRIPT_URL`/`SUBMIT_PASSWORD` above. Those are light, security-through-
+obscurity gates — a Firebase web config is not a secret at all, by design.
+It's meant to be visible in client-side code; anyone can already see it in
+your page source the moment multiplayer loads. All of the actual security
+lives in the Database Rules from step 4, which run on Google's servers no
+matter what a client sends, not in hiding this object.
+
+**A note on room cleanup:** `onDisconnect()` (see `hostMatch()`/
+`joinMatch()` in `floppy.js`) removes a room when the host's tab closes and
+clears the guest slot when the guest's does, so an orderly leave (or a
+closed tab/browser) cleans up automatically. A browser crash or lost
+connection can occasionally leave a stale room behind since there's no
+server-side sweep for it — there's no Cloud Function doing periodic
+cleanup, deliberately, to keep this a "no backend to run" setup. For a
+small friend-group site this is a non-issue (well within the free tier
+either way), but if it ever bothers you, the fix is a scheduled Cloud
+Function that deletes rooms past some `createdAt` age — outside this
+repo's scope for now.
 
 ## Adding a new page (or renaming/reordering nav links)
 
