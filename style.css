@@ -953,7 +953,8 @@ textarea{ resize: vertical; min-height: 110px; }
 #game-canvas,
 #walter-canvas,
 #doom-canvas,
-#floppy-canvas{
+#floppy-canvas,
+#atla-canvas{
   display: block;
   width: 100%;
   height: auto;
@@ -964,7 +965,8 @@ textarea{ resize: vertical; min-height: 110px; }
 #game-canvas:focus-visible,
 #walter-canvas:focus-visible,
 #doom-canvas:focus-visible,
-#floppy-canvas:focus-visible{
+#floppy-canvas:focus-visible,
+#atla-canvas:focus-visible{
   outline: 2.5px solid var(--blue);
   outline-offset: -2px;
 }
@@ -1237,4 +1239,37 @@ textarea{ resize: vertical; min-height: 110px; }
 a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible{
   outline: 2.5px solid var(--blue);
   outline-offset: 2px;
+}
+
+/* -------------------- Bending Brawl's round-start wheel --------------------
+   Four slices in ELEMENT_ORDER (fire, water, earth, air), matching the
+   colors used for each element elsewhere in atla.js. conic-gradient starts
+   at 12 o'clock and runs clockwise, same as the rotation math in
+   spinWheelThenStart() assumes. */
+.atla-wheel{
+  position: relative;
+  width: 160px;
+  height: 160px;
+  margin: 10px auto 6px;
+  border-radius: 50%;
+  border: 3px solid var(--surface);
+  background: conic-gradient(
+    #E5484D 0deg 90deg,
+    #2851E3 90deg 180deg,
+    #8A6D3B 180deg 270deg,
+    #8FCFE0 270deg 360deg
+  );
+  transition: transform 2.2s cubic-bezier(0.15, 0.65, 0.15, 1);
+  transform: rotate(0deg);
+}
+.atla-wheel-pointer{
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 14px solid var(--surface);
 }

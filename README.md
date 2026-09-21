@@ -734,16 +734,16 @@ function webrunnerSaveShop(name, password, techPoints, shopLevels){
    so the live URL picks up the change (same step as any other script
    edit — see Part 1 above).
 
-**A technical note for future changes:** since five games now share
-one page, `game.js`, `walter.js`, `doom.js`, and `webrunner.js` each
-check that their *own* canvas is the focused element before responding
-to a keypress (see `document.activeElement !== canvas` near the top of
-each file's keydown handler). `floppy.js` is the exception — it's
-controlled entirely by pointer events (drag), which it attaches
-directly to `#floppy-canvas`, so they only ever fire for that canvas in
-the first place and don't need the same guard. If you add a sixth game
-to this page later, it'll need the guard only if it listens on
-`document` the way the keyboard-driven games do.
+**A technical note for future changes:** since six games now share
+one page, `game.js`, `walter.js`, `doom.js`, `webrunner.js`, and
+`atla.js` each check that their *own* canvas is the focused element
+before responding to a keypress (see `document.activeElement !== canvas`
+near the top of each file's keydown handler). `floppy.js` is the
+exception — it's controlled entirely by pointer events (drag), which it
+attaches directly to `#floppy-canvas`, so they only ever fire for that
+canvas in the first place and don't need the same guard. If you add
+another game to this page later, it'll need the guard only if it listens
+on `document` the way the keyboard-driven games do.
 
 ## How Arachnid Guy works
 
@@ -880,7 +880,7 @@ rooftops while taking down goons.
 ## How Floppy Swords works
 
 A ragdoll sword-fighting game — `floppy.js`, own canvas (`#floppy-canvas`),
-same page as the other four games. Practice mode is a single-fighter
+same page as the other games. Practice mode is a single-fighter
 sandbox; Multiplayer connects two browsers (any two devices, including two
 phones) into a real match over Firebase Realtime Database.
 
@@ -1045,13 +1045,17 @@ phones) into a real match over Firebase Realtime Database.
   page, never touch the network. See "Firebase setup for Floppy Swords
   multiplayer" below for the one-time console setup this depends on.
 
-### Firebase setup for Floppy Swords multiplayer
+### Firebase setup for Floppy Swords + Bending Brawl multiplayer
 
 Unlike the Google Sheet + Apps Script setup above, this isn't something
 that lives in this repo or in your Sheet — it's a separate free Firebase
-project, and it's a one-time setup. Practice mode works with none of this
-done; only the Multiplayer menu needs it, and `floppy.js` shows a friendly
-"not set up yet" message instead of erroring if you skip it.
+project, and it's a one-time setup. Practice/CPU mode works with none of
+this done; only each game's Multiplayer menu needs it, and both
+`floppy.js` and `atla.js` show a friendly "not set up yet" message instead
+of erroring if you skip it. Both games share the exact same
+`FLOPPY_FIREBASE_CONFIG`/project — Bending Brawl just writes to a sibling
+`/atla-rooms/` tree instead of `/floppy-rooms/`, so there's only ever one
+Firebase project to set up, not two.
 
 1. Go to [console.firebase.google.com](https://console.firebase.google.com)
    and click **Add project**. Name it anything (e.g. "midland-meetups").
@@ -1093,32 +1097,70 @@ done; only the Multiplayer menu needs it, and `floppy.js` shows a friendly
           }
         }
       }
+    },
+    "atla-rooms": {
+      "$room": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && data.child('hostUid').val() === auth.uid && !newData.exists()))",
+        "guestUid": {
+          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && root.child('atla-rooms').child($room).child('hostUid').exists()) || (data.exists() && data.val() === auth.uid))"
+        },
+        "guestChoice": {
+          ".write": "auth != null && root.child('atla-rooms').child($room).child('guestUid').val() === auth.uid"
+        },
+        "status": {
+          ".write": "auth != null && (root.child('atla-rooms').child($room).child('hostUid').val() === auth.uid || root.child('atla-rooms').child($room).child('guestUid').val() === auth.uid)"
+        },
+        "state": {
+          ".write": "auth != null && root.child('atla-rooms').child($room).child('hostUid').val() === auth.uid"
+        },
+        "inputs": {
+          "guest": {
+            ".write": "auth != null && root.child('atla-rooms').child($room).child('guestUid').val() === auth.uid"
+          }
+        }
+      }
     }
   }
 }
 ```
 
    What this enforces: anyone signed in (see step 5 — that's every player,
-   automatically) can read room data. The `$room` rule itself only allows
+   automatically) can read room data. Each game's `$room` rule only allows
    creating a brand-new room whose `hostUid` is your own uid (one `set()`,
-   covering `hostUid`/`hostWeapon`/`status`/`createdAt` together — see
-   `hostMatch()`), or deleting a room you host entirely (covers both an
-   explicit leave and the `onDisconnect().remove()` that fires if the
-   host's tab just closes). Everything else is a targeted `update()` to
-   one field at a time, each checked against its own rule below `$room`:
-   `guestUid` can be claimed once (only on a room that already has a
-   host) and cleared again only by whoever claimed it; `guestWeapon` and
-   `inputs/guest` are guest-only; `state` is host-only; `status` is
-   either participant. A stranger who guesses or is handed a room code
-   they didn't create or join can read that match's state but can't
-   write into it. `floppy.js` deliberately never combines a write to
-   `guestUid` with a write to `guestWeapon`/`status` in the same call —
-   see the comments in `joinMatch()`/`leaveMatch()` for why: those rules
-   need to read `guestUid` as already-committed data, and Realtime
-   Database's exact ordering guarantees for cross-field reads *within* a
-   single multi-path update aren't something to lean on when you can
-   just... not need them, with one extra sequential round trip at a
-   moment (joining/leaving) where nobody will notice the difference.
+   covering `hostUid`/`hostWeapon`/`status`/`createdAt` for Floppy Swords,
+   or `hostUid`/`guestUid`/`status`/`createdAt` for Bending Brawl — see
+   `hostMatch()` in either file), or deleting a room you host entirely
+   (covers both an explicit leave and the `onDisconnect().remove()` that
+   fires if the host's tab just closes). Everything else is a targeted
+   `update()` to one field at a time, each checked against its own rule
+   below `$room`: `guestUid` can be claimed once (only on a room that
+   already has a host) and cleared again only by whoever claimed it;
+   `guestWeapon`/`guestChoice` and `inputs/guest` are guest-only; `state`
+   is host-only; `status` is either participant. `atla-rooms` is otherwise
+   the exact same shape as `floppy-rooms` — `guestChoice` is Bending
+   Brawl's equivalent of Floppy's `guestWeapon` (the one extra guest-owned
+   field each game needs; Bending Brawl's is the per-round wheel result,
+   see "How Bending Brawl works" below). A stranger who guesses or is
+   handed a room code they didn't create or join can read that match's
+   state but can't write into it. Both games deliberately never combine a
+   write to `guestUid` with a write to `guestWeapon`/`guestChoice`/`status`
+   in the same call — see the comments in `joinMatch()`/`leaveMatch()` for
+   why: those rules need to read `guestUid` as already-committed data, and
+   Realtime Database's exact ordering guarantees for cross-field reads
+   *within* a single multi-path update aren't something to lean on when
+   you can just... not need them, with one extra sequential round trip at
+   a moment (joining/leaving) where nobody will notice the difference.
+
+   **If you already set up Floppy Swords multiplayer before Bending Brawl
+   existed:** your Firebase project's Rules tab currently has the old
+   `floppy-rooms`-only version of this ruleset published. Bending Brawl's
+   Multiplayer menu will otherwise fail with permission-denied errors
+   against a real Firebase project, since Realtime Database denies any
+   path a rule doesn't explicitly allow. Go back to **Realtime Database →
+   Rules**, replace it with the full ruleset above (both `floppy-rooms`
+   *and* `atla-rooms`), and **Publish** again — a one-time fix, no config
+   values change.
 5. **Build → Authentication → Get started → Sign-in method** tab, enable
    **Anonymous**, Save. This is what lets `signInAnonymously()` in
    `floppy.js` give every browser an identity with zero login screen —
@@ -1150,7 +1192,103 @@ cleanup, deliberately, to keep this a "no backend to run" setup. For a
 small friend-group site this is a non-issue (well within the free tier
 either way), but if it ever bothers you, the fix is a scheduled Cloud
 Function that deletes rooms past some `createdAt` age — outside this
-repo's scope for now.
+repo's scope for now. `onDisconnect()` in `atla.js` follows the exact
+same pattern against `/atla-rooms/`.
+
+## How Bending Brawl works
+
+A 1v1 elemental fighting game — `atla.js`, own canvas (`#atla-canvas`),
+same page as the other games. CPU Match is single-player against a
+reactive AI; Multiplayer reuses Floppy Swords' exact host-authoritative
+Firebase architecture (own room tree, `/atla-rooms/`, same
+`FLOPPY_FIREBASE_CONFIG` project — see "Firebase setup for Floppy Swords
++ Bending Brawl multiplayer" above).
+
+- **Moves are data, not 44 hand-tuned entries.** Every element (Fire,
+  Water, Earth, Air) has the same 11 "move slots" — 3 main strikes, 2
+  specials, 6 combo/block pairs — filling the same structural role across
+  all four (e.g. every element's "up" main move is a launcher). Rather
+  than hand-authoring 44 separate moves, a small `ARCHETYPES` table holds
+  one base startup/active/recovery/damage/knockback template per slot,
+  and a per-element `ELEMENT_TUNING` multiplier (Fire hits hardest and
+  fastest but has the shortest reach; Earth hits hardest of all with huge
+  knockback but is slowest; Air is quickest to start moves and best at
+  shoving opponents away but hits lightest; Water has the best all-round
+  reach with no standout weakness) is applied on top in `buildMove()`.
+  The full `MOVES` table — all 44 concrete moves, one per element per
+  slot — is built once at load from these two small tables, which is what
+  keeps the four elements comparably balanced by construction instead of
+  by eyeballing 44 individual numbers.
+- **Input: WASD to move and jump, arrow keys to fight.** A and D move,
+  W jumps (`attemptJump()`); Left/Up/Right are each element's three main
+  strikes. Press a second, *different* arrow key within
+  `COMBO_WINDOW_MS` (320ms) of the first and it reads as a combo instead
+  of two separate main moves (`handleArrowPress()`) — a rolling
+  single-pending-key buffer with a `setTimeout` that falls back to firing
+  the lone main move if nothing else arrives in time. Down triggers a
+  special: a heavy aerial drop if you're airborne, a low slide if you're
+  grounded (`handleDownPress()`).
+- **The Dynamic Mirroring Rule needs no mirroring code.** Per the design
+  doc this game is built from, a combo pair is an ATTACK in one key order
+  and a BLOCK/counter in the exact reverse order — Up-then-Left attacks,
+  Left-then-Up blocks, using the same two keys. Since both directions are
+  just separate entries in the same per-element `combos` table
+  (`"up-left"` and `"left-up"` are two different keys into one object),
+  `handleArrowPress()` needs zero special-case logic for this — it's a
+  single lookup on whichever two-key string actually happened, and the
+  mirroring falls out of how the table was authored, not how it's read.
+- **Combat resolves through one shared function.** Melee moves check
+  reach once during their active window (`inRange()` inside
+  `updateFighterMove()`); projectile moves spawn a traveling hazard
+  (`spawnProjectile()`) checked against both fighters every frame
+  (`updateProjectiles()`). Either path ends at `resolveHitOnDefender()`,
+  which reads the defender's current move (if it's a block) to decide how
+  much damage gets through — `dmgReduction` per block archetype, `0` for
+  an unblocked hit — whether a projectile is blocked at all (some block
+  types don't cover projectiles, mirroring the design doc's per-combo
+  descriptions), and whether a successful *parry*-type block
+  (`blockParry`, `isParry: true`) stuns the attacker into `hitstun` as a
+  punish window, on top of its own near-total damage reduction.
+- **AI is reactive, not scripted.** `updateAI()` re-decides every 8-18
+  frames: close a large gap, poke with a ranged main move at mid-range,
+  and up close randomly choose between a melee main move, a launcher, a
+  full combo attack, or a jump — with a chance to read an opponent's
+  active attack and throw up a combo block instead
+  (`aiChooseBlockKey()`). Since Fire's move slots are flipped relative to
+  the other three elements (its *melee* move is on Left, not Right — see
+  the design doc), `RANGED_SLOT_BY_ELEMENT`/`MELEE_SLOT_BY_ELEMENT` look
+  up the correct key per element rather than assuming Left is always
+  ranged.
+- **Rounds:** best of three (`ROUNDS_TO_WIN = 2`), each with its own
+  60-second clock (whoever has more HP when it runs out wins the round)
+  or an outright KO (`checkForKO()`). Every round — including the first —
+  starts with a wheel spin assigning a fresh random element
+  (`spinWheelThenStart()`, `.atla-wheel` in `style.css`); the match only
+  ends after a round pushes either fighter's round-win tally to
+  `ROUNDS_TO_WIN`.
+- **Multiplayer is host-authoritative**, same architecture and same
+  reasoning as Floppy Swords (see that section above) — only the host
+  ever calls `updateFighterPhysics()`/`updateFighterMove()`; the guest
+  sends its raw WASD hold-state plus each individual arrow/down/jump
+  press as a discrete, sequence-numbered event
+  (`sendGuestAction()`/`applyGuestActionIfNew()`), and the host feeds
+  those into the *exact same* `handleArrowPress()`/`handleDownPress()`/
+  `attemptJump()` it uses for its own input — so there's only ever one
+  place combo-window timing gets decided, host or guest. The guest never
+  simulates; it renders whatever position/HP/state snapshot the host
+  broadcasts (`state`, ~20Hz), lightly interpolating position only
+  (`guestDrawablePair()`).
+- **Both players spin their own wheel independently each round** — the
+  host waits for both its own choice and the guest's reported one
+  (`broadcastRoundStartWhenBothReady()`) before creating that round's
+  fighters. Round 1's guest spin fires immediately on joining, since the
+  host doesn't broadcast anything until fighters exist, and fighters
+  can't exist before both choices are in — waiting for a broadcast at
+  that exact moment would deadlock. Every round after that has a live
+  broadcast to key off, so the guest instead spins in reaction to seeing
+  a new round's `"wheel"` phase come through in the host's `state`
+  (guarded by round number, since that phase gets rebroadcast at 20Hz for
+  the whole ~3-second spin animation, not just once).
 
 ## Adding a new page (or renaming/reordering nav links)
 

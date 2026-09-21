@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Games — Midland Meetups</title>
-<meta name="description" content="Wizards & Waffles, And So I Wander, Doom Scroller, Arachnid Guy, and Floppy Swords — five arcade games built for this site.">
+<meta name="description" content="Wizards & Waffles, And So I Wander, Doom Scroller, Arachnid Guy, Floppy Swords, and Bending Brawl — six arcade games built for this site.">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1B1F2E">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -30,7 +30,7 @@
   <div class="page-head">
     <div class="page-kicker">Kill some time</div>
     <h1 class="page-title">Games</h1>
-    <p class="page-lede">Five arcade games, all built for this site. Wizards &amp; Waffles first, then And So I Wander, then Doom Scroller, then Arachnid Guy, then Floppy Swords.</p>
+    <p class="page-lede">Six arcade games, all built for this site. Wizards &amp; Waffles first, then And So I Wander, then Doom Scroller, then Arachnid Guy, then Floppy Swords, then Bending Brawl.</p>
   </div>
 
   <h2 class="rsvp-section-title" style="margin-top:0;">High Scores</h2>
@@ -109,6 +109,19 @@
     <button type="button" class="btn light" id="floppy-orientation-btn">Mobile</button>
   </div>
   <p class="game-instructions">Click or tap and hold your fighter's head, then drag — the body and weapon trail behind on ragdoll physics, so heavier weapons (war hammer, battle axe) lag further behind and are harder to redirect mid-swing than lighter ones (sword, spear). Release to let go with whatever momentum you built up. Every fighter also carries a shield in the off hand — it does no damage, but a weapon that lands on it is blocked instead of scoring, and both players see it happen. Otherwise, landing your weapon on your opponent scores points — 5 for an arm or leg, 10 for the torso, 15 for the head — and a "+X" pops up over your own fighter only when you're the one who scored. When hosting, you choose how many points win a round and how many rounds (1-5) the match runs; whoever won the last round wears a crown into the next one (nobody does in round 1), and whoever wins the most rounds wins the match. Choose Multiplayer from the start screen to host a match and share the code with someone else, or join one they started — works across any two devices, phone or computer, on the same connection or across the internet. A small marker above a fighter's head shows which one is yours in a match. "Menu" backs out to the start screen (leaving a match if you're in one); "Reset Pose" snaps your fighter back to standing in Practice mode; "Mobile" switches the canvas to a taller, narrower portrait frame better suited to a phone held upright ("Desktop" switches it back) — in a match this is the host's call, made before hosting, and whoever joins picks it up automatically so both screens stay in sync.</p>
+
+  <h2 class="rsvp-section-title" style="margin-top:56px;">Bending Brawl</h2>
+  <p class="page-lede" style="margin-bottom:20px;">A 1v1 elemental fighting game. Spin the wheel at the start of every round for Fire, Water, Earth, or Air, then fight it out with each element's own set of strikes, specials, and combos. Play against the CPU, or host or join a match against someone else.</p>
+  <div class="game-wrap">
+    <canvas id="atla-canvas" width="640" height="360" tabindex="0"></canvas>
+    <div class="game-overlay" id="atla-overlay">
+      <div class="game-overlay-inner" id="atla-overlay-inner"></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:center;margin:10px 0;">
+    <button type="button" class="btn light" id="atla-menu-btn">Menu</button>
+  </div>
+  <p class="game-instructions">WASD to move and jump (W); Left/Up/Right arrows are each element's three main strikes. Tap two different arrow keys in quick succession for a combo attack — the same two keys in the <em>reverse</em> order block or counter that exact combo instead (e.g. Up then Left attacks, Left then Up blocks). Down does a heavy aerial drop if you're airborne, or a low slide if you're grounded. Every match is best of three rounds, and you spin for a new random element at the start of each one. Blocking absorbs most of an attack's damage; a well-timed parry-type block can stun whoever swung at you. Choose CPU Match to fight the computer, or Multiplayer to host a match and share the code with someone else, or join one they started — works across any two devices.</p>
 </main>
 
 <footer class="site-footer">
@@ -122,6 +135,7 @@
 <script src="doom.js"></script>
 <script src="webrunner.js"></script>
 <script src="floppy.js"></script>
+<script src="atla.js"></script>
 <script>
   // Registered here (not in a shared file) since only this page has
   // anything worth precaching offline — the other site pages (RSVPs,
