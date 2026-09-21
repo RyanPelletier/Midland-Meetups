@@ -1,6 +1,6 @@
 // Bump this on every deploy that changes any cached file, so returning
 // players get the update instead of a stale cached copy forever.
-const CACHE_NAME = "wander-cache-v13";
+const CACHE_NAME = "wander-cache-v14";
 
 // Only what's actually needed to load and play the game offline.
 // nav.html is included because app.js fetches it at runtime to build
@@ -16,6 +16,7 @@ const PRECACHE_URLS = [
   "doom.js",
   "webrunner.js",
   "floppy.js",
+  "atla.js",
   "nav.html",
   "manifest.webmanifest",
   "icon.svg"
