@@ -177,7 +177,11 @@
       }
     },
     earth: {
-      label: "Earth", color: "#8A6D3B", accent: "#C7B07A", fx: "#8A6D3B",
+      // fx deliberately differs from color/accent — earth's own body is
+      // already brown, so a same-brown slash trail all but disappears
+      // against the fighter's own limbs. A warmer, lighter amber reads
+      // as a distinct effect instead of camouflage.
+      label: "Earth", color: "#8A6D3B", accent: "#C7B07A", fx: "#D9A536",
       main: {
         left: { arch: "mainProjectile", name: "Earth Blast" },
         up: { arch: "mainLauncher", name: "Earth Pillar" },
@@ -825,6 +829,7 @@
     // and burst releases instead get a small charge glow at the throwing
     // hand that builds through the windup and fires with the release.
     drawAttackEffect(f, pose, el, shoulderY, leanPx);
+    drawBlockEffect(f, el, shoulderY);
 
     ctx.beginPath();
     ctx.arc(leanPx * 0.5, headCY, headR, 0, Math.PI * 2);
@@ -851,6 +856,66 @@
       ctx.closePath();
       ctx.fillStyle = "#F6C945";
       ctx.fill();
+    }
+  }
+
+  // Every block archetype gets its own held visual, not just the guard
+  // pose — a raised-arms stance alone doesn't read as "a wall/shield/
+  // parry actually appeared" the way the move names (Stone Wall, Flame
+  // Shield, Blaze Parry, ...) promise. Drawn INSIDE the fighter's
+  // translate/scale block, same as drawAttackEffect below, so "forward"
+  // is always local +x regardless of which way the fighter faces.
+  function drawBlockEffect(f, el, shoulderY){
+    const arch = f.currentMove ? f.currentMove.arch : f.arch;
+    if (f.state !== "block" || !arch) return;
+    if (arch === "blockWall"){
+      // A solid barrier planted in front of the fighter.
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = el.fx;
+      ctx.fillRect(11, shoulderY - 21, 7, 42);
+      ctx.strokeStyle = COLORS.outline;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(11, shoulderY - 21, 7, 42);
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(13.5, shoulderY - 18); ctx.lineTo(13.5, shoulderY + 18);
+      ctx.stroke();
+      ctx.restore();
+    } else if (arch === "blockAbsorb"){
+      // A soft absorbing aura drawn around the whole body.
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      const grad = ctx.createRadialGradient(0, shoulderY, 4, 0, shoulderY, 28);
+      grad.addColorStop(0, "rgba(255,255,255,0)");
+      grad.addColorStop(0.75, el.fx);
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, shoulderY, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (arch === "blockParry"){
+      // A quick sharp flash at the guarding hand — reads as "ready to
+      // punish", matching how briefly a parry window is actually open.
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++){
+        const a = i * (Math.PI / 2) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(15 + Math.cos(a) * 5, shoulderY + Math.sin(a) * 5);
+        ctx.lineTo(15 + Math.cos(a) * 15, shoulderY + Math.sin(a) * 15);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = el.fx;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(15, shoulderY, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
