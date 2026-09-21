@@ -1219,6 +1219,38 @@ Firebase architecture (own room tree, `/atla-rooms/`, same
   slot — is built once at load from these two small tables, which is what
   keeps the four elements comparably balanced by construction instead of
   by eyeballing 44 individual numbers.
+- **Rendering: a real limbed humanoid, not a flat block.** Each fighter is
+  a head/torso/arms/legs figure — pivoted-rectangle limbs plus a head
+  circle, the same cheap-but-effective approach Arachnid Guy's
+  `drawHumanoidFigure()` in `webrunner.js` uses (see `limb()`/
+  `drawFighter()`). Which pose it strikes is driven entirely by state
+  plus the current move's archetype (`m.arch`) through a small keyframe
+  table per archetype (`ATTACK_KEYFRAMES`/`BLOCK_KEYFRAMES`) — one pose
+  per archetype covers all four elements, the same "structural role, not
+  individual move" reuse the `MOVES` table itself is built from. A move
+  eases from neutral into the archetype's windup pose across its startup
+  frames, holds a snap "strike" pose through the active hit window (a
+  fast snap into the hit reads more like an actual strike than a smooth
+  glide), then eases back to neutral through recovery — see
+  `computePose()`. Melee/launcher/combo strikes also get a filled
+  crescent slash-trail wedge swept through the active window
+  (`drawAttackEffect()`), and a landed hit spawns a brief starburst spark
+  at the point of impact (`pushImpactEffect()`/`resolveHitOnDefender()`).
+  Projectiles get their own per-element look instead of a plain circle —
+  a flickering flame teardrop, a faceted ice shard, a jagged rock chunk
+  with a dust puff, a swirling wind crescent (`drawProjectile()`). None
+  of this touches game logic — damage, timing, and hitboxes are exactly
+  what they were before; it's rendering built on top of the same
+  state/moveFrame/archetype data the simulation already tracks. The
+  guest side of a multiplayer match never runs the simulation itself
+  (see "Multiplayer is host-authoritative" below), so `serializeFighter()`
+  additionally passes the current move's archetype and frame straight
+  through the host's broadcast (never interpolated, just relayed) so the
+  guest can run this exact same pose code locally instead of guessing a
+  generic "attacking" look from state alone; a landed-hit spark on the
+  guest's screen is inferred from an HP drop between two broadcasts
+  instead, since it has no `resolveHitOnDefender()` call of its own to
+  hook.
 - **Input: WASD to move and jump, arrow keys to fight.** A and D move,
   W jumps (`attemptJump()`); Left/Up/Right are each element's three main
   strikes. Press a second, *different* arrow key within

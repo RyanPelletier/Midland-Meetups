@@ -141,7 +141,7 @@
 
   const ELEMENTS = {
     fire: {
-      label: "Fire", color: "#E5484D", accent: "#FFB199",
+      label: "Fire", color: "#E5484D", accent: "#FFB199", fx: "#E5484D",
       main: {
         left: { arch: "mainMelee", name: "Fire Whip" },
         up: { arch: "mainLauncher", name: "Fire Jet Kick" },
@@ -159,7 +159,7 @@
       }
     },
     water: {
-      label: "Water", color: "#2851E3", accent: "#9FD8F0",
+      label: "Water", color: "#2851E3", accent: "#9FD8F0", fx: "#2851E3",
       main: {
         left: { arch: "mainProjectile", name: "Ice Dagger" },
         up: { arch: "mainLauncher", name: "Water Spout" },
@@ -177,7 +177,11 @@
       }
     },
     earth: {
-      label: "Earth", color: "#8A6D3B", accent: "#C7B07A",
+      // fx deliberately differs from color/accent — earth's own body is
+      // already brown, so a same-brown slash trail all but disappears
+      // against the fighter's own limbs. A warmer, lighter amber reads
+      // as a distinct effect instead of camouflage.
+      label: "Earth", color: "#8A6D3B", accent: "#C7B07A", fx: "#D9A536",
       main: {
         left: { arch: "mainProjectile", name: "Earth Blast" },
         up: { arch: "mainLauncher", name: "Earth Pillar" },
@@ -195,7 +199,12 @@
       }
     },
     air: {
-      label: "Air", color: "#8FCFE0", accent: "#FFFFFF",
+      // fx (not color/accent) is used for slash trails and the melee
+      // charge glow — air's actual color/accent are both too close to
+      // the sky background to read as an effect, so fx substitutes a
+      // darker teal there (the projectile visual in drawProjectile()
+      // works around the same problem with a white halo instead).
+      label: "Air", color: "#8FCFE0", accent: "#FFFFFF", fx: "#2E7A94",
       main: {
         left: { arch: "mainProjectile", name: "Air Slice" },
         up: { arch: "mainLauncher", name: "Air Palm" },
@@ -282,6 +291,21 @@
   let guestLastWheelRound = 0;
 
   let aiTimer = 0;
+
+  // Purely-cosmetic animation clock (idle/walk sway, projectile flicker) —
+  // ticks once per draw() call on every client (host, cpu, AND guest,
+  // since guest's loop() also calls draw() every frame), so it never
+  // needs to be networked or kept in sync between clients.
+  let animFrame = 0;
+
+  // Small local-only "something just got hit" sparks — never networked;
+  // the host/cpu side spawns them straight out of resolveHitOnDefender(),
+  // and the guest side infers them from an HP drop between two state
+  // broadcasts (see guestDrawablePair()) since it never runs that
+  // function itself.
+  let impactEffects = [];
+  const IMPACT_LIFE_FRAMES = 16;
+  let guestLastP1Hp = null, guestLastP2Hp = null;
 
   /* ==================== fighter ==================== */
   function createFighter(element, x){
@@ -398,6 +422,7 @@
     defender.hp = Math.max(0, defender.hp - dmg);
     const dir = defender.x < (attacker ? attacker.x : defender.x) ? -1 : 1;
     defender.vx += dir * knockback;
+    pushImpactEffect(defender.x, defender.y - 30, attacker ? ELEMENTS[attacker.element].accent : "#FFFFFF", blocked);
     if (moveDef.launchUp && !blocked){
       defender.vy = -11;
       defender.airborne = true;
@@ -630,69 +655,417 @@
     startRoundTimer();
   }
 
-  /* ==================== rendering ==================== */
+  /* ==================== rendering: pose system ====================
+     A limbed humanoid figure (head/torso/arms/legs as pivoted rectangles
+     and a circle, same cheap-but-effective approach as Arachnid Guy's
+     drawHumanoidFigure() in webrunner.js) instead of a flat body block.
+     Which pose it strikes is driven entirely by state + the current
+     move's archetype (m.arch) — one small keyframe table per archetype,
+     shared by all four elements, exactly the same "structural role, not
+     individual move" reuse the MOVES table itself is built from. A move
+     plays three phases against its own startup/active/recovery numbers:
+     ease from neutral into the archetype's "windup" pose during startup,
+     hold its "strike" pose through the active hit window (a fast snap
+     into the hit rather than a smooth glide reads more like an actual
+     strike), then ease back to neutral through recovery. */
+  const NEUTRAL_POSE = { armAngleL: 0.15, armAngleR: -0.15, legAngleL: 0, legAngleR: 0, torsoLean: 0, crouch: 0 };
+  const HITSTUN_POSE = { armAngleL: 0.7, armAngleR: -0.5, legAngleL: 0.25, legAngleR: -0.15, torsoLean: -0.3, crouch: 0 };
+
+  const ATTACK_KEYFRAMES = {
+    // Forehand strike: arm draws back then whips forward, torso follows through.
+    mainMelee: {
+      windup: { armAngleL: -0.2, armAngleR: 1.5, legAngleL: 0.15, legAngleR: -0.15, torsoLean: -0.2, crouch: 0.05 },
+      strike: { armAngleL: 0.3, armAngleR: -1.4, legAngleL: -0.15, legAngleR: 0.25, torsoLean: 0.3, crouch: 0 }
+    },
+    // Rising uppercut that launches the opponent skyward.
+    mainLauncher: {
+      windup: { armAngleL: 0.3, armAngleR: 0.9, legAngleL: -0.15, legAngleR: 0.3, torsoLean: 0.15, crouch: 0.3 },
+      strike: { armAngleL: -0.2, armAngleR: -2.1, legAngleL: 0.15, legAngleR: -0.35, torsoLean: -0.25, crouch: 0 }
+    },
+    // A throwing/casting release — arm draws back to the shoulder, then extends.
+    mainProjectile: {
+      windup: { armAngleL: 0.2, armAngleR: 1.3, legAngleL: 0.05, legAngleR: -0.05, torsoLean: -0.1, crouch: 0 },
+      strike: { armAngleL: 0.1, armAngleR: -0.5, legAngleL: 0, legAngleR: 0, torsoLean: 0.1, crouch: 0 }
+    },
+    // Airborne diving strike — tucks in on the windup, extends toward the target.
+    specialAir: {
+      windup: { armAngleL: 0.6, armAngleR: 0.6, legAngleL: 0.35, legAngleR: 0.35, torsoLean: -0.3, crouch: 0 },
+      strike: { armAngleL: -0.9, armAngleR: -0.9, legAngleL: -0.5, legAngleR: -0.5, torsoLean: 0.55, crouch: 0 }
+    },
+    // Low sliding strike along the ground.
+    specialGround: {
+      windup: { armAngleL: -0.2, armAngleR: -0.2, legAngleL: 0.2, legAngleR: -0.4, torsoLean: -0.1, crouch: 0.55 },
+      strike: { armAngleL: -0.4, armAngleR: -0.4, legAngleL: -0.3, legAngleR: -1.1, torsoLean: -0.15, crouch: 0.7 }
+    },
+    // Rapid-fire burst release — quicker, tighter windup than a single projectile.
+    comboBurst: {
+      windup: { armAngleL: 0.8, armAngleR: 0.8, legAngleL: 0.1, legAngleR: -0.1, torsoLean: -0.2, crouch: 0.1 },
+      strike: { armAngleL: -0.1, armAngleR: -0.1, legAngleL: 0, legAngleR: 0, torsoLean: 0.15, crouch: 0 }
+    },
+    // A big two-handed overhead/wide swing — the hardest-hitting combo.
+    comboHeavy: {
+      windup: { armAngleL: 1.7, armAngleR: 1.7, legAngleL: 0.2, legAngleR: -0.2, torsoLean: -0.4, crouch: 0.1 },
+      strike: { armAngleL: -1.5, armAngleR: -1.5, legAngleL: -0.25, legAngleR: 0.35, torsoLean: 0.45, crouch: 0 }
+    },
+    // A sustained channel — arm held out steady, small tremor layered on top.
+    comboSustained: {
+      windup: { armAngleL: 0.2, armAngleR: 1.1, legAngleL: 0.05, legAngleR: -0.05, torsoLean: -0.05, crouch: 0 },
+      strike: { armAngleL: 0.15, armAngleR: -0.9, legAngleL: 0, legAngleR: 0, torsoLean: 0.05, crouch: 0 }
+    }
+  };
+
+  // Block poses are a single held guard stance (no windup/recovery lerp
+  // needed — a block's entire duration is already one steady stance).
+  const BLOCK_KEYFRAMES = {
+    blockWall: { armAngleL: -1.9, armAngleR: 1.9, legAngleL: 0.15, legAngleR: -0.15, torsoLean: -0.05, crouch: 0.15 },
+    blockAbsorb: { armAngleL: -1.6, armAngleR: 1.6, legAngleL: 0.1, legAngleR: -0.1, torsoLean: -0.05, crouch: 0.1 },
+    blockParry: { armAngleL: -2.3, armAngleR: 0.5, legAngleL: 0.1, legAngleR: -0.15, torsoLean: -0.2, crouch: 0.05 }
+  };
+
+  function lerpNum(a, b, t){ return a + (b - a) * t; }
+  function lerpPose(a, b, t){
+    return {
+      armAngleL: lerpNum(a.armAngleL, b.armAngleL, t), armAngleR: lerpNum(a.armAngleR, b.armAngleR, t),
+      legAngleL: lerpNum(a.legAngleL, b.legAngleL, t), legAngleR: lerpNum(a.legAngleR, b.legAngleR, t),
+      torsoLean: lerpNum(a.torsoLean, b.torsoLean, t), crouch: lerpNum(a.crouch, b.crouch, t)
+    };
+  }
+  function smoothstep(t){ t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
+
+  function walkPose(phase){
+    return {
+      armAngleL: Math.sin(phase + Math.PI) * 0.4, armAngleR: Math.sin(phase) * 0.4,
+      legAngleL: Math.sin(phase) * 0.55, legAngleR: Math.sin(phase + Math.PI) * 0.55,
+      torsoLean: 0, crouch: 0
+    };
+  }
+  function idlePose(phase){
+    const sway = Math.sin(phase * 0.5) * 0.05;
+    return { armAngleL: 0.15 + sway, armAngleR: -0.15 - sway, legAngleL: 0, legAngleR: 0, torsoLean: 0, crouch: 0 };
+  }
+  const JUMP_POSE = { armAngleL: -0.5, armAngleR: 0.35, legAngleL: -0.35, legAngleR: 0.4, torsoLean: -0.15, crouch: 0 };
+
+  // f only needs to look like { state, x, airborne?, moveFrame, arch? or
+  // currentMove.arch } — true for a real fighter object (host/cpu) AND
+  // for the guest's lerped drawable pseudo-fighter (see guestDrawablePair()),
+  // so this one function computes poses for both without caring which.
+  function computePose(f){
+    const arch = f.currentMove ? f.currentMove.arch : f.arch;
+    const moveFrame = f.moveFrame || 0;
+    if (f.state === "hitstun") return HITSTUN_POSE;
+    if (f.state === "block" && arch && BLOCK_KEYFRAMES[arch]) return BLOCK_KEYFRAMES[arch];
+    if (f.state === "attack" && arch && ATTACK_KEYFRAMES[arch]){
+      const kf = ATTACK_KEYFRAMES[arch];
+      const m = ARCHETYPES[arch];
+      const startup = m.startup || 4;
+      const activeLen = m.active != null ? m.active : (m.duration || 6);
+      const activeEnd = startup + activeLen;
+      const recoveryEnd = activeEnd + (m.recovery || 8);
+      if (moveFrame <= startup){
+        return lerpPose(NEUTRAL_POSE, kf.windup, smoothstep(moveFrame / Math.max(1, startup)));
+      } else if (moveFrame <= activeEnd){
+        if (arch === "comboSustained"){
+          const tremor = Math.sin(moveFrame * 1.7) * 0.08;
+          return Object.assign({}, kf.strike, { armAngleR: kf.strike.armAngleR + tremor });
+        }
+        return kf.strike;
+      }
+      return lerpPose(kf.strike, NEUTRAL_POSE, smoothstep((moveFrame - activeEnd) / Math.max(1, recoveryEnd - activeEnd)));
+    }
+    const airborne = f.airborne !== undefined ? f.airborne : f.y < GROUND_Y - 1;
+    if (airborne) return JUMP_POSE;
+    if (f.state === "walk") return walkPose(animFrame * 0.35 + f.x * 0.02);
+    return idlePose(animFrame + f.x);
+  }
+
+  /* ==================== rendering: fighter/effects ==================== */
+  function limb(pivotX, pivotY, len, angle, thick, color){
+    ctx.save();
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.fillRect(-thick / 2, 0, thick, len);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.strokeRect(-thick / 2, 0, thick, len);
+    ctx.restore();
+  }
+
   function drawFighter(f, opts){
     if (!f) return;
     const el = ELEMENTS[f.element];
-    const bodyW = 22, bodyH = 46;
-    const bodyBottom = f.y;
-    const bodyTop = bodyBottom - bodyH;
+    const pose = computePose(f);
+    const limbColor = f.state === "hitstun" ? "#F0A0A0" : el.color;
+    const legLen = 22, armLen = 19, torsoH = 22, torsoW = 15, headR = 10, limbThick = 6.5;
+    const crouchPx = pose.crouch * 9, leanPx = pose.torsoLean * 9;
+
+    const hipY = f.y - legLen;
+    const torsoBottom = hipY - crouchPx;
+    const torsoTop = torsoBottom - torsoH;
+    const shoulderY = torsoTop + torsoH * 0.18;
+    const headCY = torsoTop - headR - 1;
+
     ctx.save();
     ctx.translate(f.x, 0);
     ctx.scale(f.facing, 1);
 
-    ctx.fillStyle = COLORS.outline;
-    ctx.fillRect(-bodyW / 2 - 1, bodyBottom - 15, 9, 15);
-    ctx.fillRect(bodyW / 2 - 8, bodyBottom - 15, 9, 15);
+    // Back-side limbs, then torso, then front-side limbs on top of it,
+    // then the head — cheap layering that reads correctly without any
+    // real depth sorting (same trick webrunner.js's humanoid figure uses).
+    limb(-4, hipY, legLen, pose.legAngleL, limbThick, limbColor);
+    limb(-4 + leanPx * 0.4, shoulderY, armLen, pose.armAngleL, limbThick * 0.85, limbColor);
 
-    ctx.fillStyle = f.state === "hitstun" ? "#F0A0A0" : el.color;
-    ctx.fillRect(-bodyW / 2, bodyTop, bodyW, bodyH - 14);
+    ctx.fillStyle = limbColor;
+    ctx.fillRect(-torsoW / 2 + leanPx * 0.3, torsoTop, torsoW, torsoBottom - torsoTop);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.strokeRect(-torsoW / 2 + leanPx * 0.3, torsoTop, torsoW, torsoBottom - torsoTop);
+
+    limb(4, hipY, legLen, pose.legAngleR, limbThick, limbColor);
+    limb(4 + leanPx * 0.4, shoulderY, armLen, pose.armAngleR, limbThick * 0.85, limbColor);
+
+    // Melee/launcher/combo strikes get a curved slash trail swept in
+    // front of the striking arm during the active hit window; projectile
+    // and burst releases instead get a small charge glow at the throwing
+    // hand that builds through the windup and fires with the release.
+    drawAttackEffect(f, pose, el, shoulderY, leanPx);
+    drawBlockEffect(f, el, shoulderY);
 
     ctx.beginPath();
-    ctx.arc(0, bodyTop - 11, 12, 0, Math.PI * 2);
+    ctx.arc(leanPx * 0.5, headCY, headR, 0, Math.PI * 2);
     ctx.fillStyle = COLORS.skin;
     ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.stroke();
 
-    if (f.state === "block"){
-      ctx.strokeStyle = el.accent;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(16, bodyTop + 16, 24, -0.9, 0.9);
-      ctx.stroke();
-    } else if (f.state === "attack"){
-      ctx.fillStyle = el.accent;
-      ctx.beginPath();
-      ctx.arc(30, bodyTop + 14, 13, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (f.state === "hitstun"){
+    if (f.state === "hitstun"){
       ctx.fillStyle = "#FFFFFF";
-      ctx.font = "bold 14px sans-serif";
+      ctx.font = "bold 13px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("!", 0, bodyTop - 22);
+      ctx.fillText("!", 0, headCY - headR - 8);
     }
 
     ctx.restore();
 
     if (opts && opts.mine){
       ctx.beginPath();
-      ctx.moveTo(f.x - 6, bodyTop - 26);
-      ctx.lineTo(f.x + 6, bodyTop - 26);
-      ctx.lineTo(f.x, bodyTop - 19);
+      ctx.moveTo(f.x - 6, headCY - headR - 14);
+      ctx.lineTo(f.x + 6, headCY - headR - 14);
+      ctx.lineTo(f.x, headCY - headR - 7);
       ctx.closePath();
       ctx.fillStyle = "#F6C945";
       ctx.fill();
     }
   }
 
+  // Every block archetype gets its own held visual, not just the guard
+  // pose — a raised-arms stance alone doesn't read as "a wall/shield/
+  // parry actually appeared" the way the move names (Stone Wall, Flame
+  // Shield, Blaze Parry, ...) promise. Drawn INSIDE the fighter's
+  // translate/scale block, same as drawAttackEffect below, so "forward"
+  // is always local +x regardless of which way the fighter faces.
+  function drawBlockEffect(f, el, shoulderY){
+    const arch = f.currentMove ? f.currentMove.arch : f.arch;
+    if (f.state !== "block" || !arch) return;
+    if (arch === "blockWall"){
+      // A solid barrier planted in front of the fighter.
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = el.fx;
+      ctx.fillRect(11, shoulderY - 21, 7, 42);
+      ctx.strokeStyle = COLORS.outline;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(11, shoulderY - 21, 7, 42);
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(13.5, shoulderY - 18); ctx.lineTo(13.5, shoulderY + 18);
+      ctx.stroke();
+      ctx.restore();
+    } else if (arch === "blockAbsorb"){
+      // A soft absorbing aura drawn around the whole body.
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      const grad = ctx.createRadialGradient(0, shoulderY, 4, 0, shoulderY, 28);
+      grad.addColorStop(0, "rgba(255,255,255,0)");
+      grad.addColorStop(0.75, el.fx);
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, shoulderY, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (arch === "blockParry"){
+      // A quick sharp flash at the guarding hand — reads as "ready to
+      // punish", matching how briefly a parry window is actually open.
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++){
+        const a = i * (Math.PI / 2) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(15 + Math.cos(a) * 5, shoulderY + Math.sin(a) * 5);
+        ctx.lineTo(15 + Math.cos(a) * 15, shoulderY + Math.sin(a) * 15);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = el.fx;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(15, shoulderY, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Drawn INSIDE the fighter's translate/scale block, so "forward" is
+  // always local +x regardless of which way the fighter actually faces.
+  function drawAttackEffect(f, pose, el, shoulderY, leanPx){
+    const arch = f.currentMove ? f.currentMove.arch : f.arch;
+    if (f.state !== "attack" || !arch) return;
+    const m = ARCHETYPES[arch];
+    if (!m) return;
+    const moveFrame = f.moveFrame || 0;
+    const startup = m.startup || 4;
+    const activeLen = m.active != null ? m.active : (m.duration || 6);
+    const activeEnd = startup + activeLen;
+
+    if (m.kind === "melee"){
+      if (moveFrame <= startup || moveFrame > activeEnd) return;
+      const activeT = (moveFrame - startup) / Math.max(1, activeLen);
+      const cx = 14 + leanPx * 0.4, cy = shoulderY;
+      const sweepStart = -1.3 + activeT * 1.7, span = 1.1;
+      const rOuter = 26, rInner = 14;
+      ctx.save();
+      // A filled crescent wedge (blade-swipe shape) reads as a real slash
+      // far more clearly than a thin arc stroke — outer/inner arcs joined
+      // into one closed path, swept forward across the active window.
+      ctx.globalAlpha = 0.85 * (1 - activeT * 0.25);
+      ctx.beginPath();
+      ctx.arc(cx, cy, rOuter, sweepStart, sweepStart + span);
+      ctx.arc(cx, cy, rInner, sweepStart + span, sweepStart, true);
+      ctx.closePath();
+      ctx.fillStyle = el.fx;
+      ctx.fill();
+      ctx.globalAlpha = 0.9 * (1 - activeT * 0.5);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(cx, cy, rOuter, sweepStart + span - 0.18, sweepStart + span);
+      ctx.stroke();
+      ctx.restore();
+    } else if (m.kind === "projectile"){
+      if (moveFrame > startup + 1) return;
+      const chargeT = Math.min(1, moveFrame / Math.max(1, startup));
+      ctx.save();
+      ctx.globalAlpha = 0.75 * chargeT;
+      const grad = ctx.createRadialGradient(16, shoulderY, 0, 16, shoulderY, 8 * chargeT + 2);
+      grad.addColorStop(0, "#FFFFFF");
+      grad.addColorStop(0.5, el.accent);
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(16, shoulderY, 8 * chargeT + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function pushImpactEffect(x, y, color, blocked){
+    impactEffects.push({ x, y, color, blocked: !!blocked, life: IMPACT_LIFE_FRAMES });
+  }
+  function updateImpactEffects(){
+    impactEffects.forEach((e) => { e.life--; });
+    impactEffects = impactEffects.filter((e) => e.life > 0);
+  }
+  function drawImpactEffects(){
+    impactEffects.forEach((e) => {
+      const t = 1 - e.life / IMPACT_LIFE_FRAMES;
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = e.blocked ? 2 : 3;
+      const spikes = e.blocked ? 5 : 7;
+      const r1 = 3 + t * (e.blocked ? 9 : 15);
+      const r0 = r1 * 0.4;
+      ctx.beginPath();
+      for (let i = 0; i < spikes; i++){
+        const a = (i / spikes) * Math.PI * 2;
+        const ox = Math.cos(a) * r0, oy = Math.sin(a) * r0;
+        const ex = Math.cos(a) * r1, ey = Math.sin(a) * r1;
+        ctx.moveTo(e.x + ox, e.y + oy);
+        ctx.lineTo(e.x + ex, e.y + ey);
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
   function drawProjectile(p){
     const el = ELEMENTS[p.element];
-    ctx.fillStyle = el.accent;
-    ctx.strokeStyle = el.color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const t = animFrame * 0.3 + p.x * 0.05;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    if (p.element === "fire"){
+      const flicker = 1 + Math.sin(t * 2) * 0.15;
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 11 * flicker);
+      grad.addColorStop(0, "#FFF3B0");
+      grad.addColorStop(0.55, el.color);
+      grad.addColorStop(1, "rgba(229,72,77,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9 * flicker, 11 * flicker, 0, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 2; i++){
+        const a = t * 3 + i * 2.1;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 10, Math.sin(a) * 6, 1.6, 0, Math.PI * 2);
+        ctx.fillStyle = "#FFD27A";
+        ctx.fill();
+      }
+    } else if (p.element === "water"){
+      ctx.rotate(t * 0.2);
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(6, -2); ctx.lineTo(3, 10); ctx.lineTo(-3, 10); ctx.lineTo(-6, -2);
+      ctx.closePath();
+      ctx.fillStyle = el.accent;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(6, -2); ctx.lineTo(0, 2); ctx.closePath();
+      ctx.globalAlpha = 0.5; ctx.fillStyle = "#FFFFFF"; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = el.color; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(6, -2); ctx.lineTo(3, 10); ctx.lineTo(-3, 10); ctx.lineTo(-6, -2); ctx.closePath();
+      ctx.stroke();
+    } else if (p.element === "earth"){
+      ctx.rotate(Math.sin(p.x * 0.1) * 0.3);
+      ctx.beginPath();
+      const pts = [[0, -10], [7, -4], [9, 4], [3, 11], [-5, 9], [-9, 1], [-6, -6]];
+      pts.forEach(([px, py], i) => { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+      ctx.closePath();
+      ctx.fillStyle = el.color;
+      ctx.fill();
+      ctx.strokeStyle = "#5C4826"; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.fillStyle = "rgba(199,176,122,0.4)";
+      ctx.beginPath(); ctx.arc(-9, 4, 4, 0, Math.PI * 2); ctx.fill();
+    } else { // air — el.color is too close to the sky blue to read on its
+      // own, so a soft white halo plus el.fx's darker outer ring carry
+      // the shape (same fx field the melee slash trail uses for air).
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = el.fx;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(0, 0, 9, -1.3 + t, 1.3 + t); ctx.stroke();
+      ctx.beginPath(); ctx.arc(2, 0, 6, 1.6 + t * 1.4, 4.2 + t * 1.4); ctx.stroke();
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, 9, -1.3 + t, 1.3 + t); ctx.stroke();
+      ctx.beginPath(); ctx.arc(2, 0, 6, 1.6 + t * 1.4, 4.2 + t * 1.4); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawHpBar(x, hp, alignRight, label){
@@ -744,6 +1117,9 @@
   }
 
   function draw(){
+    animFrame++;
+    updateImpactEffects();
+
     ctx.fillStyle = COLORS.sky;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.fillStyle = COLORS.ground;
@@ -772,6 +1148,7 @@
       drawHpBar(20, p1.hp, false, ELEMENTS[p1.element].label);
       drawHpBar(CANVAS_W - 20, p2.hp, true, ELEMENTS[p2.element].label);
     }
+    drawImpactEffects();
     drawRoundPips();
     drawBanner();
   }
@@ -815,7 +1192,11 @@
   function serializeFighter(f){
     return {
       el: f.element, x: Math.round(f.x), y: Math.round(f.y), hp: f.hp,
-      st: f.state, facing: f.facing
+      st: f.state, facing: f.facing,
+      // Passed straight through (never interpolated, see lerpF below) so
+      // the guest can run the exact same pose/animation code as the host
+      // instead of guessing a generic "attacking" pose from state alone.
+      mf: f.moveFrame, arch: f.currentMove ? f.currentMove.arch : null
     };
   }
   function serializeProjectiles(){
@@ -830,13 +1211,27 @@
       const src = a || b;
       return {
         element: b.el, hp: b.hp, state: b.st, facing: b.facing,
+        moveFrame: b.mf, arch: b.arch,
         x: src ? src.x + (b.x - src.x) * t : b.x,
         y: src ? src.y + (b.y - src.y) * t : b.y
       };
     }
+    const drawableP1 = lerpF(prev && prev.p1, next.p1);
+    const drawableP2 = lerpF(prev && prev.p2, next.p2);
+    // The guest never runs resolveHitOnDefender() itself, so it infers a
+    // "something just landed" spark purely from an HP drop between two
+    // consecutive broadcasts — same cosmetic-only impactEffects list the
+    // host/cpu side feeds directly from combat resolution.
+    if (guestLastP1Hp != null && next.p1.hp < guestLastP1Hp){
+      pushImpactEffect(drawableP1.x, drawableP1.y - 30, ELEMENTS[drawableP2.element].accent, false);
+    }
+    if (guestLastP2Hp != null && next.p2.hp < guestLastP2Hp){
+      pushImpactEffect(drawableP2.x, drawableP2.y - 30, ELEMENTS[drawableP1.element].accent, false);
+    }
+    guestLastP1Hp = next.p1.hp; guestLastP2Hp = next.p2.hp;
     return {
-      p1: lerpF(prev && prev.p1, next.p1),
-      p2: lerpF(prev && prev.p2, next.p2),
+      p1: drawableP1,
+      p2: drawableP2,
       projectiles: (next.pr || []).map((p) => ({ x: p.x, y: p.y, element: p.el }))
     };
   }
@@ -993,6 +1388,7 @@
     guestRenderPrev = null; guestRenderNext = null;
     guestMatchOverShown = false;
     guestLastWheelRound = 0;
+    guestLastP1Hp = null; guestLastP2Hp = null;
     matchRoundsWon = { p1: 0, p2: 0 };
     currentRoundNum = 1;
     started = false;
