@@ -9,6 +9,17 @@
 <meta name="theme-color" content="#1B1F2E">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
+<style>
+  /* Fullscreen fix: walter.js fullscreens documentElement, so hide
+     everything except the active game while fullscreen is on. */
+  body.is-fullscreen .site-header,
+  body.is-fullscreen .site-footer { display: none !important; }
+  body.is-fullscreen main.page > * { display: none !important; }
+  body.is-fullscreen main.page > .game-wrap.fullscreen-active {
+    display: block !important;
+    margin: 0 auto;
+  }
+</style>
 </head>
 <body data-page="game">
 
@@ -148,6 +159,36 @@
       });
     });
   }
+</script>
+<script>
+  // Hide the header, footer, leaderboard and all other games while any
+  // game is in fullscreen, and restore them when fullscreen exits.
+  // The active game is the one last clicked or focused; it falls back
+  // to And So I Wander, the only game with a Fullscreen button.
+  (function () {
+    var lastGameWrap = null;
+    function rememberWrap(target) {
+      var wrap = target && target.closest ? target.closest(".game-wrap") : null;
+      if (wrap) lastGameWrap = wrap;
+    }
+    document.addEventListener("pointerdown", function (e) { rememberWrap(e.target); }, true);
+    document.addEventListener("focusin", function (e) { rememberWrap(e.target); });
+    document.addEventListener("fullscreenchange", function () {
+      if (document.fullscreenElement) {
+        var activeWrap = document.activeElement && document.activeElement.closest
+          ? document.activeElement.closest(".game-wrap") : null;
+        activeWrap = activeWrap || lastGameWrap ||
+          document.querySelector("#walter-canvas").closest(".game-wrap");
+        document.body.classList.add("is-fullscreen");
+        if (activeWrap) activeWrap.classList.add("fullscreen-active");
+      } else {
+        document.body.classList.remove("is-fullscreen");
+        document.querySelectorAll(".game-wrap.fullscreen-active").forEach(function (wrap) {
+          wrap.classList.remove("fullscreen-active");
+        });
+      }
+    });
+  })();
 </script>
 </body>
 </html>
