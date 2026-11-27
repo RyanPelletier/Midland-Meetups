@@ -665,6 +665,10 @@
     var POOL_H = 46; /* melted paint pool band at the bottom */
     var POOL_REFILL = 5; /* supply units/sec while a jellyfish is in contact with the pool (vs 1/sec normal) */
     var POOL_BLEND = 0.15; /* how far the pool's overall color steps toward each melted flower's color */
+    var MELT_SPAWN_PER_SEC = 260; /* dramatic melt: particles per second pouring from a melting plant */
+    var MELT_BURST = 46; /* instant burst of particles the moment a flower collapses */
+    var MELT_GRAVITY = 980; /* fast pour — particles accelerate hard toward the pool */
+    var MELT_MAX_PARTICLES = 1100; /* safety cap when several plants melt at once */
     var NO_SPAWN = { x:0, y:0, w:300, h:360 }; /* behind the score panel */
 
     var BOT_PRESETS = [
@@ -684,6 +688,7 @@
       this.pools = [];        /* legacy decorative blobs — kept empty; the pool is now one unified body of paint */
       this.poolColor = { r:255, g:255, b:255 }; /* the pool starts white and takes on the garden's history */
       this.splashes = [];     /* {x, c, t, life, big} droplet splash / ripple bursts where melt streams hit the pool */
+      this.meltParticles = []; /* {x, y, vx, vy, c, r, wob} — the dramatic pour from a melting plant down to the pool */
       this.timeLeft = MATCH_SECONDS;
       this.spawnTimer = 1.2;
       this.botCount = 0;
@@ -795,8 +800,33 @@
         this.lastEvent = "A flower bloomed for " + master.name + " (+"+PLANT_POINTS+")";
         if(master.score >= WIN_SCORE) this.endMatch(master.id);
       }
-      pl.state = "melting"; pl.meltT = 0;
+      pl.state = "melting"; pl.meltT = 0; pl.meltAcc = 0;
       pl.meltColor = pl.fill > 0 ? mixRgb(Object.keys(pl.contrib).map(function(k){ return { c:pl.contribColor[k], w:pl.contrib[k] }; })) : {r:180,g:180,b:180};
+      /* dramatic opening burst — the flower doesn't drip, it gives way */
+      for(var bi = 0; bi < MELT_BURST; bi++) this.spawnMeltParticle(pl, true);
+    };
+
+    /* One particle of a melting plant's pour. Spawned across the flower
+       and pot, funnelling slightly toward the plant's centre column so
+       the whole plant reads as one thick stream falling to the pool. */
+    Game.prototype.spawnMeltParticle = function(pl, burst){
+      if(this.meltParticles.length >= MELT_MAX_PARTICLES) return;
+      var base = pl.meltColor || { r:180, g:180, b:180 };
+      var vary = rand(-14, 18);
+      var c = {
+        r: clamp(Math.round(base.r + vary), 0, 255),
+        g: clamp(Math.round(base.g + vary), 0, 255),
+        b: clamp(Math.round(base.b + vary), 0, 255)
+      };
+      var sx = pl.x + rand(-24, 24) + rand(-8, 8);
+      var sy = pl.y + rand(-58, 8);
+      if(burst && Math.random() < 0.45) sy += rand(0, 90);
+      this.meltParticles.push({
+        x: sx, y: sy,
+        vx: rand(-28, 28) + (pl.x - sx) * 0.35,
+        vy: burst ? rand(140, 330) : rand(90, 220),
+        c: c, r: rand(2.4, 5.6), wob: rand(0, Math.PI * 2)
+      });
     };
 
     Game.prototype.endMatch = function(winnerId){
@@ -1072,9 +1102,23 @@
           if(pl.fadeT >= 1) this.plants.splice(j,1);
         } else if(pl.state === "melting"){
           pl.meltT += dt/1.5;
+          /* dramatic pour: a dense, fast stream for the whole melt,
+             accelerating slightly as the plant collapses */
+          pl.meltAcc = (pl.meltAcc || 0) + dt * MELT_SPAWN_PER_SEC * (0.75 + pl.meltT * 0.5);
+          while(pl.meltAcc >= 1){ pl.meltAcc -= 1; this.spawnMeltParticle(pl, false); }
           /* the melt stream lands: pool color shifts + splash bursts, together */
           if(pl.meltT >= 1){ this.feedPool(pl.x, pl.meltColor); this.plants.splice(j,1); }
         }
+      }
+      /* melt particles: gravity pour — they keep falling even after the
+         plant itself is gone, until they hit the pool surface */
+      for(var mi=this.meltParticles.length-1;mi>=0;mi--){
+        var mp = this.meltParticles[mi];
+        mp.vy += MELT_GRAVITY*dt;
+        if(mp.vy > 720) mp.vy = 720;
+        mp.x += mp.vx*dt + Math.sin(mp.wob + mp.y*0.04)*10*dt;
+        mp.y += mp.vy*dt;
+        if(mp.y >= AH - POOL_H + 2) this.meltParticles.splice(mi,1);
       }
       /* pool splashes age out */
       for(var si=this.splashes.length-1;si>=0;si--){
@@ -1185,15 +1229,8 @@
         }
       }
       ctx.restore();
-      /* melting drips fall to the pool */
-      if(pl.state === "melting"){
-        ctx.fillStyle = rgbCss(pl.meltColor || {r:160,g:160,b:160});
-        for(var dI=0; dI<3; dI++){
-          var dx = pl.x + (dI-1)*13, fall = (pl.meltT*1.4 + dI*0.22) % 1;
-          var dy = pl.y + 10 + fall*(AH - POOL_H - pl.y - 16);
-          ctx.beginPath(); ctx.ellipse(dx, dy, 4.5, 7, 0, 0, Math.PI*2); ctx.fill();
-        }
-      }
+      /* the melt pour itself is drawn in drawGame from
+         game.meltParticles — hundreds of fast particles, not drips */
     }
 
     function drawJelly(p, t, game){
@@ -1392,6 +1429,35 @@
       });
       /* plants under players */
       game.plants.forEach(function(pl){ drawPlant(pl, t); });
+      /* ---- dramatic melt pour ----
+         A translucent waterfall sheen under each melting plant plus
+         hundreds of individual paint particles accelerating down into
+         the pool — a fast, thick stream, not a drip. The particles keep
+         rendering after the plant is gone until they land. */
+      game.plants.forEach(function(pl){
+        if(pl.state !== "melting") return;
+        var topY = pl.y - 6, botY = AH - POOL_H;
+        if(botY <= topY) return;
+        var grad = ctx.createLinearGradient(0, topY, 0, botY);
+        var mc = pl.meltColor || { r:160, g:160, b:160 };
+        grad.addColorStop(0, rgbaCss(mc, 0.20));
+        grad.addColorStop(1, rgbaCss(mc, 0.05));
+        ctx.fillStyle = grad;
+        ctx.fillRect(pl.x - 17, topY, 34, botY - topY);
+        ctx.fillStyle = rgbaCss(mc, 0.16);
+        ctx.fillRect(pl.x - 6, topY, 12, botY - topY);
+      });
+      (game.meltParticles || []).forEach(function(mp){
+        var stretch = clamp(mp.vy / 380, 0.4, 1.9);
+        ctx.fillStyle = rgbCss(mp.c);
+        ctx.beginPath();
+        ctx.ellipse(mp.x, mp.y, Math.max(0.8, mp.r * 0.78), Math.max(1, mp.r * (0.9 + stretch)), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.35)";
+        ctx.beginPath();
+        ctx.ellipse(mp.x - mp.r * 0.25, mp.y - mp.r * 0.4, Math.max(0.5, mp.r * 0.28), Math.max(0.6, mp.r * 0.4), 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
       /* jellyfish sorted by y for a little depth */
       var arr = Array.from(game.players.values()).sort(function(a,b){ return a.y - b.y; });
       arr.forEach(function(p){ drawJelly(p, t, game); });
