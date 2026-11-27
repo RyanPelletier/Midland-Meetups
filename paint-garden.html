@@ -334,6 +334,7 @@
             <li><strong>Hold</strong> the paint button to spray a liquid stream that arcs where you're moving; a quick <strong>tap</strong> lobs a single paint ball worth 3 units. Your paint supply holds <strong>100 units</strong>: the stream drains 3 per second, a ball costs 3, and the supply refills at 1 per second. Empty means no spraying until it refills.</li>
             <li>Spray paint into the flower pots to grow plants. A full flower (30 units) pays <strong>20 points</strong> to its biggest contributor. A pot nobody has started fades away after <strong>15 seconds</strong> — once any paint lands in it, it stays.</li>
             <li>Finished flowers melt into the <strong>paint pool</strong> along the bottom. The pool starts white and takes on a little of each melted flower's color, with a splash where the paint lands. Wade into the pool and your paint supply refills at <strong>5 per second</strong> instead of 1.</li>
+            <li>One spawn in ten is a <strong>bomb</strong> instead of a flower. Everyone sprays it together — any color counts — to fill it before its <strong>45-second fuse</strong> runs out; the target is <strong>100 × (players + 0.3)</strong>, set when the bomb appears. Defuse it and every helper earns <strong>+20</strong>, with the biggest filler named top defuser. If it blows, every unfinished plant is destroyed and jellyfish in the blast are splashed with <strong>black paint</strong> — the closer you are, the blacker you get, and touching it means fully black. Black jellyfish spray black: it turns other players like any color, but black paint can never fill a flower.</li>
             <li>Spray other jellyfish to turn them your color. At 100 units they join your team as a servant — their banked points are wiped and everything they earn goes to you.</li>
             <li>First team to <strong>500 points</strong> wins, or the highest score when the 10-minute clock runs out.</li>
           </ul>
@@ -669,6 +670,13 @@
     var MELT_BURST = 46; /* instant burst of particles the moment a flower collapses */
     var MELT_GRAVITY = 980; /* fast pour — particles accelerate hard toward the pool */
     var MELT_MAX_PARTICLES = 1100; /* safety cap when several plants melt at once */
+    /* cooperative bomb event */
+    var BOMB_CHANCE = 0.1; /* 1 in 10 plant spawns is a bomb instead */
+    var BOMB_FUSE = 45; /* seconds to defuse before it blows */
+    var BOMB_POINTS = 20; /* paid to every contributor's team on a defuse */
+    var BOMB_BLAST_R = 340; /* explosion radius for the black splash */
+    var BLACK_ID = "__black__"; /* pseudo-team id for bomb black paint */
+    var BLACK_COLOR = { r:24, g:24, b:28 };
     var NO_SPAWN = { x:0, y:0, w:300, h:360 }; /* behind the score panel */
 
     var BOT_PRESETS = [
@@ -688,6 +696,8 @@
       this.pools = [];        /* legacy decorative blobs — kept empty; the pool is now one unified body of paint */
       this.poolColor = { r:255, g:255, b:255 }; /* the pool starts white and takes on the garden's history */
       this.splashes = [];     /* {x, c, t, life, big} droplet splash / ripple bursts where melt streams hit the pool */
+      this.bomb = null;       /* the cooperative bomb, when one is live: {x, y, fill, target, contrib, contribColor, fuse, sway} */
+      this.booms = [];        /* {x, y, t, life, seed} explosion shockwave effects */
       this.meltParticles = []; /* {x, y, vx, vy, c, r, wob} — the dramatic pour from a melting plant down to the pool */
       this.timeLeft = MATCH_SECONDS;
       this.spawnTimer = 1.2;
@@ -698,7 +708,7 @@
     }
 
     Game.prototype.masterOf = function(p){ return this.players.get(p.masterId) || p; };
-    Game.prototype.teamColor = function(p){ return this.masterOf(p).homeColor; };
+    Game.prototype.teamColor = function(p){ if(p.masterId === BLACK_ID) return BLACK_COLOR; return this.masterOf(p).homeColor; };
 
     Game.prototype.addPlayer = function(id, name, color, isBot){
       if(this.players.size >= MAX_PLAYERS) return null;
@@ -740,7 +750,10 @@
     };
     Game.prototype.foreignColor = function(p){
       var list = [], self = this;
-      for(var k in p.foreign){ var m = self.players.get(k); if(m) list.push({ c:m.homeColor, w:p.foreign[k] }); }
+      for(var k in p.foreign){
+        if(k === BLACK_ID){ list.push({ c:BLACK_COLOR, w:p.foreign[k] }); continue; }
+        var m = self.players.get(k); if(m) list.push({ c:m.homeColor, w:p.foreign[k] });
+      }
       return list.length ? mixRgb(list) : null;
     };
     Game.prototype.displayColor = function(p){
@@ -776,6 +789,28 @@
       this.floaters.push({ x:victim.x, y:victim.y-52, text:"TURNED!", c:newMaster.homeColor, t:0 });
     };
 
+    /* Conversion to BLACK (bomb paint): the victim simply becomes black —
+       no master, no servitude. Black is a team of its own (masterId
+       BLACK_ID): black jellyfish spray black paint, which converts others
+       by the normal rules but can never fill a flower. An original leader
+       turned black takes their whole team with them and loses banked
+       points, exactly like a normal conversion. */
+    Game.prototype.convertToBlack = function(victim){
+      var oldMasterId = victim.masterId;
+      if(oldMasterId === victim.id){
+        victim.score = 0;
+        this.players.forEach(function(pl){
+          if(pl.masterId === oldMasterId){ pl.masterId = BLACK_ID; pl.foreign = {}; }
+        });
+        this.lastEvent = victim.name + "'s whole team was turned BLACK by bomb paint!";
+      } else {
+        victim.masterId = BLACK_ID;
+        this.lastEvent = victim.name + " was turned black!";
+      }
+      victim.foreign = {};
+      this.floaters.push({ x:victim.x, y:victim.y-52, text:"BLACK!", c:BLACK_COLOR, t:0 });
+    };
+
     Game.prototype.spawnPlant = function(){
       var x, y, tries = 0, ok = false, self = this;
       while(tries < 30 && !ok){
@@ -787,7 +822,62 @@
         this.players.forEach(function(pl){ if(dist2(x,y,pl.x,pl.y) < 90*90) ok = false; });
       }
       if(!ok) return;
+      /* 1 in 10 spawns is a cooperative bomb instead of a plant — it
+         takes over this spawn slot (one bomb at a time) */
+      if(!this.bomb && Math.random() < BOMB_CHANCE){ this.spawnBomb(x, y); return; }
       this.plants.push({ id:"pl"+(++this.seq), x:x, y:y, fill:0, contrib:{}, contribColor:{}, state:"growing", meltT:0, age:0, fadeT:0, sway:rand(0,Math.PI*2) });
+    };
+
+    /* The bomb: everyone fills it together — any color counts — before
+       its 45-second fuse runs out. The fill target locks in from the
+       player count at this moment: 100 × (players + 0.3). */
+    Game.prototype.spawnBomb = function(x, y){
+      var n = Math.max(1, this.players.size);
+      var target = Math.round(100 * (n + 0.3));
+      this.bomb = { x:x, y:y, fill:0, target:target, contrib:{}, contribColor:{}, fuse:BOMB_FUSE, sway:rand(0, Math.PI*2) };
+      this.lastEvent = "💣 A BOMB! Fill it together — " + target + " paint in " + BOMB_FUSE + " seconds!";
+    };
+
+    Game.prototype.defuseBomb = function(){
+      var b = this.bomb; if(!b) return;
+      this.bomb = null;
+      var self = this;
+      var topKey = this.biggestKey(b.contrib);
+      var top = topKey ? this.players.get(topKey) : null;
+      /* every contributor earns +20 for their team (a black helper has
+         no master, so masterOf returns them and the points are theirs) */
+      Object.keys(b.contrib).forEach(function(pid){
+        var p = self.players.get(pid); if(!p) return;
+        var m = self.masterOf(p);
+        m.score += BOMB_POINTS;
+        if(m.score >= WIN_SCORE) self.endMatch(m.id);
+      });
+      this.floaters.push({ x:b.x, y:b.y-74, text:"DEFUSED!", c:{ r:47, g:158, b:99 }, t:0 });
+      if(top) this.floaters.push({ x:b.x, y:b.y-54, text:"Top defuser: " + top.name, c:self.teamColor(top), t:0 });
+      this.spawnSplash(b.x, { r:47, g:158, b:99 }, true);
+      this.lastEvent = "💣 Bomb defused! " + (top ? top.name + " was the top defuser — " : "") + "every helper +20!";
+    };
+
+    Game.prototype.explodeBomb = function(){
+      var b = this.bomb; if(!b) return;
+      this.bomb = null;
+      var self = this;
+      /* every unfinished plant is destroyed; plants already melting
+         (completed) are allowed to finish their pour */
+      this.plants = this.plants.filter(function(pl){ return pl.state === "melting"; });
+      /* black splash: 100 units at contact range, fading with distance
+         to zero at the edge of the blast. It lands as foreign black
+         paint, so the normal heal/convert rules take it from there. */
+      this.players.forEach(function(p){
+        var d = Math.sqrt(dist2(p.x, p.y, b.x, b.y));
+        if(d > BOMB_BLAST_R) return;
+        var amt = d <= 50 ? 100 : Math.round(100 * (1 - (d - 50) / (BOMB_BLAST_R - 50)));
+        if(amt <= 0) return;
+        p.foreign[BLACK_ID] = (p.foreign[BLACK_ID] || 0) + amt;
+        self.floaters.push({ x:p.x, y:p.y-56, text:"+" + amt + " black", c:BLACK_COLOR, t:0 });
+      });
+      this.booms.push({ x:b.x, y:b.y, t:0, life:0.7, seed:rand(0, Math.PI*2) });
+      this.lastEvent = "💣 BOOM! The bomb exploded — unfinished plants destroyed, nearby jellyfish splashed with black paint!";
     };
 
     Game.prototype.completePlant = function(pl){
@@ -853,6 +943,10 @@
           rows.push({ id:p.id, name:p.name, color:p.homeColor, score:p.score, team:team });
         }
       });
+      /* jellyfish turned black share one row — black is its own team */
+      var blackTeam = 0, blackScore = 0;
+      this.players.forEach(function(p){ if(p.masterId === BLACK_ID){ blackTeam++; blackScore += p.score; } });
+      if(blackTeam) rows.push({ id:BLACK_ID, name:"Black", color:BLACK_COLOR, score:blackScore, team:blackTeam });
       rows.sort(function(a,b){ return b.score - a.score; });
       return rows;
     };
@@ -876,8 +970,21 @@
 
     Game.prototype.landDroplet = function(d){
       var self = this, i, pl, p;
-      /* plants first: landing in/near the pot feeds the flower */
-      for(i=0;i<this.plants.length;i++){
+      /* the bomb drinks first: paint landing on it — any color at all,
+         servants' and black paint included — counts toward the defuse
+         fill. Bomb fill never changes the shooter's color and never
+         counts toward any flower. */
+      if(this.bomb && dist2(d.tx, d.ty, this.bomb.x, this.bomb.y) < 56*56){
+        var bamt = d.amount || 1;
+        this.bomb.fill += bamt;
+        this.bomb.contrib[d.shooterId] = (this.bomb.contrib[d.shooterId]||0) + bamt;
+        this.bomb.contribColor[d.shooterId] = d.c;
+        if(this.bomb.fill >= this.bomb.target) this.defuseBomb();
+        return;
+      }
+      /* plants next: landing in/near the pot feeds the flower —
+         except black paint, which can never fill a flower */
+      if(d.masterId !== BLACK_ID) for(i=0;i<this.plants.length;i++){
         pl = this.plants[i];
         if(pl.state !== "growing") continue;
         if(dist2(d.tx, d.ty, pl.x, pl.y-6) < 48*48){
@@ -947,12 +1054,17 @@
         this.plants.forEach(function(pl){ if(pl.state!=="growing") return; var d = dist2(p.x,p.y,pl.x,pl.y); if(d<pd){ pd=d; plant=pl; } });
         var enemy = null, ed = 1e12;
         this.players.forEach(function(q){ if(q.masterId === p.masterId) return; var d = dist2(p.x,p.y,q.x,q.y); if(d<ed){ ed=d; enemy=q; } });
-        if(enemy && (!plant || Math.random() < 0.38)){ b.mode = "hunt"; b.targetId = enemy.id; }
+        if(this.bomb && Math.random() < 0.65){ b.mode = "bomb"; }
+        else if(enemy && (!plant || Math.random() < 0.38)){ b.mode = "hunt"; b.targetId = enemy.id; }
         else if(plant){ b.mode = "plant"; b.targetId = plant.id; }
         else { b.mode = "wander"; b.tx = rand(100, AW-100); b.ty = rand(140, AH-180); }
       }
       var tx, ty, wantShoot = false, target = null;
-      if(b.mode === "plant"){
+      if(b.mode === "bomb"){
+        if(!this.bomb){ b.think = 0; p.input.dx = 0; p.input.dy = 0; p.input.shoot = false; return; }
+        tx = this.bomb.x; ty = this.bomb.y;
+      }
+      else if(b.mode === "plant"){
         target = null;
         this.plants.forEach(function(pl){ if(pl.id === b.targetId) target = pl; });
         if(!target){ b.think = 0; p.input.dx = 0; p.input.dy = 0; p.input.shoot = false; return; }
@@ -992,6 +1104,11 @@
         var growing = 0;
         this.plants.forEach(function(pl){ if(pl.state === "growing") growing++; });
         if(this.spawnTimer <= 0 && growing < 5){ this.spawnPlant(); this.spawnTimer = rand(2.6, 4.2); }
+        /* the bomb's fuse burns only while the match is live */
+        if(this.bomb){
+          this.bomb.fuse -= dt;
+          if(this.bomb.fuse <= 0) this.explodeBomb();
+        }
       }
 
       /* players */
@@ -1039,7 +1156,11 @@
         total = self.foreignTotal(p);
         if(total >= CONVERT_UNITS){
           var winnerKey = self.biggestKey(p.foreign);
-          if(winnerKey && winnerKey !== p.masterId) self.convert(p, winnerKey);
+          if(winnerKey === BLACK_ID){
+            if(p.masterId !== BLACK_ID) self.convertToBlack(p);
+            else p.foreign = {};
+          }
+          else if(winnerKey && winnerKey !== p.masterId) self.convert(p, winnerKey);
           else p.foreign = {};
         }
         /* paint supply: refills at 1 unit/sec normally, but at 5 units/sec
@@ -1130,6 +1251,11 @@
         mp.y += mp.vy*dt;
         if(mp.y >= AH - POOL_H + 2) this.meltParticles.splice(mi,1);
       }
+      /* explosion shockwaves age out */
+      for(var bi2=this.booms.length-1;bi2>=0;bi2--){
+        this.booms[bi2].t += dt;
+        if(this.booms[bi2].t >= this.booms[bi2].life) this.booms.splice(bi2,1);
+      }
       /* pool splashes age out */
       for(var si=this.splashes.length-1;si>=0;si--){
         this.splashes[si].t += dt;
@@ -1146,17 +1272,18 @@
     Game.prototype.snapshotFor = function(pid){
       var p = this.players.get(pid); if(!p) return null;
       var master = this.masterOf(p);
+      var isBlack = p.masterId === BLACK_ID;
       var fc = this.foreignColor(p);
       return {
         status:this.status, timeLeft:this.timeLeft,
-        name:p.name, masterName:master.name, isServant:p.masterId !== p.id,
+        name:p.name, masterName: isBlack ? "Black" : master.name, isServant: isBlack ? false : (p.masterId !== p.id), isBlack:isBlack,
         teamColor:rgbCss(this.teamColor(p)), displayColor:rgbCss(this.displayColor(p)),
         foreignColor: fc ? rgbCss(fc) : null, foreignPct: clamp(this.foreignTotal(p)/CONVERT_UNITS*100, 0, 100),
         supply: Math.round(typeof p.supply === "number" ? p.supply : SUPPLY_MAX),
         supplyPct: clamp(typeof p.supply === "number" ? p.supply : SUPPLY_MAX, 0, 100),
         supplyExhausted: !!p.exhausted, supplyStreaming: !!p.streaming,
         inPool: this.inPool(p), poolColor: rgbCss(this.poolColor),
-        masterScore: master.score, winnerName: this.winnerId ? (this.players.get(this.winnerId)||{}).name : null,
+        masterScore: isBlack ? p.score : master.score, winnerName: this.winnerId ? (this.players.get(this.winnerId)||{}).name : null,
         lastEvent:this.lastEvent
       };
     };
@@ -1295,7 +1422,11 @@
       ctx.font = "800 14px Nunito, sans-serif"; ctx.fillStyle = "#20242a";
       var label = (p.masterId === p.id ? "👑 " : "") + p.name;
       ctx.fillText(label, p.x, p.y - 48);
-      if(p.masterId !== p.id){
+      if(p.masterId === BLACK_ID){
+        ctx.font = "700 11px Nunito, sans-serif"; ctx.fillStyle = "#20242a";
+        ctx.fillText("turned black", p.x, p.y - 33);
+      }
+      else if(p.masterId !== p.id){
         var m = game.players.get(p.masterId);
         ctx.font = "700 11px Nunito, sans-serif"; ctx.fillStyle = "#5b6470";
         ctx.fillText("serving " + (m ? m.name : "?"), p.x, p.y - 33);
@@ -1304,6 +1435,64 @@
         ctx.font = "700 10px Nunito, sans-serif"; ctx.fillStyle = "#9aa3ad";
         ctx.fillText("BOT", p.x, p.y + 58);
       }
+    }
+
+    /* The cooperative bomb: dark sphere with a sparking fuse, a fill ring
+       in the mixed color of everything poured in, a red fuse ring draining
+       with the countdown, the seconds left overhead, and a faint dashed
+       ring marking the blast radius so players know the danger zone. */
+    function drawBomb(b, t){
+      var x = b.x, y = b.y;
+      var frac = clamp(b.fill / b.target, 0, 1);
+      var fuseFrac = clamp(b.fuse / BOMB_FUSE, 0, 1);
+      var urgent = b.fuse <= 10;
+      var pulse = urgent ? 1 + Math.sin(t*10)*0.05 : 1;
+      ctx.save();
+      ctx.strokeStyle = "rgba(217,83,79,.26)"; ctx.lineWidth = 1.6; ctx.setLineDash([7, 9]);
+      ctx.beginPath(); ctx.arc(x, y, BOMB_BLAST_R, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(32,36,42,.14)";
+      ctx.beginPath(); ctx.ellipse(x, y + 30, 30, 8, 0, 0, Math.PI*2); ctx.fill();
+      ctx.translate(x, y); ctx.scale(pulse, pulse);
+      /* fill ring — mixed color of the paint poured in so far */
+      var keys = Object.keys(b.contrib);
+      var fc = keys.length ? mixRgb(keys.map(function(k){ return { c:b.contribColor[k], w:b.contrib[k] }; })) : null;
+      ctx.strokeStyle = "rgba(32,36,42,.12)"; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.arc(0, 0, 41, 0, Math.PI*2); ctx.stroke();
+      if(frac > 0){
+        ctx.strokeStyle = fc ? rgbCss(fc) : "#2f9e63"; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.arc(0, 0, 41, -Math.PI/2, -Math.PI/2 + Math.PI*2*frac); ctx.stroke();
+      }
+      /* fuse ring — red, draining as the countdown runs */
+      ctx.strokeStyle = "rgba(217,83,79,.18)"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, 49, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = "#d9534f"; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.arc(0, 0, 49, -Math.PI/2, -Math.PI/2 + Math.PI*2*fuseFrac); ctx.stroke();
+      /* body */
+      var grad = ctx.createRadialGradient(-10, -12, 4, 0, 0, 32);
+      grad.addColorStop(0, "#4a4a55"); grad.addColorStop(0.55, "#26262c"); grad.addColorStop(1, "#131316");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(0, 0, 31, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#20242a"; ctx.lineWidth = 2.5; ctx.stroke();
+      /* cap + sparking fuse */
+      ctx.fillStyle = "#3a3a42";
+      ctx.fillRect(-6, -36, 12, 7);
+      var sparkX = 10 + Math.sin(t*7 + b.sway)*2;
+      ctx.strokeStyle = "#8a6d3b"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(0, -36); ctx.quadraticCurveTo(5, -43, sparkX, -44); ctx.stroke();
+      var spark = 2.6 + Math.sin(t*23 + b.sway)*1.1;
+      ctx.fillStyle = "#f6c453";
+      ctx.beginPath(); ctx.arc(sparkX, -44, Math.max(1.2, spark), 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.5)";
+      ctx.beginPath(); ctx.ellipse(-11, -12, 7, 10, -0.5, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+      /* countdown + fill readout */
+      ctx.textAlign = "center";
+      ctx.font = "800 21px 'Baloo 2', sans-serif";
+      ctx.fillStyle = urgent ? "#d9534f" : "#20242a";
+      ctx.fillText(Math.ceil(b.fuse) + "s", x, y - 62);
+      ctx.font = "800 12.5px Nunito, sans-serif"; ctx.fillStyle = "#5b6470";
+      ctx.fillText(Math.floor(b.fill) + " / " + b.target + " to defuse", x, y + 54);
     }
 
     function drawGame(game, t){
@@ -1439,6 +1628,25 @@
       });
       /* plants under players */
       game.plants.forEach(function(pl){ drawPlant(pl, t); });
+      /* the cooperative bomb, with its fill ring + fuse countdown */
+      if(game.bomb) drawBomb(game.bomb, t);
+      /* explosion shockwaves: a black flash, a ring out to the blast
+         radius, and a burst of black droplets */
+      (game.booms || []).forEach(function(bo){
+        var k = bo.t / bo.life; if(k < 0 || k >= 1) return;
+        ctx.fillStyle = "rgba(24,24,28," + (0.30*(1-k)).toFixed(3) + ")";
+        ctx.beginPath(); ctx.arc(bo.x, bo.y, 26 + k*BOMB_BLAST_R*0.55, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "rgba(32,36,42," + (0.75*(1-k)).toFixed(3) + ")";
+        ctx.lineWidth = 1 + 6*(1-k);
+        ctx.beginPath(); ctx.arc(bo.x, bo.y, 8 + k*BOMB_BLAST_R, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = rgbCss(BLACK_COLOR);
+        for(var i=0;i<16;i++){
+          var a = bo.seed + i/16*Math.PI*2;
+          var dd = k * (90 + (i%5)*46);
+          var rr = Math.max(0.8, 5.5*(1-k));
+          ctx.beginPath(); ctx.arc(bo.x + Math.cos(a)*dd, bo.y + Math.sin(a)*dd*0.92, rr, 0, Math.PI*2); ctx.fill();
+        }
+      });
       /* ---- dramatic melt pour ----
          A translucent pour sheen that starts at the bottom edge of
          the pot (never over the stem, flower, or pot body) plus
@@ -1829,7 +2037,9 @@
       var f = $("seg-foreign");
       f.style.width = s.foreignPct + "%";
       f.style.background = s.foreignColor || "transparent";
-      $("ctrl-team-line").textContent = s.isServant
+      $("ctrl-team-line").textContent = s.isBlack
+        ? "You're BLACK — your paint turns others, but can't fill flowers"
+        : s.isServant
         ? "You serve " + s.masterName + " — your points are theirs now"
         : (s.foreignPct > 2 ? "You're being turned! Shake it off by staying clear" : "You lead your own color");
       $("ctrl-score").firstChild.textContent = s.isServant ? (s.masterName + "'s score " + s.masterScore) : ("Your score " + s.masterScore);
@@ -1840,7 +2050,7 @@
         $("ctrl-status").textContent = "Match is live — grow flowers, turn rivals!";
       if(s.lastEvent && s.lastEvent !== ctrlLastEvent){
         ctrlLastEvent = s.lastEvent;
-        if(s.lastEvent.indexOf(ctrl.name) >= 0 || s.lastEvent.indexOf("serves") >= 0 || s.lastEvent.indexOf("turned") >= 0)
+        if(s.lastEvent.indexOf(ctrl.name) >= 0 || s.lastEvent.indexOf("serves") >= 0 || s.lastEvent.indexOf("turned") >= 0 || s.lastEvent.toLowerCase().indexOf("bomb") >= 0)
           $("ctrl-status").textContent = s.lastEvent;
       }
     }
