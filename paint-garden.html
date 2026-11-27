@@ -333,6 +333,7 @@
             <li>Up to 10 players open <strong>Join Match</strong> on their phones, enter a name, and pick a color on the wheel. Colors are unique — no duplicates.</li>
             <li><strong>Hold</strong> the paint button to spray a liquid stream that arcs where you're moving; a quick <strong>tap</strong> lobs a single paint ball worth 3 units. Your paint supply holds <strong>100 units</strong>: the stream drains 3 per second, a ball costs 3, and the supply refills at 1 per second. Empty means no spraying until it refills.</li>
             <li>Spray paint into the flower pots to grow plants. A full flower (30 units) pays <strong>20 points</strong> to its biggest contributor. A pot nobody has started fades away after <strong>15 seconds</strong> — once any paint lands in it, it stays.</li>
+            <li>Finished flowers melt into the <strong>paint pool</strong> along the bottom. The pool starts white and takes on a little of each melted flower's color, with a splash where the paint lands. Wade into the pool and your paint supply refills at <strong>5 per second</strong> instead of 1.</li>
             <li>Spray other jellyfish to turn them your color. At 100 units they join your team as a servant — their banked points are wiped and everything they earn goes to you.</li>
             <li>First team to <strong>500 points</strong> wins, or the highest score when the 10-minute clock runs out.</li>
           </ul>
@@ -662,6 +663,8 @@
     var WIN_SCORE = 500, MATCH_SECONDS = 600, MAX_PLAYERS = 10;
     var EMPTY_PLANT_TTL = 15; /* seconds an untouched (zero-paint) pot lasts before it fades away */
     var POOL_H = 46; /* melted paint pool band at the bottom */
+    var POOL_REFILL = 5; /* supply units/sec while a jellyfish is in contact with the pool (vs 1/sec normal) */
+    var POOL_BLEND = 0.15; /* how far the pool's overall color steps toward each melted flower's color */
     var NO_SPAWN = { x:0, y:0, w:300, h:360 }; /* behind the score panel */
 
     var BOT_PRESETS = [
@@ -678,7 +681,9 @@
       this.droplets = [];
       this.trails = [];       /* fading paint droplets left behind moving jellyfish — visual only */
       this.floaters = [];
-      this.pools = [];        /* {x, w, c} melted paint blobs along the bottom */
+      this.pools = [];        /* legacy decorative blobs — kept empty; the pool is now one unified body of paint */
+      this.poolColor = { r:255, g:255, b:255 }; /* the pool starts white and takes on the garden's history */
+      this.splashes = [];     /* {x, c, t, life, big} droplet splash / ripple bursts where melt streams hit the pool */
       this.timeLeft = MATCH_SECONDS;
       this.spawnTimer = 1.2;
       this.botCount = 0;
@@ -854,15 +859,42 @@
       if(best){
         best.foreign[d.masterId] = (best.foreign[d.masterId]||0) + (d.amount || 1);
       } else {
-        /* a missed ball still splashes a tiny decorative dot into the pool
-           if it lands low; stream droplets are too small and frequent to pool */
-        if(d.kind !== "stream" && d.ty > AH - POOL_H - 26) this.addPool(d.tx, 14, d.c);
+        /* a missed ball landing low makes a tiny splash on the pool surface
+           (visual only — only melted plants shift the pool's color);
+           stream droplets are too small and frequent to splash */
+        if(d.kind !== "stream" && d.ty > AH - POOL_H - 26) this.spawnSplash(d.tx, d.c, false);
       }
     };
 
     Game.prototype.addPool = function(x, w, c){
-      this.pools.push({ x:x, w:w, c:c });
-      if(this.pools.length > 90) this.pools.splice(0, this.pools.length - 90);
+      /* kept for compatibility — now feeds the unified pool */
+      this.feedPool(x, c);
+    };
+
+    /* Is this jellyfish touching the pool? Its body dipping to the pool's
+       surface (pool zone = the bottom POOL_H band) counts as contact. */
+    Game.prototype.inPool = function(p){
+      return !!p && (p.y + 20 >= AH - POOL_H);
+    };
+
+    /* A droplet splash / ripple burst on the pool surface at x, in color c.
+       Purely visual — the melt splash is the big version. */
+    Game.prototype.spawnSplash = function(x, c, big){
+      this.splashes.push({ x:clamp(x, 14, AW-14), c:c, t:0, life: big ? 0.8 : 0.55, big:!!big, seed:rand(0, Math.PI*2) });
+      if(this.splashes.length > 40) this.splashes.splice(0, this.splashes.length - 40);
+    };
+
+    /* A melted plant's paint flows into the pool: the WHOLE pool shifts a
+       small step toward that flower's mixed color, and a splash bursts at
+       the exact point (and moment) the melt stream lands. */
+    Game.prototype.feedPool = function(x, c){
+      if(!c) return;
+      this.poolColor = {
+        r: Math.round(lerp(this.poolColor.r, c.r, POOL_BLEND)),
+        g: Math.round(lerp(this.poolColor.g, c.g, POOL_BLEND)),
+        b: Math.round(lerp(this.poolColor.b, c.b, POOL_BLEND))
+      };
+      this.spawnSplash(x, c, true);
     };
 
     Game.prototype.botThink = function(p, dt){
@@ -931,7 +963,9 @@
           var nx = p.input.dx/(mag||1), ny = p.input.dy/(mag||1);
           var speed = 235 * clamp(mag, 0, 1); /* analog: soft push = slow drift */
           p.x = clamp(p.x + nx*speed*dt, 30, AW-30);
-          p.y = clamp(p.y + ny*speed*dt, 56, AH-POOL_H-24);
+          /* jellyfish may wade down into the pool band so contact with the
+             paint is visible — the dome dips below the pool surface */
+          p.y = clamp(p.y + ny*speed*dt, 56, AH-30);
           p.facing = Math.atan2(ny, nx);
         }
         /* paint trail: small droplets in the player's current color dropped
@@ -968,10 +1002,13 @@
           if(winnerKey && winnerKey !== p.masterId) self.convert(p, winnerKey);
           else p.foreign = {};
         }
-        /* paint supply: refills at 1 unit/sec, always. Running dry locks
-           spraying out until the supply has rebuilt a little. */
+        /* paint supply: refills at 1 unit/sec normally, but at 5 units/sec
+           while the jellyfish is in contact with the paint pool at the
+           bottom of the arena. Running dry locks spraying out until the
+           supply has rebuilt a little. */
         if(typeof p.supply !== "number") p.supply = SUPPLY_MAX;
-        p.supply = clamp(p.supply + SUPPLY_REFILL*dt, 0, SUPPLY_MAX);
+        var refillRate = self.inPool(p) ? POOL_REFILL : SUPPLY_REFILL;
+        p.supply = clamp(p.supply + refillRate*dt, 0, SUPPLY_MAX);
         if(p.exhausted && p.supply >= EXHAUST_RECOVER) p.exhausted = false;
 
         /* firing: press-and-hold = liquid stream, quick tap = one paint ball.
@@ -1035,8 +1072,14 @@
           if(pl.fadeT >= 1) this.plants.splice(j,1);
         } else if(pl.state === "melting"){
           pl.meltT += dt/1.5;
-          if(pl.meltT >= 1){ this.addPool(pl.x, rand(46,70), pl.meltColor); this.plants.splice(j,1); }
+          /* the melt stream lands: pool color shifts + splash bursts, together */
+          if(pl.meltT >= 1){ this.feedPool(pl.x, pl.meltColor); this.plants.splice(j,1); }
         }
+      }
+      /* pool splashes age out */
+      for(var si=this.splashes.length-1;si>=0;si--){
+        this.splashes[si].t += dt;
+        if(this.splashes[si].t >= this.splashes[si].life) this.splashes.splice(si,1);
       }
       /* floaters */
       for(var f=this.floaters.length-1;f>=0;f--){
@@ -1058,6 +1101,7 @@
         supply: Math.round(typeof p.supply === "number" ? p.supply : SUPPLY_MAX),
         supplyPct: clamp(typeof p.supply === "number" ? p.supply : SUPPLY_MAX, 0, 100),
         supplyExhausted: !!p.exhausted, supplyStreaming: !!p.streaming,
+        inPool: this.inPool(p), poolColor: rgbCss(this.poolColor),
         masterScore: master.score, winnerName: this.winnerId ? (this.players.get(this.winnerId)||{}).name : null,
         lastEvent:this.lastEvent
       };
@@ -1222,19 +1266,98 @@
       ctx.setTransform(1,0,0,1,0,0);
       ctx.fillStyle = "#ffffff"; ctx.fillRect(0,0,w,h);
       ctx.setTransform(sx,0,0,sy,0,0);
-      /* melted paint pool along the bottom */
+      /* ---- animated paint pool along the bottom ----
+         One unified body of paint: it starts white and its overall color
+         is game.poolColor, shifted a little by every melted flower.
+         The surface is a gentle double wave; slow ripples drift across it. */
       var poolTop = AH - POOL_H;
-      ctx.fillStyle = "#f3efe8"; ctx.fillRect(0, poolTop, AW, POOL_H);
-      game.pools.forEach(function(b, i){
-        ctx.fillStyle = rgbCss(b.c);
-        ctx.beginPath();
-        var bw = b.w, bx = clamp(b.x - bw/2, 0, AW-bw);
-        ctx.ellipse(bx + bw/2, poolTop + POOL_H - 4, bw/2, 13 + Math.sin(t*0.9 + i)*2.5, 0, Math.PI, Math.PI*2);
-        ctx.fill();
-        ctx.fillRect(bx, poolTop + POOL_H - 6, bw, 6);
+      var poolC = game.poolColor || { r:255, g:255, b:255 };
+      function poolWaveY(x){
+        return poolTop + Math.sin(t*1.7 + x*0.016)*3.2 + Math.sin(t*2.6 + x*0.006 + 1.3)*2.1;
+      }
+      ctx.beginPath();
+      ctx.moveTo(0, AH);
+      ctx.lineTo(0, poolWaveY(0));
+      for(var wx=20; wx<=AW; wx+=20) ctx.lineTo(wx, poolWaveY(wx));
+      ctx.lineTo(AW, AH);
+      ctx.closePath();
+      ctx.fillStyle = rgbCss(poolC);
+      ctx.fill();
+      /* soft depth: a slightly deeper shade settles at the very bottom */
+      var poolDark = { r:Math.round(poolC.r*0.88), g:Math.round(poolC.g*0.88), b:Math.round(poolC.b*0.88) };
+      ctx.fillStyle = rgbaCss(poolDark, 0.35);
+      ctx.fillRect(0, AH - 12, AW, 12);
+      /* glossy wave crest line */
+      ctx.beginPath();
+      ctx.moveTo(0, poolWaveY(0));
+      for(var cx2=20; cx2<=AW; cx2+=20) ctx.lineTo(cx2, poolWaveY(cx2));
+      ctx.strokeStyle = "rgba(255,255,255,.65)"; ctx.lineWidth = 2.4; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, poolWaveY(0));
+      for(var bx2=20; bx2<=AW; bx2+=20) ctx.lineTo(bx2, poolWaveY(bx2));
+      ctx.strokeStyle = "rgba(32,36,42,.14)"; ctx.lineWidth = 1.2;
+      ctx.save(); ctx.translate(0, 2.6); ctx.stroke(); ctx.restore();
+      /* drifting ripples — flat ellipses that swell and fade on the surface */
+      for(var ri=0; ri<6; ri++){
+        var rPhase = (t*0.22 + ri*0.173) % 1;
+        var rX = ((ri*379 + 140) % (AW-160)) + 80 + Math.sin(t*0.4 + ri*2.1)*18;
+        var rY = poolTop + 16 + (ri%3)*10;
+        ctx.strokeStyle = "rgba(255,255,255," + (0.34*(1-rPhase)).toFixed(3) + ")";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.ellipse(rX, rY, 8 + rPhase*30, (8 + rPhase*30)*0.24, 0, 0, Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = "rgba(32,36,42," + (0.10*(1-rPhase)).toFixed(3) + ")";
+        ctx.beginPath(); ctx.ellipse(rX, rY+1.5, 8 + rPhase*30, (8 + rPhase*30)*0.24, 0, 0, Math.PI*2); ctx.stroke();
+      }
+      /* ---- splashes where melt streams (and stray balls) hit the pool ----
+         Expanding ripple rings in the flower's color plus droplets thrown
+         up and falling back — spawned by feedPool at the exact moment the
+         pool's color shifts. */
+      (game.splashes || []).forEach(function(sp){
+        var k = sp.t / sp.life;
+        if(k < 0 || k >= 1) return;
+        var sy = poolWaveY(sp.x);
+        var maxR = sp.big ? 46 : 24;
+        /* two ripple rings, the second trailing the first */
+        for(var ring=0; ring<2; ring++){
+          var rk = k - ring*0.18; if(rk <= 0) continue;
+          ctx.strokeStyle = rgbaCss(sp.c, (1-rk)*(sp.big ? 0.75 : 0.55));
+          ctx.lineWidth = sp.big ? 2.6 : 1.8;
+          ctx.beginPath();
+          ctx.ellipse(sp.x, sy + 3, 4 + rk*maxR, (4 + rk*maxR)*0.26, 0, 0, Math.PI*2);
+          ctx.stroke();
+        }
+        /* droplets: thrown up in the flower's color, arcing back down */
+        var nD = sp.big ? 8 : 5;
+        ctx.fillStyle = rgbCss(sp.c);
+        for(var di=0; di<nD; di++){
+          var frac = (di/(nD-1) - 0.5) * 2; /* -1 .. 1 across the burst */
+          var vx = frac * (sp.big ? 30 : 18);
+          var up = (sp.big ? 62 : 36) * (1 - Math.abs(frac)*0.45) * (0.85 + 0.3*Math.sin(sp.seed + di*1.7)*0.5 + 0.15);
+          var dxp = sp.x + vx * sp.t * 2.2;
+          var dyp = sy - (up * sp.t - 150 * sp.t * sp.t);
+          if(dyp > sy + 4) continue;
+          var dr = (sp.big ? 3.6 : 2.5) * (1 - k*0.45);
+          ctx.beginPath(); ctx.ellipse(dxp, dyp, Math.max(0.7, dr*0.78), Math.max(0.9, dr*1.25), 0, 0, Math.PI*2); ctx.fill();
+        }
+        /* crown spike at the impact point, strongest in the first moments */
+        if(k < 0.45){
+          var crownH = (sp.big ? 13 : 7) * (1 - k/0.45);
+          ctx.fillStyle = rgbaCss(sp.c, 0.85*(1 - k/0.45));
+          ctx.beginPath();
+          ctx.moveTo(sp.x - 5, sy + 2); ctx.lineTo(sp.x, sy - crownH); ctx.lineTo(sp.x + 5, sy + 2);
+          ctx.closePath(); ctx.fill();
+        }
       });
-      ctx.strokeStyle = "#e7e4de"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0, poolTop); ctx.lineTo(AW, poolTop); ctx.stroke();
+      /* gentle ripple rings around any jellyfish wading in the pool */
+      game.players.forEach(function(p){
+        if(!game.inPool(p)) return;
+        var pk = (t*0.9 + p.phase) % 1;
+        ctx.strokeStyle = "rgba(255,255,255," + (0.5*(1-pk)).toFixed(3) + ")";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(p.x, poolTop + 14, 16 + pk*22, (16 + pk*22)*0.28, 0, 0, Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = rgbaCss(game.displayColor(p), 0.4*(1-pk));
+        ctx.beginPath(); ctx.ellipse(p.x, poolTop + 15.5, 16 + pk*22, (16 + pk*22)*0.28, 0, 0, Math.PI*2); ctx.stroke();
+      });
       /* paint trails — small fading droplets on the floor behind each
          jellyfish, in its current color, shrinking as they fade */
       game.trails.forEach(function(tr){
@@ -1617,7 +1740,9 @@
         $("shoot-btn").classList.toggle("no-paint", !!s.supplyExhausted || s.supplyPct < 3);
         $("supply-note").textContent = s.supplyExhausted
           ? "Out of paint — refilling…"
-          : (s.supplyPct < 3 ? "Almost out — refilling at 1 per second" : "");
+          : s.inPool
+            ? "In the paint pool — refilling fast"
+            : (s.supplyPct < 3 ? "Almost out — refilling at 1 per second" : "");
       }
       $("seg-own").style.background = s.teamColor;
       $("seg-own").style.width = (100 - s.foreignPct) + "%";
