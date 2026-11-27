@@ -675,6 +675,10 @@
     var BOMB_FUSE = 45; /* seconds to defuse before it blows */
     var BOMB_POINTS = 20; /* paid to every contributor's team on a defuse */
     var BOMB_BLAST_R = 340; /* explosion radius for the black splash */
+    /* generous invisible hit radii for paint droplets — roughly 50% larger
+       than the visible sprites (pot ~48, bomb ~56, jellyfish ~42) so aiming
+       feels easy; visuals are unchanged, only the landing checks grow */
+    var HIT_PLANT_R = 72, HIT_BOMB_R = 84, HIT_PLAYER_R = 63;
     var BLACK_ID = "__black__"; /* pseudo-team id for bomb black paint */
     var BLACK_COLOR = { r:24, g:24, b:28 };
     var NO_SPAWN = { x:0, y:0, w:300, h:360 }; /* behind the score panel */
@@ -974,7 +978,7 @@
          servants' and black paint included — counts toward the defuse
          fill. Bomb fill never changes the shooter's color and never
          counts toward any flower. */
-      if(this.bomb && dist2(d.tx, d.ty, this.bomb.x, this.bomb.y) < 56*56){
+      if(this.bomb && dist2(d.tx, d.ty, this.bomb.x, this.bomb.y) < HIT_BOMB_R*HIT_BOMB_R){
         var bamt = d.amount || 1;
         this.bomb.fill += bamt;
         this.bomb.contrib[d.shooterId] = (this.bomb.contrib[d.shooterId]||0) + bamt;
@@ -987,7 +991,7 @@
       if(d.masterId !== BLACK_ID) for(i=0;i<this.plants.length;i++){
         pl = this.plants[i];
         if(pl.state !== "growing") continue;
-        if(dist2(d.tx, d.ty, pl.x, pl.y-6) < 48*48){
+        if(dist2(d.tx, d.ty, pl.x, pl.y-6) < HIT_PLANT_R*HIT_PLANT_R){
           var amt = d.amount || 1;
           pl.fill += amt;
           pl.contrib[d.masterId] = (pl.contrib[d.masterId]||0) + amt;
@@ -997,7 +1001,7 @@
         }
       }
       /* then players (not the shooter, not teammates) */
-      var best = null, bd = 42*42;
+      var best = null, bd = HIT_PLAYER_R*HIT_PLAYER_R;
       this.players.forEach(function(q){
         if(q.id === d.shooterId || q.masterId === d.masterId) return;
         var dd = dist2(d.tx, d.ty, q.x, q.y);
