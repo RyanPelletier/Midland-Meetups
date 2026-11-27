@@ -1,0 +1,1839 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="data:," />
+    <title>Paint Garden</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --ink:#20242a;
+        --ink-soft:#5b6470;
+        --line:#e7e4de;
+        --paper:#ffffff;
+        --wash:#f7f5f1;
+        --leaf:#2f9e63;
+        --leaf-dark:#227a4b;
+        --danger:#d9534f;
+        --shadow:0 10px 30px rgba(32,36,42,.10);
+        --shadow-sm:0 3px 12px rgba(32,36,42,.08);
+      }
+      *{ box-sizing:border-box; }
+      html,body{ height:100%; }
+      body{
+        margin:0; background:var(--paper); color:var(--ink);
+        font-family:"Nunito",system-ui,-apple-system,sans-serif;
+        -webkit-font-smoothing:antialiased;
+        overflow-x:hidden;
+      }
+      h1,h2,h3,.display{ font-family:"Baloo 2","Nunito",sans-serif; }
+      button{ font-family:inherit; cursor:pointer; }
+      button, [role="button"], select, summary, input:not([type="checkbox"],[type="radio"]) { min-height:2.25rem; }
+      .hidden{ display:none !important; }
+
+      /* ---------- generic ---------- */
+      .btn{
+        display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
+        border:2px solid var(--ink); background:var(--ink); color:#fff;
+        font-weight:800; font-size:1rem; padding:.7rem 1.4rem; border-radius:999px;
+        transition:transform .08s ease, background .15s ease, color .15s ease;
+        min-height:3rem;
+      }
+      .btn:hover{ transform:translateY(-1px); }
+      .btn:active{ transform:translateY(1px); }
+      .btn.ghost{ background:#fff; color:var(--ink); }
+      .btn.ghost:hover{ background:var(--wash); }
+      .btn.leaf{ background:var(--leaf); border-color:var(--leaf); }
+      .btn.leaf:hover{ background:var(--leaf-dark); border-color:var(--leaf-dark); }
+      .btn.small{ min-height:2.5rem; padding:.45rem 1rem; font-size:.9rem; }
+      .btn[disabled]{ opacity:.38; pointer-events:none; }
+      .field{ display:block; text-align:left; margin:0 0 1rem; }
+      .field span{ display:block; font-weight:800; font-size:.82rem; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:.35rem; }
+      .field input[type="text"]{
+        width:100%; border:2px solid var(--line); border-radius:14px; padding:.7rem .9rem;
+        font-size:1.1rem; font-weight:700; font-family:inherit; color:var(--ink); background:#fff;
+        outline:none;
+      }
+      .field input[type="text"]:focus{ border-color:var(--ink); }
+      .note{ color:var(--ink-soft); font-size:.92rem; line-height:1.45; }
+      .err{ color:var(--danger); font-weight:700; font-size:.92rem; min-height:1.3em; }
+      .pill{
+        display:inline-flex; align-items:center; gap:.45rem; background:#fff; border:1.5px solid var(--line);
+        border-radius:999px; padding:.35rem .8rem; font-weight:800; font-size:.85rem; box-shadow:var(--shadow-sm);
+      }
+      .dot{ width:.8rem; height:.8rem; border-radius:50%; flex:none; box-shadow:inset 0 0 0 2px rgba(0,0,0,.08); }
+
+      /* ---------- home ---------- */
+      #view-home{
+        min-height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        padding:2rem 1.25rem 3rem; text-align:center; position:relative;
+      }
+      .home-drips{ position:absolute; inset:auto 0 0 0; height:54px; pointer-events:none; opacity:.9; }
+      .wordmark{ font-size:clamp(2.6rem,8vw,4.4rem); font-weight:800; line-height:1; letter-spacing:-.01em; margin:0; }
+      .wordmark .g{ color:var(--leaf); }
+      .home-actions{ display:flex; flex-direction:column; gap:.8rem; margin-top:2.2rem; width:min(22rem,100%); }
+      .home-actions .btn{ width:100%; font-size:1.08rem; }
+      .mode-badge{ margin-top:1.6rem; }
+      /* "?" help button — fixed to the home screen's bottom-left corner */
+      .help-btn{
+        position:absolute; left:1.1rem; bottom:1.1rem; z-index:6;
+        width:2.9rem; height:2.9rem; min-height:2.9rem; border-radius:50%;
+        border:2px solid var(--ink); background:#fff; color:var(--ink);
+        font-family:"Baloo 2","Nunito",sans-serif; font-size:1.35rem; font-weight:800; line-height:1;
+        box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center;
+      }
+      .help-btn:hover{ background:var(--wash); }
+      .help-btn:active{ transform:translateY(1px); }
+      .help-overlay{
+        position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+        background:rgba(255,255,255,.8); padding:1rem;
+      }
+      .help-panel{
+        width:min(34rem,100%); max-height:88dvh; overflow:auto; text-align:left;
+        background:#fff; border:1.5px solid var(--line); border-radius:24px;
+        box-shadow:var(--shadow); padding:1.4rem 1.4rem 1.5rem; position:relative;
+      }
+      .help-panel h3{ margin:.1rem 2.4rem .6rem 0; font-size:1.3rem; }
+      .help-panel ul{ margin:0; padding-left:1.15rem; color:var(--ink-soft); line-height:1.55; font-size:.97rem; }
+      .help-panel ul li{ margin-bottom:.35rem; }
+      .help-close{
+        position:absolute; top:.7rem; right:.7rem; width:2.4rem; height:2.4rem; min-height:2.4rem;
+        border-radius:50%; border:2px solid var(--line); background:#fff; color:var(--ink);
+        font-size:1.05rem; font-weight:800; line-height:1; display:flex; align-items:center; justify-content:center;
+      }
+      .help-close:hover{ background:var(--wash); }
+      .splat-row{ display:flex; gap:.55rem; justify-content:center; align-items:flex-end; margin-bottom:1.1rem; }
+      .logo-jelly{ width:30px; height:30px; flex:none; display:block; animation:logo-bob 2.6s ease-in-out infinite; }
+      .logo-jelly:nth-child(2){ animation-delay:.35s; }
+      .logo-jelly:nth-child(4){ animation-delay:.7s; }
+      .logo-jelly:nth-child(5){ animation-delay:1.05s; }
+      .logo-plant{ width:32px; height:32px; flex:none; display:block; }
+      @keyframes logo-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2.5px); } }
+
+      /* ---------- join ---------- */
+      .center-wrap{ min-height:100dvh; display:flex; align-items:flex-start; justify-content:center; padding:1.4rem 1rem 3rem; }
+      .card{
+        width:min(26rem,100%); background:#fff; border:1.5px solid var(--line); border-radius:24px;
+        box-shadow:var(--shadow); padding:1.5rem 1.4rem 1.6rem;
+      }
+      .card h2{ margin:.1rem 0 .3rem; font-size:1.7rem; }
+      .card .sub{ color:var(--ink-soft); margin:0 0 1.2rem; line-height:1.45; }
+      .backlink{
+        display:inline-flex; align-items:center; gap:.3rem; background:none; border:none; color:var(--ink-soft);
+        font-weight:800; font-size:.9rem; padding:.4rem .2rem; min-height:2.25rem;
+      }
+      .backlink:hover{ color:var(--ink); }
+      .code-input{ text-transform:uppercase; letter-spacing:.35em; text-align:center; font-size:1.5rem !important; }
+      #wheel-wrap{ display:flex; flex-direction:column; align-items:center; gap:.6rem; margin:.4rem 0 1rem; }
+      #wheel{ touch-action:none; cursor:pointer; }
+      .swatches{ display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center; }
+      .swatch{
+        width:2.4rem; height:2.4rem; border-radius:50%; border:3px solid transparent; padding:0;
+        box-shadow:inset 0 0 0 2px rgba(0,0,0,.07);
+      }
+      .swatch.sel{ border-color:var(--ink); }
+      .swatch.taken{ opacity:.22; pointer-events:none; }
+      .color-preview{ display:flex; align-items:center; gap:.6rem; font-weight:800; }
+      .color-preview .big-dot{ width:2rem; height:2rem; border-radius:50%; box-shadow:inset 0 0 0 2px rgba(0,0,0,.08); }
+
+      /* ---------- arena (host) ---------- */
+      #view-arena{ min-height:100dvh; display:flex; flex-direction:column; background:#fff; }
+      .arena-topbar{
+        display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; padding:.55rem .8rem;
+        border-bottom:1.5px solid var(--line);
+      }
+      .arena-topbar .spacer{ flex:1; }
+      #arena-wrap{ position:relative; flex:1; min-height:0; }
+      #game-canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; background:#fff; touch-action:none; }
+      #score-panel{
+        position:absolute; top:.7rem; left:.7rem; width:16.5rem; max-width:62vw;
+        background:rgba(255,255,255,.92); border:1.5px solid var(--line); border-radius:16px;
+        padding:.6rem .75rem; box-shadow:var(--shadow-sm); backdrop-filter:blur(3px);
+      }
+      #score-panel h3{ margin:0 0 .35rem; font-size:.95rem; display:flex; justify-content:space-between; align-items:baseline; }
+      #score-panel h3 .goal{ font-family:"Nunito"; font-size:.72rem; color:var(--ink-soft); font-weight:700; }
+      .score-row{ display:flex; align-items:center; gap:.5rem; padding:.22rem 0; font-weight:700; font-size:.92rem; }
+      .score-row .nm{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .score-row .team-n{ color:var(--ink-soft); font-size:.75rem; font-weight:700; }
+      .score-row .pts{ font-family:"Baloo 2"; font-size:1.05rem; }
+      .score-row.leader .nm{ font-weight:800; }
+      #event-pill{
+        position:absolute; top:.7rem; right:.7rem; max-width:min(24rem,70vw);
+        transition:opacity .4s ease;
+      }
+      .overlay-card{
+        position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+        background:rgba(255,255,255,.78); padding:1rem; z-index:5;
+      }
+      .overlay-inner{
+        width:min(30rem,100%); background:#fff; border:1.5px solid var(--line); border-radius:24px;
+        box-shadow:var(--shadow); padding:1.6rem 1.5rem; text-align:center; max-height:92%; overflow:auto;
+      }
+      .overlay-inner h2{ margin:.2rem 0 .4rem; font-size:2rem; }
+      .lobby-code{ font-family:"Baloo 2"; font-size:3rem; letter-spacing:.3em; font-weight:800; margin:.4rem 0 .2rem; text-indent:.3em; }
+      .player-chips{ display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center; margin:1rem 0; min-height:2.2rem; }
+      .chip{
+        display:inline-flex; align-items:center; gap:.45rem; border:1.5px solid var(--line); background:#fff;
+        border-radius:999px; padding:.35rem .8rem .35rem .45rem; font-weight:800; font-size:.92rem;
+      }
+      .chip .crown{ font-size:.8rem; }
+      .btn-row{ display:flex; gap:.6rem; flex-wrap:wrap; justify-content:center; margin-top:1rem; }
+      .standings{ text-align:left; margin:1rem auto 0; max-width:20rem; }
+      .standings .score-row{ border-bottom:1px dashed var(--line); padding:.4rem 0; }
+
+      /* solo / local pad on arena */
+      #local-pad{
+        position:absolute; left:0; right:0; bottom:0; z-index:4; pointer-events:none;
+        display:flex; justify-content:space-between; align-items:flex-end; padding:0 1rem 4.2rem;
+      }
+      #local-pad > *{ pointer-events:auto; }
+
+      /* ---------- controller ---------- */
+      #view-controller{ min-height:100dvh; display:flex; flex-direction:column; background:#fff; position:relative; }
+      .ctrl-name{ text-align:center; padding:1rem 1rem .2rem; }
+      .ctrl-name h2{ margin:0; font-size:1.6rem; line-height:1.1; }
+      .ctrl-name .team-line{ color:var(--ink-soft); font-weight:700; font-size:.9rem; margin-top:.15rem; min-height:1.2em; }
+      #ctrl-status{
+        margin:.7rem auto 0; max-width:22rem; text-align:center; color:var(--ink-soft);
+        font-weight:700; font-size:.95rem; padding:0 1rem; min-height:1.4em;
+      }
+      .ctrl-mid{ flex:1; display:flex; align-items:center; justify-content:space-between; padding:1rem 1.2rem 1.4rem; gap:1rem; }
+      .joystick{
+        position:relative; width:9.5rem; height:9.5rem; border-radius:50%; flex:none;
+        background:var(--wash); border:2px solid var(--line); touch-action:none;
+      }
+      .joystick .knob{
+        position:absolute; left:50%; top:50%; width:4.2rem; height:4.2rem; border-radius:50%;
+        background:#fff; border:2px solid var(--ink); box-shadow:var(--shadow-sm);
+        transform:translate(-50%,-50%); pointer-events:none;
+      }
+      .joystick .ring-label{
+        position:absolute; inset:auto 0 -1.7rem 0; text-align:center; color:var(--ink-soft);
+        font-weight:800; font-size:.78rem; letter-spacing:.08em; text-transform:uppercase;
+      }
+      #shoot-btn{
+        width:7.2rem; height:7.2rem; border-radius:50%; flex:none; border:3px solid var(--ink);
+        color:#fff; font-family:"Baloo 2"; font-size:1.35rem; font-weight:800; letter-spacing:.03em;
+        box-shadow:var(--shadow); touch-action:none; user-select:none; -webkit-user-select:none;
+      }
+      #shoot-btn.pressed{ transform:scale(.93); filter:brightness(.92); }
+      #pad-shoot{
+        width:6rem; height:6rem; border-radius:50%; border:3px solid var(--ink);
+        color:#fff; font-family:"Baloo 2"; font-size:1.15rem; font-weight:800;
+        box-shadow:var(--shadow); touch-action:none; user-select:none; -webkit-user-select:none;
+      }
+      #pad-shoot.pressed{ transform:scale(.93); filter:brightness(.92); }
+      .colorbar-zone{ padding:0 1rem calc(.9rem + env(safe-area-inset-bottom)); }
+      .colorbar-label{ text-align:center; color:var(--ink-soft); font-weight:800; font-size:.75rem; letter-spacing:.08em; text-transform:uppercase; margin-bottom:.4rem; }
+      .colorbar-label .val{ color:var(--ink); letter-spacing:0; text-transform:none; }
+      /* paint supply bar — separate from the color/health bar below it */
+      .supply-zone{ margin-bottom:.95rem; }
+      #supplybar{
+        height:1.15rem; border-radius:999px; border:2px solid var(--ink); overflow:hidden;
+        background:repeating-linear-gradient(45deg,#f1eee8 0 8px,#e9e5dc 8px 16px);
+      }
+      #supply-fill{ height:100%; width:100%; transition:width .15s linear; }
+      #supplybar.empty #supply-fill{ transition:width .15s linear; }
+      .supply-note{ text-align:center; color:var(--danger); font-weight:800; font-size:.8rem; min-height:1.1em; margin-top:.3rem; }
+      /* supply bar for the on-screen (host/local) player */
+      #local-supply{
+        position:absolute; left:50%; transform:translateX(-50%); bottom:.7rem; z-index:4;
+        width:min(22rem,58vw); background:rgba(255,255,255,.92); border:1.5px solid var(--line);
+        border-radius:14px; padding:.45rem .7rem .55rem; box-shadow:var(--shadow-sm);
+      }
+      #local-supply .colorbar-label{ margin-bottom:.3rem; }
+      #local-supplybar{ height:.95rem; border-radius:999px; border:2px solid var(--ink); overflow:hidden; background:#f1eee8; }
+      #local-supply-fill{ height:100%; width:100%; transition:width .15s linear; }
+      #shoot-btn.no-paint, #pad-shoot.no-paint{ filter:grayscale(.35) brightness(.88); }
+      #colorbar{
+        height:2rem; border-radius:999px; border:2px solid var(--ink); overflow:hidden; display:flex; background:#fff;
+      }
+      #colorbar .seg-own{ height:100%; transition:width .25s ease; }
+      #colorbar .seg-foreign{ height:100%; transition:width .25s ease; }
+      #ctrl-score{ text-align:center; font-weight:800; margin-top:.55rem; color:var(--ink); }
+      #ctrl-score .sub2{ display:block; color:var(--ink-soft); font-size:.82rem; font-weight:700; }
+      .ctrl-top-actions{ position:absolute; top:.4rem; right:.4rem; }
+
+      @media (max-width:560px){
+        .ctrl-mid{ padding:1rem .8rem 2rem; }
+        .joystick{ width:8.4rem; height:8.4rem; }
+        #shoot-btn{ width:6.4rem; height:6.4rem; }
+        #score-panel{ width:13.5rem; }
+        #local-pad{ padding-bottom:3.6rem; }
+      }
+      @media (prefers-reduced-motion: reduce){
+        .btn{ transition:none; }
+        .logo-jelly{ animation:none; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- ================= HOME ================= -->
+    <section id="view-home">
+      <div class="splat-row" aria-hidden="true">
+        <svg class="logo-jelly" style="color:#e4572e" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 16c0-6.6 4.9-11 11-11s11 4.4 11 11c-1.8 1.3-3.6-1-5.5 0-1.8-1.1-3.7 1.3-5.5 0-1.8 1.3-3.7-1.1-5.5 0C8.6 15 6.8 17.3 5 16Z" fill="currentColor" fill-opacity=".82"/><circle cx="12.4" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><circle cx="19.6" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><path d="M10.5 18.2c-1.4 2.8 1.3 3.8 0 6.4M16 18.7c-1.4 2.8 1.3 3.8 0 6.2M21.5 18.2c-1.4 2.8 1.3 3.8 0 6.4" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        <svg class="logo-jelly" style="color:#f2b134" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 16c0-6.6 4.9-11 11-11s11 4.4 11 11c-1.8 1.3-3.6-1-5.5 0-1.8-1.1-3.7 1.3-5.5 0-1.8 1.3-3.7-1.1-5.5 0C8.6 15 6.8 17.3 5 16Z" fill="currentColor" fill-opacity=".82"/><circle cx="12.4" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><circle cx="19.6" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><path d="M10.5 18.2c-1.4 2.8 1.3 3.8 0 6.4M16 18.7c-1.4 2.8 1.3 3.8 0 6.2M21.5 18.2c-1.4 2.8 1.3 3.8 0 6.4" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        <svg class="logo-plant" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 19v-6.2" stroke="#2f9e63" stroke-width="2.3" stroke-linecap="round"/><path d="M15.8 15.4c-2.9.3-4.9-.9-5.8-3.4 2.9-.3 4.9.9 5.8 3.4Z" fill="#2f9e63"/><path d="M16.2 16.8c2.9.3 4.9-.9 5.8-3.4-2.9-.3-4.9.9-5.8 3.4Z" fill="#35b06c"/><g fill="#2f9e63"><circle cx="16" cy="5.2" r="2.5"/><circle cx="12.9" cy="7.6" r="2.5"/><circle cx="19.1" cy="7.6" r="2.5"/><circle cx="13.8" cy="10.6" r="2.5"/><circle cx="18.2" cy="10.6" r="2.5"/></g><circle cx="16" cy="8" r="1.9" fill="#f2b134"/><rect x="9" y="18.6" width="14" height="3.1" rx="1.2" fill="#b85c33"/><path d="M10.4 21.7h11.2l-1.4 6.9a2 2 0 0 1-2 1.6h-4.4a2 2 0 0 1-2-1.6l-1.4-6.9Z" fill="#d97742"/></svg>
+        <svg class="logo-jelly" style="color:#3a86ff" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 16c0-6.6 4.9-11 11-11s11 4.4 11 11c-1.8 1.3-3.6-1-5.5 0-1.8-1.1-3.7 1.3-5.5 0-1.8 1.3-3.7-1.1-5.5 0C8.6 15 6.8 17.3 5 16Z" fill="currentColor" fill-opacity=".82"/><circle cx="12.4" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><circle cx="19.6" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><path d="M10.5 18.2c-1.4 2.8 1.3 3.8 0 6.4M16 18.7c-1.4 2.8 1.3 3.8 0 6.2M21.5 18.2c-1.4 2.8 1.3 3.8 0 6.4" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        <svg class="logo-jelly" style="color:#9b5de5" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 16c0-6.6 4.9-11 11-11s11 4.4 11 11c-1.8 1.3-3.6-1-5.5 0-1.8-1.1-3.7 1.3-5.5 0-1.8 1.3-3.7-1.1-5.5 0C8.6 15 6.8 17.3 5 16Z" fill="currentColor" fill-opacity=".82"/><circle cx="12.4" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><circle cx="19.6" cy="11.6" r="1.35" fill="#fff" fill-opacity=".9"/><path d="M10.5 18.2c-1.4 2.8 1.3 3.8 0 6.4M16 18.7c-1.4 2.8 1.3 3.8 0 6.2M21.5 18.2c-1.4 2.8 1.3 3.8 0 6.4" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+      </div>
+      <h1 class="wordmark">Paint <span class="g">Garden</span></h1>
+      <div class="home-actions">
+        <button class="btn leaf" id="btn-start-match" type="button">Start Match — host on this screen</button>
+        <button class="btn" id="btn-join-match" type="button">Join Match — I'm a phone</button>
+        <button class="btn ghost" id="btn-demo" type="button">Play solo demo on this screen</button>
+      </div>
+      <div class="mode-badge"><span class="pill" id="mode-pill">Checking connection mode…</span></div>
+      <button class="help-btn" id="btn-help" type="button" aria-label="How Paint Garden works" aria-haspopup="dialog">?</button>
+      <div class="help-overlay hidden" id="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="help-panel">
+          <button class="help-close" id="btn-help-close" type="button" aria-label="Close help">✕</button>
+          <h3 id="help-title">How a match works</h3>
+          <ul>
+            <li>Host opens <strong>Start Match</strong> on the laptop and shares the 4-letter code.</li>
+            <li>Up to 10 players open <strong>Join Match</strong> on their phones, enter a name, and pick a color on the wheel. Colors are unique — no duplicates.</li>
+            <li><strong>Hold</strong> the paint button to spray a liquid stream that arcs where you're moving; a quick <strong>tap</strong> lobs a single paint ball worth 3 units. Your paint supply holds <strong>100 units</strong>: the stream drains 3 per second, a ball costs 3, and the supply refills at 1 per second. Empty means no spraying until it refills.</li>
+            <li>Spray paint into the flower pots to grow plants. A full flower (30 units) pays <strong>20 points</strong> to its biggest contributor. A pot nobody has started fades away after <strong>15 seconds</strong> — once any paint lands in it, it stays.</li>
+            <li>Spray other jellyfish to turn them your color. At 100 units they join your team as a servant — their banked points are wiped and everything they earn goes to you.</li>
+            <li>First team to <strong>500 points</strong> wins, or the highest score when the 10-minute clock runs out.</li>
+          </ul>
+        </div>
+      </div>
+      <svg class="home-drips" viewBox="0 0 1200 54" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0,54 L0,26 Q60,10 120,24 T240,20 T360,28 T480,16 T600,26 T720,18 T840,28 T960,20 T1080,26 T1200,18 L1200,54 Z" fill="#3a86ff" opacity=".55"/>
+        <path d="M0,54 L0,38 Q80,26 160,36 T320,34 T480,40 T640,32 T800,40 T960,34 T1120,38 T1200,34 L1200,54 Z" fill="#2f9e63" opacity=".65"/>
+      </svg>
+    </section>
+
+    <!-- ================= JOIN ================= -->
+    <section id="view-join" class="hidden">
+      <div class="center-wrap">
+        <div class="card">
+          <button class="backlink" id="join-back" type="button">← Back</button>
+          <h2>Join a match</h2>
+          <p class="sub">Enter the code shown on the host screen, then claim your name and color.</p>
+
+          <div id="join-step-code">
+            <label class="field"><span>Match code</span>
+              <input type="text" id="join-code" class="code-input" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" />
+            </label>
+            <p class="err" id="join-code-err"></p>
+            <button class="btn" id="btn-find-match" type="button" style="width:100%">Find match</button>
+          </div>
+
+          <div id="join-step-player" class="hidden">
+            <p class="pill" id="join-found-pill" style="margin-bottom:1rem;">Match found</p>
+            <label class="field"><span>Your name</span>
+              <input type="text" id="join-name" maxlength="14" autocomplete="off" placeholder="e.g. Sunny" />
+            </label>
+            <div class="field"><span>Pick your color — one per player</span></div>
+            <div id="wheel-wrap">
+              <canvas id="wheel" width="240" height="240" aria-label="Color wheel"></canvas>
+              <div class="color-preview"><span class="big-dot" id="wheel-preview"></span><span id="wheel-label">Drag on the wheel</span></div>
+              <div class="swatches" id="swatches"></div>
+            </div>
+            <p class="err" id="join-err"></p>
+            <button class="btn leaf" id="btn-join-go" type="button" style="width:100%">Join as this jellyfish</button>
+            <p class="note" id="join-lobby-note" style="margin-top:.8rem;"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ARENA (HOST) ================= -->
+    <section id="view-arena" class="hidden">
+      <div class="arena-topbar">
+        <span class="pill">🌱 Paint Garden</span>
+        <span class="pill" id="top-code">Code —</span>
+        <span class="pill" id="top-players">0 players</span>
+        <span class="pill" id="top-mode">Local demo link</span>
+        <div class="spacer"></div>
+        <span class="pill" id="top-timer">10:00</span>
+        <button class="btn ghost small" id="btn-arena-home" type="button">Leave</button>
+      </div>
+      <div id="arena-wrap">
+        <canvas id="game-canvas"></canvas>
+
+        <div id="score-panel">
+          <h3>Scores <span class="goal">first to 500 · plants +20</span></h3>
+          <div id="score-rows"><p class="note" style="margin:.2rem 0;">No players yet.</p></div>
+        </div>
+
+        <div id="event-pill" class="pill hidden"></div>
+
+        <div id="local-pad" class="hidden">
+          <div class="joystick" id="pad-stick"><div class="knob"></div></div>
+          <button id="pad-shoot" type="button">PAINT</button>
+        </div>
+
+        <div id="local-supply" class="hidden">
+          <div class="colorbar-label">Paint supply · <span class="val" id="local-supply-val">100</span> / 100</div>
+          <div id="local-supplybar"><div id="local-supply-fill"></div></div>
+        </div>
+
+        <div id="lobby-overlay" class="overlay-card hidden">
+          <div class="overlay-inner">
+            <div class="lobby-code" id="lobby-code-big">····</div>
+            <div class="btn-row">
+              <button class="btn leaf" id="btn-begin" type="button">Start match</button>
+              <button class="btn ghost" id="btn-add-bot" type="button">Add a bot</button>
+              <button class="btn ghost" id="btn-join-here" type="button">Play on this screen (keys)</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="end-overlay" class="overlay-card hidden">
+          <div class="overlay-inner">
+            <p class="note" style="margin:0;">Match over</p>
+            <h2 id="end-title">Winner</h2>
+            <p class="note" id="end-sub"></p>
+            <div class="standings" id="end-standings"></div>
+            <div class="btn-row">
+              <button class="btn leaf" id="btn-again" type="button">Play again</button>
+              <button class="btn ghost" id="btn-end-home" type="button">Back to start</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CONTROLLER ================= -->
+    <section id="view-controller" class="hidden">
+      <div class="ctrl-top-actions">
+        <button class="backlink" id="ctrl-leave" type="button">Leave</button>
+      </div>
+      <div class="ctrl-name">
+        <h2 id="ctrl-player-name">Player</h2>
+        <div class="team-line" id="ctrl-team-line"></div>
+      </div>
+      <p id="ctrl-status">Connecting…</p>
+      <div class="ctrl-mid">
+        <div class="joystick" id="ctrl-stick">
+          <div class="knob"></div>
+          <div class="ring-label">Move</div>
+        </div>
+        <button id="shoot-btn" type="button">PAINT</button>
+      </div>
+      <div class="colorbar-zone">
+        <div class="supply-zone">
+          <div class="colorbar-label">Paint supply · <span class="val" id="supply-val">100</span> / 100</div>
+          <div id="supplybar"><div id="supply-fill"></div></div>
+          <div class="supply-note" id="supply-note"></div>
+        </div>
+        <div class="colorbar-label">Your color</div>
+        <div id="colorbar"><div class="seg-own" id="seg-own"></div><div class="seg-foreign" id="seg-foreign"></div></div>
+        <div id="ctrl-score">—<span class="sub2"></span></div>
+      </div>
+    </section>
+
+    <script>
+    /* =====================================================================
+       PAINT GARDEN — single-file game
+       Host screen (this page, "Start Match") runs the simulation.
+       Phone controllers ("Join Match") send joystick + paint inputs.
+       Transport is either Firestore (live, across devices) or a local
+       BroadcastChannel bus (demo: host + controllers as tabs of one
+       browser). A solo demo with bots runs with no transport at all.
+       ===================================================================== */
+
+    /* =====================================================================
+       ★ FIREBASE CONFIG — PASTE YOUR NEW PROJECT'S WEB CONFIG HERE ★
+       ---------------------------------------------------------------------
+       Ryan is creating a NEW Firebase project for Paint Garden. When it's
+       ready: Firebase console → Project settings → "Your apps" → Web app →
+       copy the firebaseConfig object over the placeholder values below.
+
+       Then, in Firestore Database, create the database and (for testing)
+       start with open test-mode rules, e.g.:
+
+         rules_version = '2';
+         service cloud.firestore {
+           match /databases/{database}/documents {
+             match /matches/{code}/messages/{msg} {
+               allow read, write: if true;
+             }
+           }
+         }
+
+       (Tighten the rules before any public launch — test mode lets anyone
+       who knows a match code read/write that match's messages.)
+
+       While the values below still say "PASTE", the game automatically
+       runs in LOCAL DEMO MODE: host and phone controllers are tabs or
+       windows of the same browser, talking over BroadcastChannel, and the
+       solo demo works with no connection at all.
+       ===================================================================== */
+    var FIREBASE_CONFIG = {
+      apiKey: "AIzaSyB5B_F2yt6kPiB-b-8mM0jObUVa-PWMH_M",
+      authDomain: "paint-garden.firebaseapp.com",
+      projectId: "paint-garden",
+      storageBucket: "paint-garden.firebasestorage.app",
+      messagingSenderId: "385292682503",
+      appId: "1:385292682503:web:4b707f8d28fb7f04fcb1a2",
+      measurementId: "G-6NGD6YSB52"
+    };
+    var FIREBASE_ENABLED = FIREBASE_CONFIG.apiKey.indexOf("PASTE") !== 0;
+
+    /* ---------------- utilities ---------------- */
+    function $(id){ return document.getElementById(id); }
+    function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+    function lerp(a,b,t){ return a+(b-a)*t; }
+    function rand(a,b){ return a+Math.random()*(b-a); }
+    function dist2(ax,ay,bx,by){ var dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; }
+    function uid(){ return "p"+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3); }
+    var CODE_LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ";
+    function makeCode(){ var s=""; for(var i=0;i<4;i++) s+=CODE_LETTERS[Math.floor(Math.random()*CODE_LETTERS.length)]; return s; }
+    function fmtTime(sec){ sec=Math.max(0,Math.ceil(sec)); var m=Math.floor(sec/60), s=sec%60; return m+":"+(s<10?"0":"")+s; }
+
+    /* colors: rgb objects {r,g,b} */
+    function hslToRgb(h,s,l){
+      h=((h%360)+360)%360/360; var r,g,b;
+      if(s===0){ r=g=b=l; }
+      else{
+        var q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+        function hue2rgb(p,q,t){ if(t<0)t+=1; if(t>1)t-=1;
+          if(t<1/6) return p+(q-p)*6*t; if(t<1/2) return q;
+          if(t<2/3) return p+(q-p)*(2/3-t)*6; return p; }
+        r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+      }
+      return { r:Math.round(r*255), g:Math.round(g*255), b:Math.round(b*255) };
+    }
+    function rgbToHsl(c){
+      var r=c.r/255,g=c.g/255,b=c.b/255, mx=Math.max(r,g,b), mn=Math.min(r,g,b), h=0, s=0, l=(mx+mn)/2;
+      if(mx!==mn){ var d=mx-mn; s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+        if(mx===r) h=(g-b)/d+(g<b?6:0); else if(mx===g) h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; }
+      return { h:h, s:s, l:l };
+    }
+    function rgbCss(c){ return "rgb("+c.r+","+c.g+","+c.b+")"; }
+    function rgbaCss(c, a){ return "rgba("+c.r+","+c.g+","+c.b+","+a+")"; }
+    function mixRgb(list){ /* list of {c, w} */
+      var tw=0, r=0, g=0, b=0, i;
+      for(i=0;i<list.length;i++){ tw+=list[i].w; r+=list[i].c.r*list[i].w; g+=list[i].c.g*list[i].w; b+=list[i].c.b*list[i].w; }
+      if(tw<=0) return {r:255,g:255,b:255};
+      return { r:Math.round(r/tw), g:Math.round(g/tw), b:Math.round(b/tw) };
+    }
+    function hueDist(a,b){ var d=Math.abs(a-b)%360; return d>180?360-d:d; }
+    function colorsTooClose(a,b){ return hueDist(rgbToHsl(a).h, rgbToHsl(b).h) < 20; }
+
+    /* ---------------- transports ---------------- */
+    /* Local demo bus: BroadcastChannel, one channel per match code. */
+    function LocalBus(code, clientId){
+      this.clientId = clientId; this.handlers = [];
+      this.bc = null;
+      if("BroadcastChannel" in window){ try{ this.bc = new BroadcastChannel("paint-garden-"+code); }catch(e){ this.bc = null; } }
+      var self = this;
+      if(this.bc){ this.bc.onmessage = function(ev){ self.deliver(ev.data); }; }
+    }
+    LocalBus.prototype.deliver = function(msg){
+      if(!msg || msg.from === this.clientId) return;
+      for(var i=0;i<this.handlers.length;i++) this.handlers[i](msg);
+    };
+    LocalBus.prototype.send = function(type, data, to){
+      var msg = { from:this.clientId, type:type, data:data||{}, to:to||null, t:Date.now() };
+      if(this.bc){ try{ this.bc.postMessage(msg); }catch(e){} }
+    };
+    LocalBus.prototype.on = function(fn){ this.handlers.push(fn); };
+    LocalBus.prototype.close = function(){ if(this.bc){ try{ this.bc.close(); }catch(e){} } this.handlers = []; };
+
+    /* Firestore bus: same message shape, stored under matches/{code}/messages.
+       Host and controllers publish message docs and listen for new ones. */
+    function loadScript(src){
+      return new Promise(function(res, rej){
+        var s = document.createElement("script"); s.src = src;
+        s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+    }
+    function FirestoreBus(code, clientId){
+      this.clientId = clientId; this.handlers = []; this.ready = false; this.unsub = null;
+    }
+    FirestoreBus.prototype.init = function(){
+      var self = this;
+      return loadScript("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js")
+        .then(function(){ return loadScript("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"); })
+        .then(function(){
+          if(typeof firebase === "undefined") throw new Error("Firebase SDK did not load");
+          if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+          self.db = firebase.firestore();
+          self.col = self.db.collection("matches").doc(self.code).collection("messages");
+          var start = Date.now() - 2000;
+          self.unsub = self.col.where("t", ">", start).onSnapshot(function(snap){
+            snap.docChanges().forEach(function(ch){
+              if(ch.type !== "added") return;
+              var msg = ch.doc.data();
+              if(msg.from === self.clientId) return;
+              try{ msg.data = JSON.parse(msg.dataJson || "{}"); }catch(e){ msg.data = {}; }
+              for(var i=0;i<self.handlers.length;i++) self.handlers[i](msg);
+            });
+          });
+          self.ready = true;
+        });
+    };
+    FirestoreBus.prototype.send = function(type, data, to){
+      if(!this.ready || !this.col) return;
+      this.col.add({ from:this.clientId, type:type, to:to||null, t:Date.now(), dataJson: JSON.stringify(data||{}) })
+        .catch(function(){});
+    };
+    FirestoreBus.prototype.on = function(fn){ this.handlers.push(fn); };
+    FirestoreBus.prototype.close = function(){ if(this.unsub) this.unsub(); this.handlers = []; };
+
+    function makeBus(code, clientId){
+      if(FIREBASE_ENABLED){
+        var fb = new FirestoreBus(code, clientId); fb.code = code;
+        fb.init().catch(function(){ /* fall back silently to local if SDK/config fails */
+          fb.close();
+        });
+        return fb;
+      }
+      return new LocalBus(code, clientId);
+    }
+
+    /* ---------------- views ---------------- */
+    var VIEWS = ["view-home","view-join","view-arena","view-controller"];
+    function showView(id){
+      VIEWS.forEach(function(v){ $(v).classList.toggle("hidden", v !== id); });
+      window.scrollTo(0,0);
+    }
+
+    /* mode pill on home */
+    $("mode-pill").textContent = FIREBASE_ENABLED
+      ? "Live mode — Firestore connected config detected"
+      : "Local demo mode — add your Firebase config in the code for cross-device play";
+
+    /* =====================================================================
+       GAME ENGINE — runs on the host screen. Logical arena: 1280 x 720.
+       ===================================================================== */
+    var AW = 1280, AH = 720;
+    var PLANT_CAP = 30, PLANT_POINTS = 20, CONVERT_UNITS = 100;
+    var FIRE_PER_SEC = 3, HEAL_PER_SEC = 1;
+    /* paint supply: 100 units, refills 1/sec. Hold = liquid stream draining
+       3/sec; quick tap = one paint ball carrying 3 units and costing 3. */
+    var SUPPLY_MAX = 100, SUPPLY_REFILL = 1;
+    var BALL_COST = 3, BALL_AMOUNT = 3;
+    var TAP_THRESHOLD = 0.22; /* release faster than this counts as a tap, not a stream */
+    var STREAM_INTERVAL = 0.03; /* seconds between stream droplets — dense enough to read as liquid */
+    var STREAM_AMOUNT = FIRE_PER_SEC * STREAM_INTERVAL; /* 0.09 units per stream droplet */
+    var EXHAUST_RECOVER = 10; /* after running dry, supply must rebuild to this before spraying resumes */
+    var WIN_SCORE = 500, MATCH_SECONDS = 600, MAX_PLAYERS = 10;
+    var EMPTY_PLANT_TTL = 15; /* seconds an untouched (zero-paint) pot lasts before it fades away */
+    var POOL_H = 46; /* melted paint pool band at the bottom */
+    var NO_SPAWN = { x:0, y:0, w:300, h:360 }; /* behind the score panel */
+
+    var BOT_PRESETS = [
+      { name:"Coral",  hue:16  }, { name:"Bubbles", hue:205 }, { name:"Pip", hue:280 },
+      { name:"Miso",   hue:48  }, { name:"Fern",   hue:140 }, { name:"Plum", hue:320 },
+      { name:"Sky",    hue:190 }, { name:"Ember",  hue:0   }, { name:"Kiwi",   hue:95  }
+    ];
+
+    function Game(code){
+      this.code = code;
+      this.status = "lobby"; /* lobby | playing | ended */
+      this.players = new Map();
+      this.plants = [];
+      this.droplets = [];
+      this.trails = [];       /* fading paint droplets left behind moving jellyfish — visual only */
+      this.floaters = [];
+      this.pools = [];        /* {x, w, c} melted paint blobs along the bottom */
+      this.timeLeft = MATCH_SECONDS;
+      this.spawnTimer = 1.2;
+      this.botCount = 0;
+      this.winnerId = null;
+      this.lastEvent = "";
+      this.seq = 0;
+    }
+
+    Game.prototype.masterOf = function(p){ return this.players.get(p.masterId) || p; };
+    Game.prototype.teamColor = function(p){ return this.masterOf(p).homeColor; };
+
+    Game.prototype.addPlayer = function(id, name, color, isBot){
+      if(this.players.size >= MAX_PLAYERS) return null;
+      var taken = [];
+      this.players.forEach(function(pl){ if(pl.masterId === pl.id) taken.push(pl.homeColor); });
+      for(var i=0;i<taken.length;i++) if(colorsTooClose(taken[i], color)) return null;
+      /* spawn away from the score corner */
+      var x, y, tries = 0;
+      do { x = rand(120, AW-120); y = rand(140, AH-160); tries++; }
+      while(tries < 20 && x < NO_SPAWN.w + 60 && y < NO_SPAWN.h + 40);
+      var p = {
+        id:id, name:name, homeColor:color, masterId:id, score:0,
+        x:x, y:y, facing:-Math.PI/2, phase:rand(0, Math.PI*2),
+        input:{ dx:0, dy:0, shoot:false },
+        foreign:{},          /* attacking masterId -> units */
+        supply:SUPPLY_MAX, shootHeld:0, wasShoot:false, streaming:false, exhausted:false, streamAcc:0,
+        trailAcc:0,
+        isBot:!!isBot, bot:null, dead:false
+      };
+      if(isBot) p.bot = { tx:x, ty:y, think:rand(0,1), mode:"plant" };
+      this.players.set(id, p);
+      return p;
+    };
+
+    Game.prototype.removePlayer = function(id){
+      var p = this.players.get(id); if(!p) return;
+      /* servants of a departing master become free with the master's color */
+      if(p.masterId === id){
+        var self = this;
+        this.players.forEach(function(pl){
+          if(pl.masterId === id && pl.id !== id){ pl.masterId = pl.id; pl.homeColor = p.homeColor; pl.score = 0; pl.foreign = {}; }
+        });
+      }
+      this.players.delete(id);
+    };
+
+    Game.prototype.foreignTotal = function(p){
+      var t = 0; for(var k in p.foreign) t += p.foreign[k]; return t;
+    };
+    Game.prototype.foreignColor = function(p){
+      var list = [], self = this;
+      for(var k in p.foreign){ var m = self.players.get(k); if(m) list.push({ c:m.homeColor, w:p.foreign[k] }); }
+      return list.length ? mixRgb(list) : null;
+    };
+    Game.prototype.displayColor = function(p){
+      var base = this.teamColor(p), total = this.foreignTotal(p);
+      if(total <= 0.5) return base;
+      var fc = this.foreignColor(p); if(!fc) return base;
+      return mixRgb([ {c:base, w:100}, {c:fc, w:total} ]);
+    };
+
+    Game.prototype.biggestKey = function(map){
+      var best = null, bv = -1;
+      for(var k in map){ if(map[k] > bv){ bv = map[k]; best = k; } }
+      return best;
+    };
+
+    Game.prototype.convert = function(victim, newMasterId){
+      var newMaster = this.players.get(newMasterId); if(!newMaster) return;
+      var oldMasterId = victim.masterId;
+      var wasOG = oldMasterId === victim.id;
+      var self = this;
+      if(wasOG){
+        /* the whole team is recruited; the OG's banked points are wiped */
+        victim.score = 0;
+        this.players.forEach(function(pl){
+          if(pl.masterId === oldMasterId){ pl.masterId = newMaster.masterId; pl.foreign = {}; }
+        });
+        this.lastEvent = victim.name + " was turned " + colorName(newMaster.homeColor) + " — the whole team now serves " + newMaster.name + "!";
+      } else {
+        victim.masterId = newMaster.masterId;
+        this.lastEvent = victim.name + " was turned and now serves " + newMaster.name + "!";
+      }
+      victim.foreign = {};
+      this.floaters.push({ x:victim.x, y:victim.y-52, text:"TURNED!", c:newMaster.homeColor, t:0 });
+    };
+
+    Game.prototype.spawnPlant = function(){
+      var x, y, tries = 0, ok = false, self = this;
+      while(tries < 30 && !ok){
+        tries++;
+        x = rand(70, AW-70); y = rand(150, AH-POOL_H-90);
+        if(x < NO_SPAWN.w + 50 && y < NO_SPAWN.h + 30) continue;
+        ok = true;
+        this.plants.forEach(function(pl){ if(dist2(x,y,pl.x,pl.y) < 130*130) ok = false; });
+        this.players.forEach(function(pl){ if(dist2(x,y,pl.x,pl.y) < 90*90) ok = false; });
+      }
+      if(!ok) return;
+      this.plants.push({ id:"pl"+(++this.seq), x:x, y:y, fill:0, contrib:{}, contribColor:{}, state:"growing", meltT:0, age:0, fadeT:0, sway:rand(0,Math.PI*2) });
+    };
+
+    Game.prototype.completePlant = function(pl){
+      var winnerKey = this.biggestKey(pl.contrib);
+      var winner = winnerKey ? this.players.get(winnerKey) : null;
+      if(winner){
+        var master = this.masterOf(winner);
+        master.score += PLANT_POINTS;
+        this.floaters.push({ x:pl.x, y:pl.y-86, text:"+"+PLANT_POINTS+"  "+master.name, c:master.homeColor, t:0 });
+        this.lastEvent = "A flower bloomed for " + master.name + " (+"+PLANT_POINTS+")";
+        if(master.score >= WIN_SCORE) this.endMatch(master.id);
+      }
+      pl.state = "melting"; pl.meltT = 0;
+      pl.meltColor = pl.fill > 0 ? mixRgb(Object.keys(pl.contrib).map(function(k){ return { c:pl.contribColor[k], w:pl.contrib[k] }; })) : {r:180,g:180,b:180};
+    };
+
+    Game.prototype.endMatch = function(winnerId){
+      if(this.status === "ended") return;
+      this.status = "ended"; this.winnerId = winnerId;
+    };
+
+    Game.prototype.leaderboard = function(){
+      var rows = [], self = this;
+      this.players.forEach(function(p){
+        if(p.masterId === p.id){
+          var team = 0;
+          self.players.forEach(function(q){ if(q.masterId === p.id) team++; });
+          rows.push({ id:p.id, name:p.name, color:p.homeColor, score:p.score, team:team });
+        }
+      });
+      rows.sort(function(a,b){ return b.score - a.score; });
+      return rows;
+    };
+
+    /* One paint projectile on the same parabolic arc, lobbed in the facing
+       (movement) direction. kind "ball" = a single 3-unit blob from a tap;
+       kind "stream" = one small droplet of the held liquid stream. */
+    Game.prototype.fireDroplet = function(p, amount, radius, kind){
+      var range = 195;
+      var spread = kind === "stream" ? 13 : 4;
+      var tx = clamp(p.x + Math.cos(p.facing)*range + rand(-spread, spread), 16, AW-16);
+      var ty = clamp(p.y + Math.sin(p.facing)*range + rand(-spread, spread), 30, AH-POOL_H-6);
+      this.droplets.push({
+        sx:p.x, sy:p.y-8, tx:tx, ty:ty, t:0, dur: kind === "stream" ? rand(0.44, 0.56) : 0.52,
+        shooterId:p.id, masterId:p.masterId, c:this.teamColor(p),
+        amount:amount, radius:radius, kind:kind
+      });
+    };
+    Game.prototype.fireBall = function(p){ this.fireDroplet(p, BALL_AMOUNT, 11, "ball"); };
+    Game.prototype.fireStreamDroplet = function(p){ this.fireDroplet(p, STREAM_AMOUNT, 4.4, "stream"); };
+
+    Game.prototype.landDroplet = function(d){
+      var self = this, i, pl, p;
+      /* plants first: landing in/near the pot feeds the flower */
+      for(i=0;i<this.plants.length;i++){
+        pl = this.plants[i];
+        if(pl.state !== "growing") continue;
+        if(dist2(d.tx, d.ty, pl.x, pl.y-6) < 48*48){
+          var amt = d.amount || 1;
+          pl.fill += amt;
+          pl.contrib[d.masterId] = (pl.contrib[d.masterId]||0) + amt;
+          pl.contribColor[d.masterId] = d.c;
+          if(pl.fill >= PLANT_CAP) this.completePlant(pl);
+          return;
+        }
+      }
+      /* then players (not the shooter, not teammates) */
+      var best = null, bd = 42*42;
+      this.players.forEach(function(q){
+        if(q.id === d.shooterId || q.masterId === d.masterId) return;
+        var dd = dist2(d.tx, d.ty, q.x, q.y);
+        if(dd < bd){ bd = dd; best = q; }
+      });
+      if(best){
+        best.foreign[d.masterId] = (best.foreign[d.masterId]||0) + (d.amount || 1);
+      } else {
+        /* a missed ball still splashes a tiny decorative dot into the pool
+           if it lands low; stream droplets are too small and frequent to pool */
+        if(d.kind !== "stream" && d.ty > AH - POOL_H - 26) this.addPool(d.tx, 14, d.c);
+      }
+    };
+
+    Game.prototype.addPool = function(x, w, c){
+      this.pools.push({ x:x, w:w, c:c });
+      if(this.pools.length > 90) this.pools.splice(0, this.pools.length - 90);
+    };
+
+    Game.prototype.botThink = function(p, dt){
+      var b = p.bot; b.think -= dt;
+      var self = this;
+      if(b.think <= 0){
+        b.think = rand(0.18, 0.35);
+        /* pick a target: nearest growing plant, sometimes nearest enemy */
+        var plant = null, pd = 1e12;
+        this.plants.forEach(function(pl){ if(pl.state!=="growing") return; var d = dist2(p.x,p.y,pl.x,pl.y); if(d<pd){ pd=d; plant=pl; } });
+        var enemy = null, ed = 1e12;
+        this.players.forEach(function(q){ if(q.masterId === p.masterId) return; var d = dist2(p.x,p.y,q.x,q.y); if(d<ed){ ed=d; enemy=q; } });
+        if(enemy && (!plant || Math.random() < 0.38)){ b.mode = "hunt"; b.targetId = enemy.id; }
+        else if(plant){ b.mode = "plant"; b.targetId = plant.id; }
+        else { b.mode = "wander"; b.tx = rand(100, AW-100); b.ty = rand(140, AH-180); }
+      }
+      var tx, ty, wantShoot = false, target = null;
+      if(b.mode === "plant"){
+        target = null;
+        this.plants.forEach(function(pl){ if(pl.id === b.targetId) target = pl; });
+        if(!target){ b.think = 0; p.input.dx = 0; p.input.dy = 0; p.input.shoot = false; return; }
+        tx = target.x; ty = target.y;
+      } else if(b.mode === "hunt"){
+        target = this.players.get(b.targetId);
+        if(!target){ b.think = 0; return; }
+        tx = target.x; ty = target.y;
+      } else { tx = b.tx; ty = b.ty; }
+
+      var dx = tx - p.x, dy = ty - p.y, d = Math.sqrt(dx*dx + dy*dy) || 1;
+      if(b.mode === "wander"){
+        if(d > 12){ p.input.dx = dx/d; p.input.dy = dy/d; }
+        else { p.input.dx = 0; p.input.dy = 0; }
+      } else {
+        /* paint lobs land ~195px ahead, so bots work the ring around that
+           range: close in, creep while spraying, hold and keep facing the
+           target inside the ring, back out (without firing) when too close. */
+        if(d > 205){ p.input.dx = dx/d; p.input.dy = dy/d; }
+        else if(d > 165){ p.input.dx = dx/d*0.4; p.input.dy = dy/d*0.4; wantShoot = true; }
+        else if(d >= 148){ p.input.dx = 0; p.input.dy = 0; p.facing = Math.atan2(dy, dx); wantShoot = true; }
+        else { p.input.dx = -dx/d; p.input.dy = -dy/d; }
+      }
+      p.input.shoot = wantShoot && this.status === "playing";
+    };
+
+    Game.prototype.update = function(dt){
+      var self = this;
+      if(this.status === "playing"){
+        this.timeLeft -= dt;
+        if(this.timeLeft <= 0){
+          this.timeLeft = 0;
+          var lb = this.leaderboard();
+          this.endMatch(lb.length ? lb[0].id : null);
+        }
+        this.spawnTimer -= dt;
+        var growing = 0;
+        this.plants.forEach(function(pl){ if(pl.state === "growing") growing++; });
+        if(this.spawnTimer <= 0 && growing < 5){ this.spawnPlant(); this.spawnTimer = rand(2.6, 4.2); }
+      }
+
+      /* players */
+      this.players.forEach(function(p){
+        if(p.isBot && self.status === "playing") self.botThink(p, dt);
+        else if(p.isBot){ p.input.dx = 0; p.input.dy = 0; p.input.shoot = false; }
+        var mag = Math.sqrt(p.input.dx*p.input.dx + p.input.dy*p.input.dy);
+        if(mag > 0.12){
+          var nx = p.input.dx/(mag||1), ny = p.input.dy/(mag||1);
+          var speed = 235 * clamp(mag, 0, 1); /* analog: soft push = slow drift */
+          p.x = clamp(p.x + nx*speed*dt, 30, AW-30);
+          p.y = clamp(p.y + ny*speed*dt, 56, AH-POOL_H-24);
+          p.facing = Math.atan2(ny, nx);
+        }
+        /* paint trail: small droplets in the player's current color dropped
+           behind it as it swims — purely visual, no supply cost, no effect.
+           One mark roughly every 22px of travel keeps the trail short and
+           readable without flooding the arena. */
+        if(mag > 0.12){
+          p.trailAcc = (p.trailAcc || 0) + 235 * clamp(mag, 0, 1) * dt;
+          while(p.trailAcc >= 22){
+            p.trailAcc -= 22;
+            self.trails.push({
+              x: p.x - Math.cos(p.facing)*22 + rand(-7, 7),
+              y: p.y + 12 + rand(-5, 7),
+              c: self.displayColor(p),
+              r: rand(3.2, 6.2),
+              t: 0,
+              life: rand(0.75, 1.0)
+            });
+            if(self.trails.length > 420) self.trails.splice(0, self.trails.length - 420);
+          }
+        } else {
+          p.trailAcc = 0;
+        }
+        /* healing: foreign paint fades at 1 unit/sec */
+        var total = self.foreignTotal(p);
+        if(total > 0){
+          var decay = Math.min(total, HEAL_PER_SEC*dt);
+          for(var k in p.foreign){ p.foreign[k] -= decay * (p.foreign[k]/total); if(p.foreign[k] < 0.01) delete p.foreign[k]; }
+        }
+        /* conversion check */
+        total = self.foreignTotal(p);
+        if(total >= CONVERT_UNITS){
+          var winnerKey = self.biggestKey(p.foreign);
+          if(winnerKey && winnerKey !== p.masterId) self.convert(p, winnerKey);
+          else p.foreign = {};
+        }
+        /* paint supply: refills at 1 unit/sec, always. Running dry locks
+           spraying out until the supply has rebuilt a little. */
+        if(typeof p.supply !== "number") p.supply = SUPPLY_MAX;
+        p.supply = clamp(p.supply + SUPPLY_REFILL*dt, 0, SUPPLY_MAX);
+        if(p.exhausted && p.supply >= EXHAUST_RECOVER) p.exhausted = false;
+
+        /* firing: press-and-hold = liquid stream, quick tap = one paint ball.
+           Held time is tracked per player; a release before TAP_THRESHOLD
+           fires the ball, holding past it starts (and keeps) the stream. */
+        if(self.status !== "playing"){
+          p.shootHeld = 0; p.wasShoot = false; p.streaming = false; p.streamAcc = 0;
+        } else if(p.input.shoot){
+          p.shootHeld = (p.shootHeld || 0) + dt;
+          p.wasShoot = true;
+          if(p.shootHeld >= TAP_THRESHOLD){
+            p.streaming = true;
+            if(!p.exhausted && p.supply > 0){
+              p.streamAcc = (p.streamAcc || 0) + dt;
+              while(p.streamAcc >= STREAM_INTERVAL){
+                p.streamAcc -= STREAM_INTERVAL;
+                if(p.supply < STREAM_AMOUNT){
+                  p.supply = 0; p.exhausted = true; p.streamAcc = 0; break;
+                }
+                p.supply -= STREAM_AMOUNT; /* stream drains 3 units/sec in total */
+                self.fireStreamDroplet(p);
+                if(p.supply <= 0){ p.supply = 0; p.exhausted = true; p.streamAcc = 0; break; }
+              }
+            } else { p.streamAcc = 0; }
+          }
+        } else {
+          /* released: a short press that never became a stream is a tap */
+          if(p.wasShoot && !p.streaming && (p.shootHeld || 0) > 0 && (p.shootHeld || 0) < TAP_THRESHOLD + 0.08){
+            if(!p.exhausted && p.supply >= BALL_COST){
+              p.supply -= BALL_COST;
+              self.fireBall(p); /* one blob carrying 3 units, costing 3 supply */
+              if(p.supply <= 0){ p.supply = 0; p.exhausted = true; }
+            }
+          }
+          p.shootHeld = 0; p.wasShoot = false; p.streaming = false; p.streamAcc = 0;
+        }
+      });
+
+      /* droplets */
+      for(var i=this.droplets.length-1;i>=0;i--){
+        var d = this.droplets[i]; d.t += dt;
+        if(d.t >= d.dur){ this.landDroplet(d); this.droplets.splice(i,1); }
+      }
+      /* paint trails age out — gone within about a second */
+      for(var ti=this.trails.length-1;ti>=0;ti--){
+        this.trails[ti].t += dt;
+        if(this.trails[ti].t >= this.trails[ti].life) this.trails.splice(ti,1);
+      }
+      /* plants: untouched pots despawn after 15s, completed ones melt, despawns fade out */
+      for(var j=this.plants.length-1;j>=0;j--){
+        var pl = this.plants[j];
+        if(pl.state === "growing"){
+          /* the 15s timer only runs while the pot has received zero paint;
+             once any paint lands (fill > 0) it never applies again */
+          if(this.status === "playing" && pl.fill <= 0){
+            pl.age = (pl.age || 0) + dt;
+            if(pl.age >= EMPTY_PLANT_TTL){ pl.state = "fading"; pl.fadeT = 0; }
+          }
+        } else if(pl.state === "fading"){
+          pl.fadeT = (pl.fadeT || 0) + dt/0.8;
+          if(pl.fadeT >= 1) this.plants.splice(j,1);
+        } else if(pl.state === "melting"){
+          pl.meltT += dt/1.5;
+          if(pl.meltT >= 1){ this.addPool(pl.x, rand(46,70), pl.meltColor); this.plants.splice(j,1); }
+        }
+      }
+      /* floaters */
+      for(var f=this.floaters.length-1;f>=0;f--){
+        this.floaters[f].t += dt; this.floaters[f].y -= 26*dt;
+        if(this.floaters[f].t > 1.6) this.floaters.splice(f,1);
+      }
+    };
+
+    /* snapshot for controllers */
+    Game.prototype.snapshotFor = function(pid){
+      var p = this.players.get(pid); if(!p) return null;
+      var master = this.masterOf(p);
+      var fc = this.foreignColor(p);
+      return {
+        status:this.status, timeLeft:this.timeLeft,
+        name:p.name, masterName:master.name, isServant:p.masterId !== p.id,
+        teamColor:rgbCss(this.teamColor(p)), displayColor:rgbCss(this.displayColor(p)),
+        foreignColor: fc ? rgbCss(fc) : null, foreignPct: clamp(this.foreignTotal(p)/CONVERT_UNITS*100, 0, 100),
+        supply: Math.round(typeof p.supply === "number" ? p.supply : SUPPLY_MAX),
+        supplyPct: clamp(typeof p.supply === "number" ? p.supply : SUPPLY_MAX, 0, 100),
+        supplyExhausted: !!p.exhausted, supplyStreaming: !!p.streaming,
+        masterScore: master.score, winnerName: this.winnerId ? (this.players.get(this.winnerId)||{}).name : null,
+        lastEvent:this.lastEvent
+      };
+    };
+    Game.prototype.lobbyState = function(){
+      var arr = [];
+      this.players.forEach(function(p){ arr.push({ id:p.id, name:p.name, color:p.homeColor, isBot:p.isBot, masterId:p.masterId }); });
+      return { status:this.status, players:arr, code:this.code };
+    };
+
+    var COLOR_NAMES = [ [0,"red"],[20,"orange"],[45,"amber"],[65,"yellow"],[95,"lime"],[130,"green"],[165,"teal"],[195,"sky"],[225,"blue"],[260,"violet"],[295,"magenta"],[330,"pink"],[361,"red"] ];
+    function colorName(c){
+      var h = rgbToHsl(c).h;
+      for(var i=0;i<COLOR_NAMES.length-1;i++) if(h < COLOR_NAMES[i+1][0]) return COLOR_NAMES[i][1];
+      return "red";
+    }
+
+    /* =====================================================================
+       RENDERING — the host canvas
+       ===================================================================== */
+    var canvas = $("game-canvas"), ctx = canvas.getContext("2d");
+    function fitCanvas(){
+      var wrap = $("arena-wrap"), r = wrap.getBoundingClientRect();
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(320, Math.round(r.width*dpr));
+      canvas.height = Math.max(240, Math.round(r.height*dpr));
+    }
+    window.addEventListener("resize", fitCanvas);
+
+    function drawPlant(pl, t){
+      var x = pl.x, baseY = pl.y + 26;
+      var ratio = pl.fill / PLANT_CAP;
+      var melt = pl.state === "melting" ? pl.meltT : 0;
+      var sink = melt*melt*60, squash = 1 - melt*0.55;
+      ctx.save();
+      if(pl.state === "fading") ctx.globalAlpha = clamp(1 - (pl.fadeT || 0), 0, 1);
+      ctx.translate(x, baseY + sink);
+      ctx.scale(1 + melt*0.25, squash);
+      /* paint inside the pot rises as it fills */
+      if(pl.fill > 0){
+        var mc = mixRgb(Object.keys(pl.contrib).map(function(k){ return { c:pl.contribColor[k], w:pl.contrib[k] }; }));
+        ctx.fillStyle = rgbCss(mc);
+        var ph = 6 + ratio*15;
+        ctx.beginPath();
+        ctx.moveTo(-19, -ph); ctx.lineTo(19, -ph); ctx.lineTo(15, 2); ctx.lineTo(-15, 2); ctx.closePath(); ctx.fill();
+      }
+      /* pot: black outline */
+      ctx.strokeStyle = "#20242a"; ctx.lineWidth = 3.5; ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(-24, -22); ctx.lineTo(24, -22); ctx.lineTo(18, 4); ctx.lineTo(-18, 4); ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-27, -22); ctx.lineTo(27, -22); ctx.stroke();
+      if(pl.fill > 0.5){
+        var stemH = 12 + ratio*46;
+        var sway = Math.sin(t*1.4 + pl.sway)*3*(0.4 + ratio);
+        /* stem — always green */
+        ctx.strokeStyle = "#2f9e63"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(0, -20);
+        ctx.quadraticCurveTo(sway*0.4, -20 - stemH*0.55, sway, -20 - stemH); ctx.stroke();
+        /* leaf */
+        if(ratio > 0.25){
+          ctx.fillStyle = "#2f9e63";
+          ctx.save(); ctx.translate(sway*0.4, -20 - stemH*0.5); ctx.rotate(-0.6 + Math.sin(t*1.4+pl.sway)*0.08);
+          ctx.beginPath(); ctx.ellipse(-8, 0, 9, 4, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+        }
+        /* flower */
+        if(ratio > 0.12){
+          var fc = mixRgb(Object.keys(pl.contrib).map(function(k){ return { c:pl.contribColor[k], w:pl.contrib[k] }; }));
+          var fx = sway, fy = -20 - stemH - 6, pr = 5 + ratio*10;
+          ctx.fillStyle = rgbCss(fc);
+          for(var i=0;i<6;i++){
+            var a = i/6*Math.PI*2 + t*0.15;
+            ctx.beginPath();
+            ctx.ellipse(fx + Math.cos(a)*pr*0.75, fy + Math.sin(a)*pr*0.75, pr*0.62, pr*0.42, a, 0, Math.PI*2);
+            ctx.fill();
+          }
+          ctx.fillStyle = "#fff3c4";
+          ctx.beginPath(); ctx.arc(fx, fy, pr*0.34, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = "rgba(32,36,42,.25)"; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.arc(fx, fy, pr*0.34, 0, Math.PI*2); ctx.stroke();
+        }
+      }
+      ctx.restore();
+      /* melting drips fall to the pool */
+      if(pl.state === "melting"){
+        ctx.fillStyle = rgbCss(pl.meltColor || {r:160,g:160,b:160});
+        for(var dI=0; dI<3; dI++){
+          var dx = pl.x + (dI-1)*13, fall = (pl.meltT*1.4 + dI*0.22) % 1;
+          var dy = pl.y + 10 + fall*(AH - POOL_H - pl.y - 16);
+          ctx.beginPath(); ctx.ellipse(dx, dy, 4.5, 7, 0, 0, Math.PI*2); ctx.fill();
+        }
+      }
+    }
+
+    function drawJelly(p, t, game){
+      var disp = game.displayColor(p);
+      var wig = Math.sin(t*5 + p.phase);
+      var r = 27;
+      ctx.save(); ctx.translate(p.x, p.y);
+      /* conversion progress ring */
+      var ft = game.foreignTotal(p);
+      if(ft > 1){
+        var fc = game.foreignColor(p);
+        ctx.strokeStyle = fc ? rgbCss(fc) : "#999"; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(0, -2, r+8, -Math.PI/2, -Math.PI/2 + Math.PI*2*clamp(ft/CONVERT_UNITS,0,1)); ctx.stroke();
+      }
+      /* tentacles — translucent like the body, so they read as gel strands */
+      ctx.strokeStyle = rgbaCss(disp, 0.62); ctx.lineWidth = 4.5; ctx.lineCap = "round";
+      for(var i=-2;i<=2;i++){
+        var tx0 = i*9, sway = Math.sin(t*6 + p.phase + i*0.9)*6;
+        ctx.beginPath(); ctx.moveTo(tx0, 12);
+        ctx.quadraticCurveTo(tx0 + sway, 26, tx0 + sway*1.4, 36 + (i%2)*4 + wig*2); ctx.stroke();
+      }
+      /* dome — semi-transparent gel body tinted by the player's color.
+         The fill is see-through; a solid-strength outline keeps the
+         silhouette (and the jelly against the white arena) readable. */
+      var domeR = r*(1 + wig*0.045);
+      ctx.beginPath();
+      ctx.moveTo(-domeR, 13);
+      ctx.bezierCurveTo(-domeR, -domeR*0.95, -domeR*0.4, -domeR*1.18, 0, -domeR*1.18);
+      ctx.bezierCurveTo(domeR*0.4, -domeR*1.18, domeR, -domeR*0.95, domeR, 13);
+      ctx.quadraticCurveTo(domeR*0.55, 8 + wig*1.5, 0, 13);
+      ctx.quadraticCurveTo(-domeR*0.55, 8 - wig*1.5, -domeR, 13);
+      ctx.fillStyle = rgbaCss(disp, 0.5);
+      ctx.fill();
+      ctx.strokeStyle = rgbaCss(disp, 0.95); ctx.lineWidth = 2.6; ctx.lineJoin = "round";
+      ctx.stroke();
+      /* soft inner core — a denser blob of the same color floating in the gel */
+      ctx.fillStyle = rgbaCss(disp, 0.32);
+      ctx.beginPath(); ctx.ellipse(0, -domeR*0.28, domeR*0.52, domeR*0.44, 0, 0, Math.PI*2); ctx.fill();
+      /* glossy highlight — stronger on gel so the dome still shines */
+      ctx.fillStyle = "rgba(255,255,255,.6)";
+      ctx.beginPath(); ctx.ellipse(-domeR*0.38, -domeR*0.62, domeR*0.2, domeR*0.3, -0.5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.35)";
+      ctx.beginPath(); ctx.ellipse(domeR*0.34, -domeR*0.18, domeR*0.1, domeR*0.16, 0.4, 0, Math.PI*2); ctx.fill();
+      /* eyes — kept fully solid so the face stays readable through the gel */
+      var blink = (Math.sin(t*0.7 + p.phase) > 0.985) ? 0.15 : 1;
+      ctx.fillStyle = "#20242a";
+      ctx.beginPath(); ctx.ellipse(-8, -8, 3.1, 3.4*blink, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(8, -8, 3.1, 3.4*blink, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+      /* name + team tag */
+      ctx.textAlign = "center";
+      ctx.font = "800 14px Nunito, sans-serif"; ctx.fillStyle = "#20242a";
+      var label = (p.masterId === p.id ? "👑 " : "") + p.name;
+      ctx.fillText(label, p.x, p.y - 48);
+      if(p.masterId !== p.id){
+        var m = game.players.get(p.masterId);
+        ctx.font = "700 11px Nunito, sans-serif"; ctx.fillStyle = "#5b6470";
+        ctx.fillText("serving " + (m ? m.name : "?"), p.x, p.y - 33);
+      }
+      if(p.isBot){
+        ctx.font = "700 10px Nunito, sans-serif"; ctx.fillStyle = "#9aa3ad";
+        ctx.fillText("BOT", p.x, p.y + 58);
+      }
+    }
+
+    function drawGame(game, t){
+      var w = canvas.width, h = canvas.height;
+      if(!w || !h) return;
+      var sx = w/AW, sy = h/AH;
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0,0,w,h);
+      ctx.setTransform(sx,0,0,sy,0,0);
+      /* melted paint pool along the bottom */
+      var poolTop = AH - POOL_H;
+      ctx.fillStyle = "#f3efe8"; ctx.fillRect(0, poolTop, AW, POOL_H);
+      game.pools.forEach(function(b, i){
+        ctx.fillStyle = rgbCss(b.c);
+        ctx.beginPath();
+        var bw = b.w, bx = clamp(b.x - bw/2, 0, AW-bw);
+        ctx.ellipse(bx + bw/2, poolTop + POOL_H - 4, bw/2, 13 + Math.sin(t*0.9 + i)*2.5, 0, Math.PI, Math.PI*2);
+        ctx.fill();
+        ctx.fillRect(bx, poolTop + POOL_H - 6, bw, 6);
+      });
+      ctx.strokeStyle = "#e7e4de"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, poolTop); ctx.lineTo(AW, poolTop); ctx.stroke();
+      /* paint trails — small fading droplets on the floor behind each
+         jellyfish, in its current color, shrinking as they fade */
+      game.trails.forEach(function(tr){
+        var k = tr.t / tr.life;
+        var a = (1 - k) * 0.55;
+        if(a <= 0.01) return;
+        ctx.fillStyle = rgbaCss(tr.c, a);
+        ctx.beginPath();
+        ctx.ellipse(tr.x, tr.y, Math.max(0.6, tr.r * (1 - k*0.35)), Math.max(0.5, tr.r * 0.72 * (1 - k*0.25)), 0, 0, Math.PI*2);
+        ctx.fill();
+      });
+      /* droplet landing shadows + arcs */
+      game.droplets.forEach(function(d){
+        var k = d.t/d.dur;
+        var x = lerp(d.sx, d.tx, k), y = lerp(d.sy, d.ty, k);
+        var z = Math.sin(k*Math.PI)*46;
+        var r = d.radius || 6.5;
+        ctx.fillStyle = "rgba(32,36,42,.12)";
+        ctx.beginPath(); ctx.ellipse(x, y, Math.max(3, r + 1 - k*2), 3, 0, 0, Math.PI*2); ctx.fill();
+        if(d.kind === "stream"){
+          /* a short tail back along the arc makes each droplet read as
+             part of one continuous liquid stream, not separate balls */
+          var k2 = Math.max(0, k - 0.09);
+          var x2 = lerp(d.sx, d.tx, k2), y2 = lerp(d.sy, d.ty, k2) - Math.sin(k2*Math.PI)*46;
+          ctx.strokeStyle = rgbCss(d.c); ctx.lineWidth = r*1.55; ctx.lineCap = "round";
+          ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x, y - z); ctx.stroke();
+        }
+        ctx.fillStyle = rgbCss(d.c);
+        ctx.beginPath(); ctx.arc(x, y - z, r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.5)";
+        ctx.beginPath(); ctx.arc(x - r*0.3, y - z - r*0.3, Math.max(1.4, r*0.34), 0, Math.PI*2); ctx.fill();
+      });
+      /* plants under players */
+      game.plants.forEach(function(pl){ drawPlant(pl, t); });
+      /* jellyfish sorted by y for a little depth */
+      var arr = Array.from(game.players.values()).sort(function(a,b){ return a.y - b.y; });
+      arr.forEach(function(p){ drawJelly(p, t, game); });
+      /* floaters */
+      game.floaters.forEach(function(f){
+        ctx.globalAlpha = clamp(1.7 - f.t, 0, 1);
+        ctx.font = "800 17px 'Baloo 2', sans-serif"; ctx.textAlign = "center";
+        ctx.fillStyle = rgbCss(f.c);
+        ctx.fillText(f.text, f.x, f.y);
+        ctx.globalAlpha = 1;
+      });
+      if(game.status === "lobby"){
+        ctx.font = "600 20px Nunito, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#9aa3ad";
+        ctx.fillText("The garden is waiting…", AW/2, AH - POOL_H - 18);
+      }
+    }
+
+    /* ---------------- host session ---------------- */
+    var host = null; /* { game, bus, clientId, localPlayerId, raf, lastTs, broadcastAcc, eventShown } */
+    var keys = {};
+    window.addEventListener("keydown", function(e){
+      keys[e.key.toLowerCase()] = true;
+      if([" ","arrowup","arrowdown","arrowleft","arrowright"].indexOf(e.key.toLowerCase()) >= 0 && host && host.localPlayerId) e.preventDefault();
+    });
+    window.addEventListener("keyup", function(e){ keys[e.key.toLowerCase()] = false; });
+
+    function startHost(code, solo){
+      teardownController(); teardownHost();
+      var clientId = uid();
+      var game = new Game(code);
+      host = { game:game, clientId:clientId, bus:null, localPlayerId:null, solo:!!solo,
+               lastTs:performance.now(), broadcastAcc:0, snapAcc:0, endedShown:false };
+      if(!solo){
+        host.bus = makeBus(code, clientId);
+        host.bus.on(function(msg){ hostOnMessage(msg); });
+      }
+      showView("view-arena");
+      $("top-code").textContent = "Code " + code;
+      $("lobby-code-big").textContent = code;
+      $("top-mode").textContent = FIREBASE_ENABLED ? "Firestore live" : "Local demo link";
+      $("lobby-overlay").classList.toggle("hidden", !!solo);
+      $("end-overlay").classList.add("hidden");
+      $("local-pad").classList.add("hidden");
+      $("local-supply").classList.add("hidden");
+      fitCanvas();
+      requestAnimationFrame(hostLoop);
+      hostBroadcastLobby();
+    }
+
+    function teardownHost(){
+      if(host && host.bus) host.bus.close();
+      host = null;
+    }
+
+    function hostOnMessage(msg){
+      if(!host) return;
+      var game = host.game, d = msg.data || {};
+      if(msg.type === "join"){
+        if(game.players.has(d.playerId)){ host.bus.send("welcome", { status:game.status }, msg.from); return; }
+        if(game.players.size >= MAX_PLAYERS){ host.bus.send("reject", { reason:"That match is full (10 players)." }, msg.from); return; }
+        var color = d.color || {r:200,g:60,b:60};
+        var p = game.addPlayer(d.playerId, (d.name || "Player").slice(0,14), color, false);
+        if(!p){ host.bus.send("reject", { reason:"That color is taken — pick a different one." }, msg.from); return; }
+        host.bus.send("welcome", { status:game.status }, msg.from);
+        hostBroadcastLobby();
+      }
+      else if(msg.type === "input"){
+        var pl = game.players.get(d.playerId);
+        if(pl){ pl.input.dx = clamp(d.dx||0,-1,1); pl.input.dy = clamp(d.dy||0,-1,1); pl.input.shoot = !!d.shoot; }
+      }
+      else if(msg.type === "hello"){
+        host.bus.send("lobby", game.lobbyState(), msg.from);
+      }
+      else if(msg.type === "leave"){
+        game.removePlayer(d.playerId);
+        hostBroadcastLobby();
+      }
+    }
+
+    function hostBroadcastLobby(){
+      if(host && host.bus) host.bus.send("lobby", host.game.lobbyState());
+      renderLobbyChips();
+    }
+
+    function renderLobbyChips(){
+      if(!host) return;
+      var arr = Array.from(host.game.players.values());
+      $("top-players").textContent = arr.length + (arr.length === 1 ? " player" : " players");
+      $("btn-begin").toggleAttribute("disabled", arr.length < 1);
+    }
+
+    function renderScores(){
+      var rows = $("score-rows");
+      var lb = host.game.leaderboard();
+      if(!lb.length){ rows.innerHTML = '<p class="note" style="margin:.2rem 0;">No players yet.</p>'; return; }
+      rows.innerHTML = "";
+      lb.forEach(function(r, i){
+        var div = document.createElement("div"); div.className = "score-row" + (i === 0 && r.score > 0 ? " leader" : "");
+        div.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="team-n"></span><span class="pts"></span>';
+        div.querySelector(".dot").style.background = rgbCss(r.color);
+        div.querySelector(".nm").textContent = r.name;
+        div.querySelector(".team-n").textContent = r.team > 1 ? "team of " + r.team : "";
+        div.querySelector(".pts").textContent = r.score;
+        rows.appendChild(div);
+      });
+    }
+
+    var lastScoreHtml = "", lastEventText = "", eventTimer = null;
+    function showEvent(text){
+      if(!text || text === lastEventText) return;
+      lastEventText = text;
+      var pill = $("event-pill");
+      pill.textContent = text; pill.classList.remove("hidden"); pill.style.opacity = "1";
+      if(eventTimer) clearTimeout(eventTimer);
+      eventTimer = setTimeout(function(){ pill.style.opacity = "0"; setTimeout(function(){ pill.classList.add("hidden"); }, 450); }, 4200);
+    }
+
+    function hostLoop(ts){
+      if(!host) return;
+      var dt = Math.min(0.05, (ts - host.lastTs)/1000 || 0.016);
+      host.lastTs = ts;
+      var game = host.game;
+
+      /* local keyboard / solo-pad player input */
+      if(host.localPlayerId){
+        var lp = game.players.get(host.localPlayerId);
+        if(lp){
+          var dx = 0, dy = 0;
+          if(keys["a"] || keys["arrowleft"]) dx -= 1;
+          if(keys["d"] || keys["arrowright"]) dx += 1;
+          if(keys["w"] || keys["arrowup"]) dy -= 1;
+          if(keys["s"] || keys["arrowdown"]) dy += 1;
+          if(dx === 0 && dy === 0 && padVec.mag > 0.12){ dx = padVec.x; dy = padVec.y; }
+          lp.input.dx = dx; lp.input.dy = dy;
+          lp.input.shoot = !!(keys[" "] || padShoot);
+          /* keep the solo color bar + name fresh */
+          var snap = game.snapshotFor(lp.id);
+          if(snap) paintLocalBar(snap);
+        }
+      }
+
+      game.update(dt);
+      drawGame(game, ts/1000);
+      $("top-timer").textContent = game.status === "playing" ? fmtTime(game.timeLeft) : (game.status === "ended" ? "0:00" : fmtTime(MATCH_SECONDS));
+      renderScores();
+      if(game.lastEvent) showEvent(game.lastEvent);
+      if(game.status !== "lobby") $("lobby-overlay").classList.add("hidden");
+      renderLobbyChipsThrottled(ts);
+
+      if(game.status === "ended" && !host.endedShown){
+        host.endedShown = true;
+        showEndOverlay();
+        if(host.bus){
+          host.bus.send("ended", { winnerName: game.winnerId ? (game.players.get(game.winnerId)||{}).name : null });
+        }
+      }
+
+      /* network: lobby pings + per-player snapshots */
+      if(host.bus){
+        host.snapAcc += dt;
+        if(host.snapAcc > 0.12){
+          host.snapAcc = 0;
+          game.players.forEach(function(p){
+            if(p.isBot || p.id === host.localPlayerId) return;
+            var s = game.snapshotFor(p.id);
+            if(s) host.bus.send("state", s, p.id);
+          });
+          host.bus.send("lobby", game.lobbyState());
+        }
+      }
+      requestAnimationFrame(hostLoop);
+    }
+    var lobbyChipTs = 0;
+    function renderLobbyChipsThrottled(ts){
+      if(ts - lobbyChipTs > 600){ lobbyChipTs = ts; if(host) renderLobbyChips(); }
+    }
+
+    function showEndOverlay(){
+      var game = host.game;
+      var winner = game.winnerId ? game.players.get(game.winnerId) : null;
+      $("end-title").textContent = winner ? winner.name + " wins the garden!" : "Time! It's a tie garden";
+      if(winner) $("end-title").style.color = rgbCss(winner.homeColor);
+      $("end-sub").textContent = winner
+        ? (winner.score >= WIN_SCORE ? winner.name + " reached " + WIN_SCORE + " points." : "Highest score when the clock ran out: " + winner.score + " points.")
+        : "No team scored — the garden stays wild.";
+      var st = $("end-standings"); st.innerHTML = "";
+      game.leaderboard().forEach(function(r){
+        var div = document.createElement("div"); div.className = "score-row";
+        div.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="team-n"></span><span class="pts"></span>';
+        div.querySelector(".dot").style.background = rgbCss(r.color);
+        div.querySelector(".nm").textContent = r.name;
+        div.querySelector(".team-n").textContent = r.team > 1 ? "team of " + r.team : "";
+        div.querySelector(".pts").textContent = r.score;
+        st.appendChild(div);
+      });
+      $("end-overlay").classList.remove("hidden");
+    }
+
+    /* solo / local player color bar lives in the controller-style strip under the arena topbar?
+       We reuse the event pill area: show a slim bar via the local pad shoot button tint instead. */
+    function paintLocalBar(snap){
+      var btn = $("pad-shoot");
+      btn.style.background = snap.displayColor;
+      btn.textContent = snap.isServant ? "PAINT · " + snap.masterScore : "PAINT";
+      btn.title = snap.isServant ? "Serving " + snap.masterName + " — team score " + snap.masterScore : "Your score " + snap.masterScore;
+      btn.classList.toggle("no-paint", !!snap.supplyExhausted || (snap.supplyPct || 0) < BALL_COST);
+      var fill = $("local-supply-fill");
+      if(fill){
+        fill.style.width = (snap.supplyPct || 0) + "%";
+        fill.style.background = snap.teamColor;
+        $("local-supply-val").textContent = snap.supply;
+      }
+    }
+
+    /* =====================================================================
+       INPUT — joystick factory + shoot buttons
+       ===================================================================== */
+    function makeJoystick(el, onChange){
+      var knob = el.querySelector(".knob");
+      var active = null, vec = { x:0, y:0, mag:0 };
+      function setVec(x, y){
+        var mag = Math.sqrt(x*x + y*y);
+        if(mag > 1){ x/=mag; y/=mag; mag = 1; }
+        vec = { x:x, y:y, mag:mag };
+        knob.style.transform = "translate(calc(-50% + " + (x*44) + "px), calc(-50% + " + (y*44) + "px))";
+        onChange(vec);
+      }
+      function pos(e){
+        var r = el.getBoundingClientRect();
+        return { x:((e.clientX - (r.left + r.width/2)) / (r.width/2)), y:((e.clientY - (r.top + r.height/2)) / (r.height/2)) };
+      }
+      el.addEventListener("pointerdown", function(e){ active = e.pointerId; el.setPointerCapture(active); var p = pos(e); setVec(p.x, p.y); e.preventDefault(); });
+      el.addEventListener("pointermove", function(e){ if(e.pointerId !== active) return; var p = pos(e); setVec(p.x, p.y); });
+      function end(e){ if(e.pointerId !== active) return; active = null; setVec(0,0); }
+      el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+      return { getVec:function(){ return vec; }, reset:function(){ setVec(0,0); } };
+    }
+    function makeShootButton(btn, onChange){
+      var down = false;
+      function set(v){ down = v; btn.classList.toggle("pressed", v); onChange(v); }
+      btn.addEventListener("pointerdown", function(e){ e.preventDefault(); try{ btn.setPointerCapture(e.pointerId); }catch(err){} set(true); });
+      btn.addEventListener("pointerup", function(){ set(false); });
+      btn.addEventListener("pointercancel", function(){ set(false); });
+      btn.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+      return { isDown:function(){ return down; } };
+    }
+
+    /* solo pad state (read by hostLoop) */
+    var padVec = { x:0, y:0, mag:0 }, padShoot = false;
+    makeJoystick($("pad-stick"), function(v){ padVec = v; });
+    makeShootButton($("pad-shoot"), function(v){ padShoot = v; });
+    $("pad-shoot").style.background = "#3a86ff";
+
+    /* =====================================================================
+       CONTROLLER session (phone)
+       ===================================================================== */
+    var ctrl = null; /* { id, code, bus, vec, shoot, joined, sendTimer, lastSnap } */
+    var ctrlStick = makeJoystick($("ctrl-stick"), function(v){ if(ctrl) ctrl.vec = v; });
+    makeShootButton($("shoot-btn"), function(v){
+      if(!ctrl) return;
+      ctrl.shoot = v;
+      /* send taps immediately, not just on the 80ms tick — a quick tap
+         (press + fast release) is how a paint ball is fired, and the host
+         tells tap from hold by how long shoot stays true */
+      if(ctrl.joined) ctrl.bus.send("input", { playerId:ctrl.id, dx:ctrl.vec.x, dy:ctrl.vec.y, shoot:v });
+    });
+
+    function startController(code, name, color){
+      teardownHost(); teardownController();
+      var id = uid();
+      ctrl = { id:id, code:code, name:name, color:color, bus:makeBus(code, id),
+               vec:{x:0,y:0,mag:0}, shoot:false, joined:false, lastSnap:null, helloTimer:0 };
+      $("ctrl-player-name").textContent = name;
+      $("ctrl-player-name").style.color = rgbCss(color);
+      $("shoot-btn").style.background = rgbCss(color);
+      $("ctrl-team-line").textContent = "";
+      $("ctrl-status").textContent = "Joining match " + code + "…";
+      $("seg-own").style.background = rgbCss(color); $("seg-own").style.width = "100%";
+      $("seg-foreign").style.width = "0%";
+      $("supply-fill").style.background = rgbCss(color); $("supply-fill").style.width = "100%";
+      $("supply-val").textContent = "100"; $("supply-note").textContent = "";
+      $("supplybar").classList.remove("empty"); $("shoot-btn").classList.remove("no-paint");
+      $("ctrl-score").firstChild.textContent = "Score 0";
+      showView("view-controller");
+      ctrl.bus.on(function(msg){ ctrlOnMessage(msg); });
+      ctrl.bus.send("join", { playerId:id, name:name, color:color });
+      /* retry join until welcomed (Firestore listener warms up async) */
+      ctrl.helloTimer = setInterval(function(){
+        if(!ctrl || ctrl.joined){ if(ctrl && ctrl.helloTimer) clearInterval(ctrl.helloTimer); return; }
+        ctrl.bus.send("join", { playerId:id, name:name, color:color });
+        ctrl.bus.send("hello", {});
+      }, 1500);
+      /* input stream */
+      ctrl.sendTimer = setInterval(function(){
+        if(!ctrl || !ctrl.joined) return;
+        ctrl.bus.send("input", { playerId:ctrl.id, dx:ctrl.vec.x, dy:ctrl.vec.y, shoot:ctrl.shoot });
+      }, 80);
+    }
+
+    function teardownController(){
+      if(ctrl){
+        try{ ctrl.bus.send("leave", { playerId:ctrl.id }); }catch(e){}
+        if(ctrl.sendTimer) clearInterval(ctrl.sendTimer);
+        if(ctrl.helloTimer) clearInterval(ctrl.helloTimer);
+        ctrl.bus.close(); ctrl = null;
+      }
+    }
+
+    var ctrlLastEvent = "";
+    function ctrlOnMessage(msg){
+      if(!ctrl) return;
+      var d = msg.data || {};
+      if(msg.to && msg.to !== ctrl.id && msg.type !== "lobby" && msg.type !== "ended") return;
+      if(msg.type === "welcome"){
+        ctrl.joined = true;
+        $("ctrl-status").textContent = d.status === "playing" ? "You're in — match is live!" : "You're in! Waiting for the host to start the match…";
+      }
+      else if(msg.type === "reject"){
+        var why = d.reason || "The host refused the join.";
+        teardownController();
+        showView("view-join");
+        $("join-err").textContent = why;
+        $("join-step-player").classList.remove("hidden");
+        $("join-step-code").classList.add("hidden");
+      }
+      else if(msg.type === "state"){
+        ctrl.lastSnap = d;
+        paintController(d);
+      }
+      else if(msg.type === "ended"){
+        $("ctrl-status").textContent = d.winnerName ? ("Match over — " + d.winnerName + " wins the garden!") : "Match over!";
+      }
+      else if(msg.type === "lobby"){
+        if(ctrl.joined && d.status === "playing" && $("ctrl-status").textContent.indexOf("Waiting") >= 0)
+          $("ctrl-status").textContent = "Match is live — grow flowers, turn rivals!";
+      }
+    }
+
+    function paintController(s){
+      /* paint supply bar — separate from the color bar below it */
+      if(typeof s.supplyPct === "number"){
+        $("supply-fill").style.width = s.supplyPct + "%";
+        $("supply-fill").style.background = s.teamColor;
+        $("supply-val").textContent = s.supply;
+        $("supplybar").classList.toggle("empty", !!s.supplyExhausted);
+        $("shoot-btn").classList.toggle("no-paint", !!s.supplyExhausted || s.supplyPct < 3);
+        $("supply-note").textContent = s.supplyExhausted
+          ? "Out of paint — refilling…"
+          : (s.supplyPct < 3 ? "Almost out — refilling at 1 per second" : "");
+      }
+      $("seg-own").style.background = s.teamColor;
+      $("seg-own").style.width = (100 - s.foreignPct) + "%";
+      var f = $("seg-foreign");
+      f.style.width = s.foreignPct + "%";
+      f.style.background = s.foreignColor || "transparent";
+      $("ctrl-team-line").textContent = s.isServant
+        ? "You serve " + s.masterName + " — your points are theirs now"
+        : (s.foreignPct > 2 ? "You're being turned! Shake it off by staying clear" : "You lead your own color");
+      $("ctrl-score").firstChild.textContent = s.isServant ? (s.masterName + "'s score " + s.masterScore) : ("Your score " + s.masterScore);
+      $("ctrl-score").querySelector(".sub2").textContent =
+        s.status === "playing" ? ("Time left " + fmtTime(s.timeLeft) + " · first to " + WIN_SCORE)
+        : s.status === "ended" ? "Final" : "Waiting for the match to start";
+      if(s.status === "playing" && $("ctrl-status").textContent.indexOf("Waiting") >= 0)
+        $("ctrl-status").textContent = "Match is live — grow flowers, turn rivals!";
+      if(s.lastEvent && s.lastEvent !== ctrlLastEvent){
+        ctrlLastEvent = s.lastEvent;
+        if(s.lastEvent.indexOf(ctrl.name) >= 0 || s.lastEvent.indexOf("serves") >= 0 || s.lastEvent.indexOf("turned") >= 0)
+          $("ctrl-status").textContent = s.lastEvent;
+      }
+    }
+
+    $("ctrl-leave").addEventListener("click", function(){ teardownController(); showView("view-home"); });
+
+    /* =====================================================================
+       COLOR WHEEL (join form)
+       ===================================================================== */
+    var wheel = $("wheel"), wctx = wheel.getContext("2d");
+    var wheelHue = 210, wheelColor = hslToRgb(210, 0.72, 0.55), takenHues = [];
+    function drawWheel(){
+      var cx = 120, cy = 120, R = 112, rIn = 62;
+      wctx.clearRect(0,0,240,240);
+      for(var a=0;a<360;a+=2){
+        wctx.beginPath();
+        wctx.strokeStyle = rgbCss(hslToRgb(a, 0.72, 0.55));
+        wctx.lineWidth = R - rIn;
+        var rad = (a-90)*Math.PI/180;
+        wctx.arc(cx, cy, (R+rIn)/2, rad, rad + 2.2*Math.PI/180);
+        wctx.stroke();
+      }
+      /* taken markers */
+      takenHues.forEach(function(h){
+        var rad = (h-90)*Math.PI/180;
+        var x = cx + Math.cos(rad)*(R+rIn)/2, y = cy + Math.sin(rad)*(R+rIn)/2;
+        wctx.fillStyle = "rgba(255,255,255,.92)";
+        wctx.beginPath(); wctx.arc(x, y, 13, 0, Math.PI*2); wctx.fill();
+        wctx.strokeStyle = "#20242a"; wctx.lineWidth = 2.5;
+        wctx.beginPath(); wctx.moveTo(x-6, y-6); wctx.lineTo(x+6, y+6);
+        wctx.moveTo(x+6, y-6); wctx.lineTo(x-6, y+6); wctx.stroke();
+      });
+      /* selected marker */
+      var srad = (wheelHue-90)*Math.PI/180;
+      var sx2 = cx + Math.cos(srad)*(R+rIn)/2, sy2 = cy + Math.sin(srad)*(R+rIn)/2;
+      wctx.fillStyle = rgbCss(wheelColor);
+      wctx.beginPath(); wctx.arc(sx2, sy2, 15, 0, Math.PI*2); wctx.fill();
+      wctx.strokeStyle = "#20242a"; wctx.lineWidth = 3; wctx.stroke();
+      /* center preview */
+      wctx.fillStyle = rgbCss(wheelColor);
+      wctx.beginPath(); wctx.arc(cx, cy, rIn - 8, 0, Math.PI*2); wctx.fill();
+      wctx.fillStyle = "rgba(255,255,255,.45)";
+      wctx.beginPath(); wctx.ellipse(cx-16, cy-20, 13, 19, -0.5, 0, Math.PI*2); wctx.fill();
+      $("wheel-preview").style.background = rgbCss(wheelColor);
+      $("wheel-label").textContent = "Your color — " + colorName(wheelColor);
+      markSwatchSelection();
+    }
+    function wheelPick(e){
+      var r = wheel.getBoundingClientRect();
+      var x = (e.clientX - r.left) * (240/r.width) - 120;
+      var y = (e.clientY - r.top) * (240/r.height) - 120;
+      var d = Math.sqrt(x*x + y*y);
+      if(d < 40 || d > 122) return;
+      wheelHue = ((Math.atan2(y, x)*180/Math.PI) + 90 + 360) % 360;
+      wheelColor = hslToRgb(wheelHue, 0.72, 0.55);
+      drawWheel();
+    }
+    var wheelDown = false;
+    wheel.addEventListener("pointerdown", function(e){ wheelDown = true; wheel.setPointerCapture(e.pointerId); wheelPick(e); });
+    wheel.addEventListener("pointermove", function(e){ if(wheelDown) wheelPick(e); });
+    wheel.addEventListener("pointerup", function(){ wheelDown = false; });
+    wheel.addEventListener("pointercancel", function(){ wheelDown = false; });
+
+    /* quick-pick swatches */
+    var SWATCH_HUES = [0, 24, 48, 75, 110, 145, 175, 200, 225, 255, 285, 315];
+    var swatchEls = [];
+    SWATCH_HUES.forEach(function(h){
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "swatch"; b.dataset.hue = h;
+      b.style.background = rgbCss(hslToRgb(h, 0.72, 0.55));
+      b.setAttribute("aria-label", "Pick " + colorName(hslToRgb(h, 0.72, 0.55)));
+      b.addEventListener("click", function(){ wheelHue = h; wheelColor = hslToRgb(h, 0.72, 0.55); drawWheel(); });
+      $("swatches").appendChild(b); swatchEls.push(b);
+    });
+    function markSwatchSelection(){
+      swatchEls.forEach(function(b){
+        var h = parseFloat(b.dataset.hue);
+        b.classList.toggle("sel", hueDist(h, wheelHue) < 8);
+        var taken = takenHues.some(function(th){ return hueDist(th, h) < 20; });
+        b.classList.toggle("taken", taken);
+      });
+    }
+
+    /* join-flow probe bus: listens for lobby state to show taken colors */
+    var probeBus = null, probeCode = "";
+    function closeProbe(){ if(probeBus){ probeBus.close(); probeBus = null; } }
+    function openProbe(code){
+      closeProbe(); probeCode = code;
+      probeBus = makeBus(code, uid());
+      var answered = false;
+      probeBus.on(function(msg){
+        if(msg.type === "lobby" && msg.data){
+          answered = true;
+          $("join-code-err").textContent = "";
+          $("join-found-pill").textContent = "Match " + code + " found — " + (msg.data.players ? msg.data.players.length : 0) + " player(s) in the lobby";
+          takenHues = (msg.data.players || []).filter(function(p){ return p.masterId === p.id; }).map(function(p){ return rgbToHsl(p.color).h; });
+          $("join-lobby-note").textContent = takenHues.length
+            ? "Colors already claimed are crossed out on the wheel."
+            : "No colors claimed yet — the whole wheel is yours.";
+          drawWheel();
+        }
+      });
+      probeBus.send("hello", {});
+      setTimeout(function(){ probeBus && probeBus.send("hello", {}); }, 700);
+      setTimeout(function(){
+        if(probeBus && !answered && probeCode === code){
+          $("join-lobby-note").textContent = "No host answered yet for code " + code + ". You can still try to join — if the host screen is open in another tab of this browser it will pick you up when the match starts polling. In local demo mode, host and phones must be tabs of the same browser.";
+        }
+      }, 2600);
+    }
+
+    /* =====================================================================
+       WIRING — home, join, host controls
+       ===================================================================== */
+    /* home "?" help: the how-it-works copy lives in an overlay panel */
+    $("btn-help").addEventListener("click", function(){ $("help-overlay").classList.remove("hidden"); });
+    $("btn-help-close").addEventListener("click", function(){ $("help-overlay").classList.add("hidden"); });
+    $("help-overlay").addEventListener("click", function(e){ if(e.target === $("help-overlay")) $("help-overlay").classList.add("hidden"); });
+    document.addEventListener("keydown", function(e){ if(e.key === "Escape") $("help-overlay").classList.add("hidden"); });
+
+    $("btn-start-match").addEventListener("click", function(){
+      startHost(makeCode(), false);
+    });
+    $("btn-join-match").addEventListener("click", function(){
+      showView("view-join");
+      $("join-step-code").classList.remove("hidden");
+      $("join-step-player").classList.add("hidden");
+      $("join-code-err").textContent = ""; $("join-err").textContent = "";
+      setTimeout(function(){ $("join-code").focus(); }, 60);
+    });
+    $("join-back").addEventListener("click", function(){ closeProbe(); showView("view-home"); });
+
+    $("btn-demo").addEventListener("click", function(){
+      startHost("DEMO", true);
+      var game = host.game;
+      var me = game.addPlayer(uid(), "You", hslToRgb(210, 0.72, 0.55), false);
+      host.localPlayerId = me.id;
+      /* three bots in distinct colors */
+      [45, 140, 320].forEach(function(h, i){
+        game.addPlayer(uid(), BOT_PRESETS[i].name, hslToRgb(h, 0.72, 0.55), true);
+      });
+      $("local-pad").classList.remove("hidden");
+      $("local-supply").classList.remove("hidden");
+      $("local-supply-fill").style.background = rgbCss(hslToRgb(210, 0.72, 0.55));
+      $("local-supply-fill").style.width = "100%"; $("local-supply-val").textContent = "100";
+      $("top-code").textContent = "Solo demo";
+      game.status = "playing";
+      game.spawnPlant(); game.spawnPlant();
+      renderLobbyChips();
+    });
+
+    $("btn-find-match").addEventListener("click", function(){
+      var code = $("join-code").value.trim().toUpperCase();
+      if(code.length !== 4){ $("join-code-err").textContent = "Enter the 4-letter code from the host screen."; return; }
+      $("join-code-err").textContent = "";
+      $("join-step-code").classList.add("hidden");
+      $("join-step-player").classList.remove("hidden");
+      $("join-found-pill").textContent = "Looking for match " + code + "…";
+      takenHues = []; drawWheel();
+      openProbe(code);
+    });
+    $("join-code").addEventListener("keydown", function(e){ if(e.key === "Enter") $("btn-find-match").click(); });
+
+    $("btn-join-go").addEventListener("click", function(){
+      var name = $("join-name").value.trim();
+      if(!name){ $("join-err").textContent = "Give your jellyfish a name first."; return; }
+      if(takenHues.some(function(th){ return hueDist(th, wheelHue) < 20; })){
+        $("join-err").textContent = "That color is already claimed in this match — pick another.";
+        return;
+      }
+      $("join-err").textContent = "";
+      var code = $("join-code").value.trim().toUpperCase();
+      closeProbe();
+      startController(code, name, wheelColor);
+    });
+
+    $("btn-begin").addEventListener("click", function(){
+      if(!host || host.game.players.size < 1) return;
+      host.game.status = "playing";
+      host.game.spawnPlant(); host.game.spawnPlant();
+      $("lobby-overlay").classList.add("hidden");
+      hostBroadcastLobby();
+    });
+    $("btn-add-bot").addEventListener("click", function(){
+      if(!host) return;
+      var used = new Set(); host.game.players.forEach(function(p){ used.add(p.name); });
+      for(var i=0;i<BOT_PRESETS.length;i++){
+        if(used.has(BOT_PRESETS[i].name)) continue;
+        var p = host.game.addPlayer(uid(), BOT_PRESETS[i].name, hslToRgb(BOT_PRESETS[i].hue, 0.72, 0.55), true);
+        if(p){ hostBroadcastLobby(); return; }
+      }
+    });
+    $("btn-join-here").addEventListener("click", function(){
+      if(!host || host.localPlayerId) return;
+      var hues = [210, 0, 120, 280, 45];
+      for(var i=0;i<hues.length;i++){
+        var p = host.game.addPlayer(uid(), "Host Player", hslToRgb(hues[i], 0.72, 0.55), false);
+        if(p){
+          host.localPlayerId = p.id;
+          $("local-pad").classList.remove("hidden");
+          $("local-supply").classList.remove("hidden");
+          $("local-supply-fill").style.background = rgbCss(p.homeColor);
+          $("local-supply-fill").style.width = "100%"; $("local-supply-val").textContent = "100";
+          hostBroadcastLobby();
+          return;
+        }
+      }
+    });
+    $("btn-again").addEventListener("click", function(){
+      if(!host) return;
+      var old = host.game, code = old.code, solo = host.solo, localId = host.localPlayerId;
+      var roster = [];
+      old.players.forEach(function(p){ roster.push({ id:p.id, name:p.name, color:p.homeColor, isBot:p.isBot }); });
+      var fresh = new Game(code);
+      host.game = fresh; host.endedShown = false;
+      roster.forEach(function(r){ fresh.addPlayer(r.id, r.name, r.color, r.isBot); });
+      host.localPlayerId = localId;
+      fresh.status = "playing";
+      fresh.spawnPlant(); fresh.spawnPlant();
+      $("end-overlay").classList.add("hidden");
+      hostBroadcastLobby();
+    });
+    function leaveArena(){ teardownHost(); showView("view-home"); }
+    $("btn-arena-home").addEventListener("click", leaveArena);
+    $("btn-end-home").addEventListener("click", leaveArena);
+
+    /* deep links: ?join=CODE opens the join form; ?host=1 opens a host lobby */
+    (function(){
+      drawWheel();
+      var q = new URLSearchParams(window.location.search);
+      var j = q.get("join");
+      if(j && j.length === 4){
+        showView("view-join");
+        $("join-code").value = j.toUpperCase();
+        $("btn-find-match").click();
+      } else if(q.get("host")){
+        startHost(makeCode(), false);
+      }
+    })();
+    </script>
+  </body>
+</html>
