@@ -806,9 +806,11 @@
       for(var bi = 0; bi < MELT_BURST; bi++) this.spawnMeltParticle(pl, true);
     };
 
-    /* One particle of a melting plant's pour. Spawned across the flower
-       and pot, funnelling slightly toward the plant's centre column so
-       the whole plant reads as one thick stream falling to the pool. */
+    /* One particle of a melting plant's pour. Spawned at or below the
+       bottom edge of the pot, funnelling slightly toward the plant's
+       centre column so the paint reads as draining out of the bottom
+       of the pot and falling to the pool — never up in the stem/flower
+       area and never as a waterfall in front of the plant. */
     Game.prototype.spawnMeltParticle = function(pl, burst){
       if(this.meltParticles.length >= MELT_MAX_PARTICLES) return;
       var base = pl.meltColor || { r:180, g:180, b:180 };
@@ -818,9 +820,17 @@
         g: clamp(Math.round(base.g + vary), 0, 255),
         b: clamp(Math.round(base.b + vary), 0, 255)
       };
-      var sx = pl.x + rand(-24, 24) + rand(-8, 8);
-      var sy = pl.y + rand(-58, 8);
-      if(burst && Math.random() < 0.45) sy += rand(0, 90);
+      /* Pot geometry from drawPlant: baseY = pl.y + 26 and the pot's
+         bottom edge sits at +4 in that translated frame, so the bottom
+         edge is pl.y + 30 before melting. While melting the pot sinks
+         (meltT^2 * 60) and squashes (bottom edge scales by
+         1 - meltT * 0.55) — follow that so the highest particle always
+         starts at the pot's current bottom edge, never above it. */
+      var meltP = pl.meltT || 0;
+      var potBottomY = pl.y + 30 + meltP * meltP * 60 - meltP * 2.2;
+      var sx = pl.x + rand(-16, 16) + rand(-5, 5);
+      var sy = potBottomY + rand(0, 8);
+      if(burst) sy += rand(0, 42);
       this.meltParticles.push({
         x: sx, y: sy,
         vx: rand(-28, 28) + (pl.x - sx) * 0.35,
@@ -1430,13 +1440,17 @@
       /* plants under players */
       game.plants.forEach(function(pl){ drawPlant(pl, t); });
       /* ---- dramatic melt pour ----
-         A translucent waterfall sheen under each melting plant plus
+         A translucent pour sheen that starts at the bottom edge of
+         the pot (never over the stem, flower, or pot body) plus
          hundreds of individual paint particles accelerating down into
          the pool — a fast, thick stream, not a drip. The particles keep
          rendering after the plant is gone until they land. */
       game.plants.forEach(function(pl){
         if(pl.state !== "melting") return;
-        var topY = pl.y - 6, botY = AH - POOL_H;
+        /* top of the sheen = the pot's current bottom edge, using the
+           same sink/squash math as the particle spawn origin */
+        var meltS = pl.meltT || 0;
+        var topY = pl.y + 30 + meltS * meltS * 60 - meltS * 2.2, botY = AH - POOL_H;
         if(botY <= topY) return;
         var grad = ctx.createLinearGradient(0, topY, 0, botY);
         var mc = pl.meltColor || { r:160, g:160, b:160 };
