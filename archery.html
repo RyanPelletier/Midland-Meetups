@@ -344,6 +344,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               <div class="player-chips" id="lobby-players"></div>
               <button class="btn green" id="btn-start" style="width:100%; font-size:19px; padding:13px;">Start match</button>
               <p class="center muted" id="start-note" style="font-size:13.5px; margin:10px 0 0;">Waiting for players to join…</p>
+              <p class="center" id="conn-note" style="font-size:13.5px; margin:6px 0 0; min-height:18px;">Connecting to the live match service…</p>
             </div>
             <div class="card" id="score-panel">
               <h3 style="font-size:19px; margin-bottom:6px;" id="score-title">Scores</h3>
@@ -570,10 +571,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         s.onload = res; s.onerror = rej; document.head.appendChild(s);
       });
     }
-    function FirestoreBus(code, clientId){
-      this.clientId = clientId; this.onDeliver = null; this.ready = false;
+    function FirestoreBus(code, clientId, opts){
+      this.clientId = clientId; this.onDeliver = null; this.onError = null; this.onReady = null;
+      this.ready = false;
       this.unsub = null; this.col = null; this.queue = []; this.code = code;
+      this.seen = {};   /* doc ids already delivered — the live listener and the join catch-up overlap */
+      this.catchUpJoins = !!(opts && opts.catchUpJoins);
+      this.closed = false;
     }
+    FirestoreBus.prototype.fail = function(err){
+      if(this.onError) this.onError(err);
+    };
+    FirestoreBus.prototype.deliverDoc = function(id, msg){
+      if(this.closed || !msg || this.seen[id]) return;
+      this.seen[id] = true;
+      if(msg.from === this.clientId) return;
+      try{ msg.data = JSON.parse(msg.dataJson || "{}"); }catch(e){ msg.data = {}; }
+      /* Never let one bad message throw into onSnapshot's docChanges loop
+         and abort the rest of the batch (or the listener itself). */
+      if(this.onDeliver){ try{ this.onDeliver(msg); }catch(err){ this.fail(err); } }
+    };
     FirestoreBus.prototype.init = function(){
       var self = this;
       return loadScript("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js")
@@ -583,36 +600,72 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
           self.db = firebase.firestore();
           self.col = self.db.collection("games").doc("archery").collection("matches").doc(self.code).collection("messages");
-          var start = Date.now() - 2000;
+          /* The sender stamps t with THEIR clock, so the listen window must
+             absorb clock differences between devices plus slow listener
+             attach (SDK load, tab waking). At 2s, a join written just
+             before the host started listening — or from a phone whose
+             clock runs behind the host's — was invisible forever. */
+          var start = Date.now() - 30000;
           self.unsub = self.col.where("t", ">", start).onSnapshot(function(snap){
             snap.docChanges().forEach(function(ch){
               if(ch.type !== "added") return;
-              var msg = ch.doc.data();
-              if(msg.from === self.clientId) return;
-              try{ msg.data = JSON.parse(msg.dataJson || "{}"); }catch(e){ msg.data = {}; }
-              if(self.onDeliver) self.onDeliver(msg);
+              self.deliverDoc(ch.doc.id, ch.doc.data());
             });
+          }, function(err){
+            /* A denied/dead listener used to fail silently: the host sat
+               in its lobby while phones timed out. Surface it. */
+            self.fail(err);
           });
           self.ready = true;
+          if(self.onReady) self.onReady();
           var q = self.queue; self.queue = [];
           q.forEach(function(item){ self.send(item[0], item[1], item[2]); });
+          /* Catch-up (host only): a join written before this listener
+             attached — host tab asleep, reloading, or still loading the
+             SDK — sits outside even the widened window. Fetch recent joins
+             once and answer them; joining is idempotent on the host, so
+             replaying one is harmless. */
+          if(self.catchUpJoins){
+            self.col.where("t", ">", Date.now() - 10 * 60 * 1000).get().then(function(snap){
+              snap.forEach(function(doc){
+                var msg = doc.data();
+                if(msg && msg.type === "join") self.deliverDoc(doc.id, msg);
+              });
+            }).catch(function(err){ self.fail(err); });
+          }
         });
     };
     FirestoreBus.prototype.send = function(type, data, to){
       if(!this.ready || !this.col){ this.queue.push([type, data, to]); return; }
+      var self = this;
       this.col.add({ from:this.clientId, type:type, to:to||null, t:Date.now(), dataJson: JSON.stringify(data||{}) })
-        .catch(function(){});
+        .catch(function(err){ self.fail(err); });
     };
-    FirestoreBus.prototype.close = function(){ if(this.unsub) this.unsub(); };
+    FirestoreBus.prototype.close = function(){ this.closed = true; if(this.unsub) this.unsub(); };
 
     /* Wrapper: tries Firestore, falls back to the local bus if the SDK or
-       config fails; buffers sends until a transport is live. */
-    function makeBus(code, clientId){
-      var handlers = [], impl = null, pending = [];
+       config fails; buffers sends until a transport is live. Connection
+       failures are reported through onError instead of being swallowed —
+       the local fallback only reaches tabs of the same browser, so a
+       silent fallback strands phones with no explanation. */
+    function makeBus(code, clientId, opts){
+      var handlers = [], errHandlers = [], readyHandlers = [], impl = null, pending = [], isReady = false;
       function deliver(msg){
         if(!msg || msg.from === clientId) return;
         if(msg.to && msg.to !== clientId) return;
-        for(var i=0;i<handlers.length;i++) handlers[i](msg);
+        /* Isolate each handler: one throwing handler must not stop the
+           remaining messages in the delivery batch from being handled. */
+        for(var i=0;i<handlers.length;i++){
+          try{ handlers[i](msg); }catch(err){ emitError(err); }
+        }
+      }
+      function emitError(err){
+        for(var i=0;i<errHandlers.length;i++) errHandlers[i](err);
+      }
+      function emitReady(){
+        isReady = true;
+        var r = readyHandlers; readyHandlers = [];
+        r.forEach(function(fn){ fn(); });
       }
       function setImpl(b){
         impl = b;
@@ -624,17 +677,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if(impl) impl.send(type, data, to); else pending.push([type, data, to]);
         },
         on: function(fn){ handlers.push(fn); },
-        close: function(){ if(impl && impl.close) impl.close(); handlers = []; }
+        onError: function(fn){ errHandlers.push(fn); },
+        onReady: function(fn){ if(isReady) fn(); else readyHandlers.push(fn); },
+        close: function(){ if(impl && impl.close) impl.close(); handlers = []; errHandlers = []; readyHandlers = []; }
       };
       if(FIREBASE_ENABLED){
-        var fb = new FirestoreBus(code, clientId);
+        var fb = new FirestoreBus(code, clientId, opts);
         fb.onDeliver = deliver;
-        fb.init().then(function(){ setImpl(fb); }).catch(function(){
+        fb.onError = emitError;
+        fb.onReady = emitReady;
+        fb.init().then(function(){ setImpl(fb); }).catch(function(err){
+          emitError(err);
           fb.close();
           var lb = new LocalBus(code, clientId); lb.onDeliver = deliver; setImpl(lb);
+          emitReady();
         });
       } else {
         var lb2 = new LocalBus(code, clientId); lb2.onDeliver = deliver; setImpl(lb2);
+        emitReady();
       }
       return bus;
     }
@@ -714,6 +774,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     Game.prototype.addPlayer = function(id, name, isBot){
       if(this.players[id]) return this.players[id];
+      /* The name arrives from another device's payload — never trust its
+         type. A non-string name must not blow up player creation. */
+      if(typeof name !== "string") name = (name === null || name === undefined) ? "" : String(name);
+      name = name.trim().slice(0, 14);
       var idx = this.order.length % PALETTE.length;
       var p = {
         id:id, name:name || ("Player " + (this.order.length+1)), isBot:!!isBot,
@@ -2220,6 +2284,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }).join("");
       $("lobby-players").innerHTML = chips || '<span class="muted">No players yet — be the first!</span>';
       var n = game.playerList().length;
+      if(n > 0){ var cn = $("conn-note"); if(cn){ cn.textContent = ""; cn.style.color = ""; } }
       $("btn-start").disabled = n === 0;
       if(game.mode === "solo"){
         $("start-note").textContent = n === 0 ? "Waiting for the archer to join…" :
@@ -2304,15 +2369,50 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       box.innerHTML = '<span class="muted" style="font-size:13px; padding:8px; text-align:center;">Open this page on your phone and enter code <b>' + code + "</b></span>";
     }
+    function hostReportError(context, err){
+      var el = $("conn-note");
+      if(el){
+        el.textContent = "Connection problem (" + context + "): " + ((err && err.message) || err);
+        el.style.color = "var(--danger)";
+      }
+    }
+    /* Every message is dispatched inside a guard: a throw while handling
+       one message must never propagate into the transport's delivery loop,
+       where it would abort the rest of the batch (two phones joining in
+       the same snapshot is exactly that case) or kill the listener. */
     function hostOnMessage(msg){
       if(!host || !msg) return;
+      try{ hostDispatch(msg); }
+      catch(err){ hostReportError("message '" + (msg && msg.type) + "'", err); }
+    }
+    function hostDispatch(msg){
       var game = host, d = msg.data || {};
       if(msg.type === "join"){
-        var p = game.addPlayer(msg.from, d.name, false);
+        var p = null;
+        try{ p = game.addPlayer(msg.from, d.name, false); }
+        catch(err){
+          /* A failed addPlayer must not silently strand the phone with
+             "No host answered": register a minimal player directly and
+             carry on to the welcome. */
+          hostReportError("adding a player", err);
+          var idx = game.order.length % PALETTE.length;
+          p = {
+            id:msg.from, name:(typeof d.name === "string" && d.name.trim()) ? d.name.trim().slice(0, 14) : "Player",
+            isBot:false, colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
+            score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
+            inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
+            aim:{ x:0.5, y:0.5, seen:false },
+            botTarget:null, botShootT:2, botAimX:0.5, botAimY:0.5
+          };
+          game.players[msg.from] = p; game.order.push(msg.from);
+          if((game.mode === "solo" || game.mode === "neon") && !game.defenderId) game.defenderId = msg.from;
+        }
         var isDef = (game.mode !== "solo" && game.mode !== "neon") || game.defenderId === msg.from;
+        /* The welcome goes out FIRST — once the phone hears back it is in
+           the match, whatever the lobby bookkeeping below does. */
         hostBus.send("welcome", { color:p.color, colorName:p.colorName, name:p.name, phase:game.phase, mode:game.mode, theme:game.theme, defender:isDef }, msg.from);
-        sendPState(game, p);
-        renderLobby(game);
+        try{ sendPState(game, p); renderLobby(game); }
+        catch(err){ hostReportError("after a player joined", err); }
       } else if(msg.type === "aim"){
         if((game.mode === "solo" || game.mode === "neon") && msg.from !== game.defenderId) return;
         var pl = game.players[msg.from];
@@ -2420,8 +2520,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       host = new Game(code);
       if(kind === "defense") host.mode = "solo";
       if(kind === "neon"){ host.mode = "neon"; host.theme = "neon"; }
-      hostBus = makeBus(code, hostId);
+      hostBus = makeBus(code, hostId, { catchUpJoins:true });
       hostBus.on(hostOnMessage);
+      hostBus.onReady(function(){
+        var el = $("conn-note");
+        if(el) el.textContent = "Live connection ready — phones can join now.";
+      });
+      hostBus.onError(function(err){
+        var el = $("conn-note");
+        if(el){
+          el.textContent = "Connection problem: " + ((err && err.message) || err) +
+            " — phones can't reach this screen until it's fixed. Check this device's internet, then reopen the match.";
+          el.style.color = "var(--danger)";
+        }
+      });
       if(kind === "bots"){
         ["Coral","Bubbles","Pip"].forEach(function(nm){ host.addPlayer(uid(), nm, true); });
       }
@@ -2476,7 +2588,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function newController(code, name){
       return {
         code:code, name:name, id:uid(), bus:null,
-        color:"#888", colorName:"", welcomed:false, joinTries:0, joinTimer:null,
+        color:"#888", colorName:"", welcomed:false, joinTries:0, joinTimer:null, connError:null,
         phase:"lobby", soloMode:false, isDefender:true, theme:"medieval",
         neonWeapon:"bolt", neonCharging:false, neonBoltDraw:false, beamHeld:false,
         pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
@@ -2636,16 +2748,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       ctrl = newController(code, name);
       ctrl.bus = makeBus(code, ctrl.id);
       ctrl.bus.on(ctrlOnMessage);
+      ctrl.bus.onError(function(err){
+        if(!ctrl) return;
+        ctrl.connError = (err && err.message) ? err.message : String(err);
+        if(!ctrl.welcomed)
+          $("join-status").textContent = "Connection problem: " + ctrl.connError + " — still trying to join…";
+      });
       ctrl.bus.send("join", { name:name });
+      /* Keep knocking until the host answers. Stopping after ~15s (the old
+         behavior) stranded the phone whenever the host was slow to start
+         listening — asleep tab, page still loading, slow network. */
       ctrl.joinTimer = setInterval(function(){
         if(!ctrl || ctrl.welcomed) { clearInterval(ctrl && ctrl.joinTimer); return; }
         ctrl.joinTries += 1;
-        if(ctrl.joinTries > 6){
-          clearInterval(ctrl.joinTimer);
-          $("join-status").textContent = "No host answered for code " + code + ". Check the code and that the host screen is open.";
-          return;
-        }
         ctrl.bus.send("join", { name:name });
+        if(ctrl.connError) return; /* the real error is already on screen */
+        if(ctrl.joinTries === 8){
+          $("join-status").textContent = "No host answered for code " + code + " yet — still trying. " +
+            "Check the code, and that the host screen is open on the lobby for this match.";
+        } else if(ctrl.joinTries > 8 && ctrl.joinTries % 12 === 0){
+          $("join-status").textContent = "Still trying to reach the host for code " + code +
+            "… (" + Math.round(ctrl.joinTries * 2.5) + "s)";
+        }
       }, 2500);
       ctrl.aimTimer = setInterval(function(){
         if(!ctrl || !ctrl.welcomed) return;
@@ -3105,7 +3229,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("btn-defense").addEventListener("click", function(){ startHost("defense"); });
       $("btn-neon").addEventListener("click", function(){ startHost("neon"); });
       $("btn-go-join").addEventListener("click", function(){ showView("view-join"); });
-      $("btn-join-back").addEventListener("click", function(){ showView("view-home"); });
+      $("btn-join-back").addEventListener("click", function(){ teardownController(); showView("view-home"); });
       $("btn-join").addEventListener("click", function(){
         var code = ($("join-code").value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
         var name = ($("join-name").value || "").trim() || ("Archer " + Math.floor(rand(10, 99)));
