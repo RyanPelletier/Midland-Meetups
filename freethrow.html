@@ -1,0 +1,1496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Basketball Free-Throw Shooter</title>
+    <script>
+/* qrcode-generator 1.4.4 (MIT) — inlined so this file is fully standalone */
+/**
+ * Minified by jsDelivr using Terser v5.37.0.
+ * Original file: /npm/qrcode-generator@1.4.4/qrcode.js
+ *
+ * Do NOT use SRI with dynamically generated files! More information: https://www.jsdelivr.com/using-sri-with-dynamic-files
+ */
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,(function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1}))},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(n*r,o*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}((function(){return qrcode}));
+//# sourceMappingURL=/sm/26b4b0d0b1e283d6b3ec9857ac597d7a60c76ac17be1ef4c965f03086de426bb.map
+    </script>
+    <style>
+      :root{
+        color-scheme: light dark;
+        --bg:#f3ecdd; --panel:#fffaf0; --panel2:#f8efdb; --ink:#2e2417; --muted:#7a6a52;
+        --accent:#b3541e; --accent-ink:#fff7ea; --green:#3e6b34; --line:#e0d3b8;
+        --danger:#c0392b; --shadow:0 10px 30px rgba(62,42,16,.18);
+      }
+      @media (prefers-color-scheme: dark){
+        :root{
+          --bg:#1c1712; --panel:#2a2119; --panel2:#332820; --ink:#f0e6d2; --muted:#b3a284;
+          --accent:#e07b39; --accent-ink:#221503; --green:#7fb069; --line:#453723;
+          --danger:#e06c5c; --shadow:0 10px 30px rgba(0,0,0,.5);
+        }
+      }
+      *{ box-sizing:border-box; }
+      html,body{ margin:0; padding:0; }
+      body{
+        background:var(--bg); color:var(--ink);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      h1,h2,h3{ font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif; margin:0; }
+      .hidden{ display:none !important; }
+      main{ max-width:1460px; margin:0 auto; padding:16px; }
+      button, input{ font:inherit; }
+      button{ min-height:44px; }
+      .btn{
+        display:inline-flex; align-items:center; justify-content:center; gap:8px;
+        border:2px solid var(--accent); background:var(--accent); color:var(--accent-ink);
+        font-weight:700; font-size:17px; padding:10px 22px; border-radius:12px; cursor:pointer;
+      }
+      .btn:active{ transform:translateY(1px); }
+      .btn.ghost{ background:transparent; color:var(--accent); }
+      .btn.green{ background:var(--green); border-color:var(--green); color:#fff; }
+      .btn.small{ min-height:38px; padding:6px 14px; font-size:15px; border-radius:10px; }
+      .btn[disabled]{ opacity:.45; cursor:not-allowed; }
+      .card{
+        background:var(--panel); border:1px solid var(--line); border-radius:16px;
+        box-shadow:var(--shadow); padding:22px;
+      }
+      .muted{ color:var(--muted); }
+      .center{ text-align:center; }
+
+      /* ---------- home ---------- */
+      #view-home{ max-width:560px; margin:4vh auto 0; }
+      .home-card{ text-align:center; padding:34px 28px; }
+      .home-ball{ display:block; margin:0 auto 10px; }
+      .home-card h1{ font-size:38px; line-height:1.15; letter-spacing:.5px; }
+      .home-card .tag{ font-size:18px; color:var(--muted); margin:8px 0 26px; }
+      .home-actions{ display:grid; gap:12px; }
+      .home-actions .btn{ width:100%; font-size:19px; padding:14px; }
+      .divider{ display:flex; align-items:center; gap:12px; color:var(--muted); margin:20px 0 4px; font-size:14px; }
+      .divider::before,.divider::after{ content:""; flex:1; border-top:1px solid var(--line); }
+      .howto{ text-align:left; margin-top:24px; font-size:15px; line-height:1.55; color:var(--muted); }
+      .howto b{ color:var(--ink); }
+
+      /* ---------- join ---------- */
+      #view-join{ max-width:480px; margin:4vh auto 0; }
+      .field{ margin:16px 0; text-align:left; }
+      .field label{ display:block; font-weight:700; margin-bottom:6px; }
+      .field input{
+        width:100%; padding:13px 14px; font-size:20px; border:2px solid var(--line);
+        border-radius:10px; background:var(--panel2); color:var(--ink);
+      }
+      #join-code{ text-transform:uppercase; letter-spacing:6px; font-weight:800; text-align:center; font-size:28px; }
+      #join-status{ min-height:24px; margin-top:12px; font-weight:600; }
+
+      /* ---------- host / arena ---------- */
+      #host-top{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+      #host-top h2{ font-size:26px; }
+      .chip{
+        display:inline-flex; align-items:center; gap:7px; background:var(--panel);
+        border:1px solid var(--line); border-radius:999px; padding:6px 14px; font-weight:700;
+      }
+      .chip .dot{ width:12px; height:12px; border-radius:50%; }
+      #hud-timer{ font-size:34px; font-weight:900; font-variant-numeric:tabular-nums; line-height:1; }
+      #host-alert{
+        background:#fbe9e4; color:var(--danger); border:1px solid var(--danger);
+        border-radius:10px; padding:9px 14px; font-weight:700; margin-bottom:12px; font-size:15px;
+      }
+      #host-main{ display:flex; gap:14px; align-items:flex-start; }
+      #canvas-wrap{ flex:1 1 auto; min-width:0; }
+      #game-canvas{
+        width:100%; height:auto; display:block; border-radius:14px;
+        border:1px solid var(--line); box-shadow:var(--shadow); background:#f6e3c5;
+      }
+      #host-status{ margin-top:9px; font-size:15px; font-weight:600; color:var(--muted); min-height:20px; }
+      #host-side{ flex:0 0 340px; width:340px; display:grid; gap:14px; align-content:start; }
+      @media (max-width:900px){
+        #host-main{ flex-direction:column; }
+        #host-side{ flex:none; width:100%; }
+      }
+      #qr-box{ width:190px; height:190px; margin:10px auto; background:#fff; border-radius:10px; padding:8px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+      #qr-box svg{ width:100%; height:100%; }
+      .big-code{ font-size:52px; font-weight:900; letter-spacing:10px; text-align:center; line-height:1.05; }
+      .join-url{ font-size:12.5px; word-break:break-all; color:var(--muted); text-align:center; }
+      .player-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; min-height:36px; }
+      .pchip{
+        display:inline-flex; align-items:center; gap:7px; padding:7px 13px; border-radius:999px;
+        color:#fff; font-weight:700; font-size:15px; text-shadow:0 1px 2px rgba(0,0,0,.35);
+      }
+      .score-row{
+        display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line);
+      }
+      .score-row:last-child{ border-bottom:none; }
+      .score-row .rk{ font-size:22px; font-weight:900; width:34px; flex:none; color:var(--muted); font-variant-numeric:tabular-nums; }
+      .score-row .dot{ width:16px; height:16px; border-radius:50%; flex:none; box-shadow:inset 0 0 0 2px rgba(0,0,0,.18); }
+      .score-row .nm{ flex:1; font-weight:700; font-size:19px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .score-row .sc{ font-weight:900; font-size:32px; font-variant-numeric:tabular-nums; line-height:1; }
+      .score-row.leader{ background:var(--panel2); border-radius:10px; }
+      #end-overlay{
+        position:fixed; inset:0; background:rgba(20,12,4,.55); display:flex;
+        align-items:center; justify-content:center; padding:16px; z-index:40;
+      }
+      #end-card{ max-width:520px; width:100%; text-align:center; }
+      #end-title{ font-size:40px; line-height:1.15; }
+      #end-sub{ font-size:19px; font-weight:700; margin-top:6px; }
+      #end-standings{ text-align:left; margin:16px 0; }
+
+      /* ---------- controller ---------- */
+      #view-controller{ max-width:560px; margin:0 auto; }
+      #ctrl-band{
+        border-radius:14px; padding:12px 16px; color:#fff; margin-bottom:12px;
+        text-shadow:0 1px 3px rgba(0,0,0,.4); box-shadow:var(--shadow);
+      }
+      #ctrl-band .row1{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+      #ctrl-name{ font-size:22px; font-weight:900; }
+      #ctrl-time{ font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; }
+      #ctrl-band .row2{ display:flex; gap:18px; margin-top:4px; font-size:17px; font-weight:700; flex-wrap:wrap; }
+      #ctrl-band .row2 b{ font-size:24px; }
+      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:18px; }
+      #wait-panel{ text-align:center; padding:30px 20px; }
+      #wait-panel .big{ font-size:24px; font-weight:800; margin-bottom:8px; }
+      #end-banner{ text-align:center; font-size:19px; font-weight:800; padding:14px; margin-bottom:12px; }
+      #flick-panel{ padding:14px; }
+      #flick-area{
+        position:relative; height:52vh; min-height:320px; border-radius:14px; overflow:hidden;
+        touch-action:none; user-select:none; -webkit-user-select:none; cursor:pointer;
+        box-shadow:inset 0 0 0 3px rgba(255,255,255,.35), var(--shadow);
+      }
+      #flick-area .hoop-hint{
+        position:absolute; top:14px; left:50%; transform:translateX(-50%);
+        font-size:44px; line-height:1; opacity:.9; pointer-events:none;
+      }
+      #flick-ball{
+        position:absolute; left:50%; bottom:26px; width:92px; height:92px; margin-left:-46px;
+        pointer-events:none; filter:drop-shadow(0 6px 8px rgba(0,0,0,.35));
+      }
+      #flick-msg{
+        position:absolute; left:0; right:0; bottom:132px; text-align:center;
+        font-size:24px; font-weight:900; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.45);
+        pointer-events:none; padding:0 12px;
+      }
+      #cool-wrap{
+        height:12px; background:rgba(0,0,0,.18); border-radius:999px; overflow:hidden; margin-top:12px;
+      }
+      #cool-fill{ height:100%; width:100%; background:var(--accent); }
+      #flick-note{ text-align:center; font-weight:700; margin:10px 0 0; min-height:22px; }
+      #ctrl-toast{
+        position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:70;
+        background:var(--ink); color:var(--bg); font-weight:700; padding:11px 20px; border-radius:999px;
+        box-shadow:var(--shadow); max-width:92vw; text-align:center; font-size:17px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- ================= HOME ================= -->
+      <section id="view-home">
+        <div class="card home-card">
+          <svg class="home-ball" width="92" height="92" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="46" fill="#d2691e" stroke="#8a4413" stroke-width="3"/>
+            <path d="M4 50 H96 M50 4 V96 M18 18 C38 38, 38 62, 18 82 M82 18 C62 38, 62 62, 82 82" stroke="#8a4413" stroke-width="3" fill="none"/>
+          </svg>
+          <h1>Basketball Free-Throw Shooter</h1>
+          <p class="tag">The TV is the court. Your phone is your shooting hand — flick to shoot.</p>
+          <div class="home-actions">
+            <button class="btn green" id="btn-host">Host a match on this screen</button>
+            <button class="btn ghost" id="btn-bots">Bot demo — no phones needed</button>
+          </div>
+          <div class="divider">playing on your phone?</div>
+          <div class="home-actions">
+            <button class="btn" id="btn-go-join">Join a match</button>
+          </div>
+          <div class="howto">
+            <p><b>Host:</b> open this page on the laptop or TV, start a match, and players scan the QR code to join. Up to 8 players, each with their own ball color.</p>
+            <p><b>Players:</b> flick up on your phone to shoot. Flick direction aims, flick speed is power. One flick, one ball.</p>
+            <p><b>Scoring:</b> still baskets are worth <b>2 points</b>, moving baskets <b>3 points</b>. 90 seconds, unlimited balls — most points when the clock hits zero wins. Tied at the top? You share the win.</p>
+            <p><b>Bot demo:</b> four bots play a match by themselves — handy as an idle screen, or to see how it runs before the crowd arrives.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= JOIN ================= -->
+      <section id="view-join" class="hidden">
+        <div class="card">
+          <h2 style="font-size:30px;">Join a match</h2>
+          <div class="field">
+            <label for="join-code">Match code</label>
+            <input id="join-code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" />
+          </div>
+          <div class="field">
+            <label for="join-name">Your name</label>
+            <input id="join-name" maxlength="14" autocomplete="off" placeholder="e.g. Steph" />
+          </div>
+          <button class="btn" id="btn-join" style="width:100%; font-size:19px; padding:14px;">Join</button>
+          <div id="join-status" class="center"></div>
+          <button class="btn ghost small" id="btn-join-back" style="margin-top:8px;">Back</button>
+        </div>
+      </section>
+
+      <!-- ================= HOST ================= -->
+      <section id="view-arena" class="hidden">
+        <div id="host-top">
+          <h2>Basketball Free-Throw Shooter</h2>
+          <span class="chip">Code <span id="hud-code" style="letter-spacing:3px;">····</span></span>
+          <span class="chip" id="hud-phase">Lobby</span>
+          <span class="chip">Time&nbsp;<span id="hud-timer">1:30</span></span>
+          <span style="flex:1"></span>
+          <button class="btn ghost small" id="btn-leave-host">End match</button>
+        </div>
+        <div id="host-alert" class="hidden"></div>
+        <div id="host-main">
+          <div id="canvas-wrap">
+            <canvas id="game-canvas" width="1280" height="720"></canvas>
+            <div id="host-status">Still baskets 2 pts · Moving baskets 3 pts · 90 seconds · most points wins.</div>
+          </div>
+          <div id="host-side">
+            <div class="card" id="lobby-panel">
+              <h3 class="center" style="font-size:21px;">Join the match</h3>
+              <div id="qr-box"><span class="muted" style="font-size:13px;">QR loading…</span></div>
+              <div class="big-code" id="lobby-code">····</div>
+              <p class="join-url" id="join-url"></p>
+              <p class="center muted" style="margin:8px 0 0;">Scan the QR code, or open this page on your phone and enter the code.</p>
+              <div class="player-chips" id="lobby-players"></div>
+              <button class="btn green" id="btn-start" style="width:100%; font-size:19px; padding:13px;">Start match</button>
+              <p class="center muted" id="start-note" style="font-size:13.5px; margin:10px 0 0;">Waiting for players to join…</p>
+              <p class="center" id="conn-note" style="font-size:13.5px; margin:6px 0 0; min-height:18px;">Connecting to the live match service…</p>
+            </div>
+            <div class="card" id="score-panel">
+              <h3 style="font-size:19px; margin-bottom:6px;">Scoreboard</h3>
+              <div id="score-list"><p class="muted">No players yet.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CONTROLLER ================= -->
+      <section id="view-controller" class="hidden">
+        <div id="ctrl-band">
+          <div class="row1">
+            <span id="ctrl-name">Player</span>
+            <span id="ctrl-time">1:30</span>
+          </div>
+          <div class="row2">
+            <span>Score <b id="ctrl-score">0</b></span>
+            <span>Rank <b id="ctrl-rank">–</b></span>
+            <span id="ctrl-phase-label">Lobby</span>
+          </div>
+        </div>
+
+        <div class="panel hidden" id="end-banner"></div>
+
+        <div class="panel" id="wait-panel">
+          <div class="big" id="wait-title">You're in!</div>
+          <p class="muted" id="wait-text" style="margin:0;">Waiting for the host to start the match. Your balls launch from your colored pad at the bottom of the big screen — watch for your color.</p>
+        </div>
+
+        <div class="panel hidden" id="flick-panel">
+          <div id="flick-area">
+            <div class="hoop-hint" aria-hidden="true">
+              <svg width="72" height="52" viewBox="0 0 72 52"><rect x="6" y="2" width="60" height="34" rx="4" fill="#fff" stroke="#b3541e" stroke-width="3"/><rect x="24" y="12" width="24" height="16" fill="none" stroke="#b3541e" stroke-width="3"/><line x1="14" y1="40" x2="58" y2="40" stroke="#e07b39" stroke-width="6" stroke-linecap="round"/><path d="M20 42 L26 50 M30 42 L33 50 M42 42 L39 50 M52 42 L46 50" stroke="#fff" stroke-width="2"/></svg>
+            </div>
+            <div id="flick-msg">Flick up to shoot!</div>
+            <svg id="flick-ball" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="46" fill="#d2691e" stroke="#8a4413" stroke-width="3"/>
+              <path d="M4 50 H96 M50 4 V96 M18 18 C38 38, 38 62, 18 82 M82 18 C62 38, 62 62, 82 82" stroke="#8a4413" stroke-width="3" fill="none"/>
+            </svg>
+          </div>
+          <div id="cool-wrap"><div id="cool-fill"></div></div>
+          <p id="flick-note">Flick direction aims · flick speed is power</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- end overlay (host) -->
+    <div id="end-overlay" class="hidden">
+      <div class="card" id="end-card">
+        <h2 id="end-title">Match over</h2>
+        <div id="end-sub"></div>
+        <div id="end-standings"></div>
+        <button class="btn green" id="btn-play-again" style="width:100%; margin-bottom:10px;">Back to lobby</button>
+        <button class="btn ghost" id="btn-end-home" style="width:100%;">Close match</button>
+      </div>
+    </div>
+
+    <div id="ctrl-toast" class="hidden"></div>
+
+    <script>
+    /* =====================================================================
+       BASKETBALL FREE-THROW SHOOTER — single-file party game in the same
+       family as Ryan's Range of Recklessness and Paint Garden.
+       The laptop/TV ("Host a match") runs the court on a big canvas and is
+       the scoring authority. Phones are shooting hands: one flick sends one
+       discrete "shoot" message carrying the flick vector.
+       Transport is Firestore in the shared paint-garden project under
+       games/freethrow/matches/{code}/messages, with a BroadcastChannel
+       local fallback (host + controllers as tabs of one browser) and a
+       bot demo that needs no phones.
+       ===================================================================== */
+
+    /* Same Firebase project as Paint Garden and the Range (project
+       "paint-garden"). This game uses its own namespace:
+       games/freethrow/matches/{code}/messages */
+    var FIREBASE_CONFIG = {
+      apiKey: "AIzaSyB5B_F2yt6kPiB-b-8mM0jObUVa-PWMH_M",
+      authDomain: "paint-garden.firebaseapp.com",
+      projectId: "paint-garden",
+      storageBucket: "paint-garden.firebasestorage.app",
+      messagingSenderId: "385292682503",
+      appId: "1:385292682503:web:4b707f8d28fb7f04fcb1a2",
+      measurementId: "G-6NGD6YSB52"
+    };
+    var FIREBASE_ENABLED = FIREBASE_CONFIG.apiKey.indexOf("PASTE") !== 0;
+
+    /* ---------------- utilities ---------------- */
+    function $(id){ return document.getElementById(id); }
+    function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+    function rand(a,b){ return a+Math.random()*(b-a); }
+    function uid(){ return "p"+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3); }
+    var CODE_LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ";
+    function makeCode(){ var s=""; for(var i=0;i<4;i++) s+=CODE_LETTERS[Math.floor(Math.random()*CODE_LETTERS.length)]; return s; }
+    function fmtTime(sec){ sec=Math.max(0,Math.ceil(sec)); var m=Math.floor(sec/60), s=sec%60; return m+":"+(s<10?"0":"")+s; }
+    function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+    /* Script-load failures arrive as Events, not Errors — never let a
+       "[object Event]" reach the screen. */
+    function errText(err){
+      if(!err) return "unknown error";
+      if(err.message) return err.message;
+      if(err.type) return "the live match service could not be loaded (" + err.type + ")";
+      return String(err);
+    }
+
+    /* ---------------- transports ---------------- */
+    /* Local demo bus: BroadcastChannel, one channel per match code. */
+    function LocalBus(code, clientId){
+      this.clientId = clientId; this.onDeliver = null; this.bc = null;
+      var self = this;
+      if("BroadcastChannel" in window){ try{ this.bc = new BroadcastChannel("freethrow-"+code); }catch(e){ this.bc = null; } }
+      if(this.bc){ this.bc.onmessage = function(ev){ var m = ev.data; if(m && m.from !== self.clientId && self.onDeliver) self.onDeliver(m); }; }
+    }
+    LocalBus.prototype.send = function(type, data, to){
+      var msg = { from:this.clientId, type:type, data:data||{}, to:to||null, t:Date.now() };
+      if(this.bc){ try{ this.bc.postMessage(msg); }catch(e){} }
+    };
+    LocalBus.prototype.close = function(){ if(this.bc){ try{ this.bc.close(); }catch(e){} } };
+
+    /* Firestore bus: Paint Garden's message shape {from,type,to,t,dataJson},
+       stored under games/freethrow/matches/{code}/messages. */
+    function loadScript(src){
+      return new Promise(function(res, rej){
+        var s = document.createElement("script"); s.src = src;
+        s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+    }
+    function FirestoreBus(code, clientId, opts){
+      this.clientId = clientId; this.onDeliver = null; this.onError = null; this.onReady = null;
+      this.ready = false;
+      this.unsub = null; this.col = null; this.queue = []; this.code = code;
+      this.seen = {};   /* doc ids already delivered — the live listener and the join catch-up overlap */
+      this.catchUpJoins = !!(opts && opts.catchUpJoins);
+      this.closed = false;
+    }
+    FirestoreBus.prototype.fail = function(err){
+      if(this.onError) this.onError(err);
+    };
+    FirestoreBus.prototype.deliverDoc = function(id, msg){
+      if(this.closed || !msg || this.seen[id]) return;
+      this.seen[id] = true;
+      if(msg.from === this.clientId) return;
+      try{ msg.data = JSON.parse(msg.dataJson || "{}"); }catch(e){ msg.data = {}; }
+      /* Never let one bad message throw into onSnapshot's docChanges loop
+         and abort the rest of the batch (or the listener itself). */
+      if(this.onDeliver){ try{ this.onDeliver(msg); }catch(err){ this.fail(err); } }
+    };
+    FirestoreBus.prototype.init = function(){
+      var self = this;
+      return loadScript("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js")
+        .then(function(){ return loadScript("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"); })
+        .then(function(){
+          if(typeof firebase === "undefined") throw new Error("Firebase SDK did not load");
+          if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+          self.db = firebase.firestore();
+          self.col = self.db.collection("games").doc("freethrow").collection("matches").doc(self.code).collection("messages");
+          /* The sender stamps t with THEIR clock, so the listen window must
+             absorb clock differences between devices plus slow listener
+             attach (SDK load, tab waking). */
+          var start = Date.now() - 30000;
+          self.unsub = self.col.where("t", ">", start).onSnapshot(function(snap){
+            snap.docChanges().forEach(function(ch){
+              if(ch.type !== "added") return;
+              self.deliverDoc(ch.doc.id, ch.doc.data());
+            });
+          }, function(err){
+            /* A denied/dead listener must not fail silently: the host would
+               sit in its lobby while phones timed out. Surface it. */
+            self.fail(err);
+          });
+          self.ready = true;
+          if(self.onReady) self.onReady();
+          var q = self.queue; self.queue = [];
+          q.forEach(function(item){ self.send(item[0], item[1], item[2]); });
+          /* Catch-up (host only): a join written before this listener
+             attached — host tab asleep, reloading, or still loading the
+             SDK — sits outside even the widened window. Fetch recent joins
+             once and answer them; joining is idempotent on the host, so
+             replaying one is harmless. */
+          if(self.catchUpJoins){
+            self.col.where("t", ">", Date.now() - 10 * 60 * 1000).get().then(function(snap){
+              snap.forEach(function(doc){
+                var msg = doc.data();
+                if(msg && msg.type === "join") self.deliverDoc(doc.id, msg);
+              });
+            }).catch(function(err){ self.fail(err); });
+          }
+        });
+    };
+    FirestoreBus.prototype.send = function(type, data, to){
+      if(!this.ready || !this.col){ this.queue.push([type, data, to]); return; }
+      var self = this;
+      this.col.add({ from:this.clientId, type:type, to:to||null, t:Date.now(), dataJson: JSON.stringify(data||{}) })
+        .catch(function(err){ self.fail(err); });
+    };
+    FirestoreBus.prototype.close = function(){ this.closed = true; if(this.unsub) this.unsub(); };
+
+    /* Wrapper: tries Firestore, falls back to the local bus if the SDK or
+       config fails; buffers sends until a transport is live. Connection
+       failures are reported through onError instead of being swallowed —
+       the local fallback only reaches tabs of the same browser, so a
+       silent fallback strands phones with no explanation. */
+    function makeBus(code, clientId, opts){
+      var handlers = [], errHandlers = [], readyHandlers = [], impl = null, pending = [], isReady = false;
+      function deliver(msg){
+        if(!msg || msg.from === clientId) return;
+        if(msg.to && msg.to !== clientId) return;
+        /* Isolate each handler: one throwing handler must not stop the
+           remaining messages in the delivery batch from being handled. */
+        for(var i=0;i<handlers.length;i++){
+          try{ handlers[i](msg); }catch(err){ emitError(err); }
+        }
+      }
+      function emitError(err){
+        for(var i=0;i<errHandlers.length;i++) errHandlers[i](err);
+      }
+      function emitReady(){
+        isReady = true;
+        var r = readyHandlers; readyHandlers = [];
+        r.forEach(function(fn){ fn(); });
+      }
+      function setImpl(b){
+        impl = b;
+        var p = pending; pending = [];
+        p.forEach(function(item){ impl.send(item[0], item[1], item[2]); });
+      }
+      var bus = {
+        send: function(type, data, to){
+          if(impl) impl.send(type, data, to); else pending.push([type, data, to]);
+        },
+        on: function(fn){ handlers.push(fn); },
+        onError: function(fn){ errHandlers.push(fn); },
+        onReady: function(fn){ if(isReady) fn(); else readyHandlers.push(fn); },
+        close: function(){ if(impl && impl.close) impl.close(); handlers = []; errHandlers = []; readyHandlers = []; }
+      };
+      if(FIREBASE_ENABLED){
+        var fb = new FirestoreBus(code, clientId, opts);
+        fb.onDeliver = deliver;
+        fb.onError = emitError;
+        fb.onReady = emitReady;
+        fb.init().then(function(){ setImpl(fb); }).catch(function(err){
+          emitError(err);
+          fb.close();
+          var lb = new LocalBus(code, clientId); lb.onDeliver = deliver; setImpl(lb);
+          emitReady();
+        });
+      } else {
+        var lb2 = new LocalBus(code, clientId); lb2.onDeliver = deliver; setImpl(lb2);
+        emitReady();
+      }
+      return bus;
+    }
+
+    /* ---------------- views ---------------- */
+    var VIEWS = ["view-home","view-join","view-arena","view-controller"];
+    function showView(id){
+      VIEWS.forEach(function(v){ $(v).classList.toggle("hidden", v !== id); });
+      window.scrollTo(0,0);
+    }
+
+    /* =====================================================================
+       GAME CONSTANTS
+       ===================================================================== */
+    var AW = 1280, AH = 720;
+    var ROUND_SECONDS = 90;
+    var GRAV = 1500;            /* px/s^2, downward */
+    var BALL_R = 16;
+    var RIM_HALF = 30;          /* rim opening half-width */
+    var SCORE_TOL = 13;         /* forgiving extra width on a make */
+    var MAX_PLAYERS = 8;
+    var COOLDOWN_MS = 800;      /* one flick per player per 0.8s, host-enforced */
+    var MAX_BALLS = 42;
+    var PALETTE = [
+      { name:"Red",    css:"#c0392b" },
+      { name:"Blue",   css:"#2471a3" },
+      { name:"Green",  css:"#1e8449" },
+      { name:"Purple", css:"#7d3c98" },
+      { name:"Teal",   css:"#148f77" },
+      { name:"Pink",   css:"#c2185b" },
+      { name:"Brown",  css:"#8d6e63" },
+      { name:"Slate",  css:"#546e7a" }
+    ];
+
+    /* Six baskets: three still (2 pts), three moving (3 pts). Moving hoops
+       ride a sine path around their base point; cx/cy are the live rim
+       center, recomputed every frame. */
+    function makeHoops(){
+      return [
+        { baseX:190,  baseY:295, moving:false, pts:2, axis:"x", range:0,   w:0,   ph:0,            cx:190,  cy:295, flash:0 },
+        { baseX:640,  baseY:200, moving:false, pts:2, axis:"x", range:0,   w:0,   ph:0,            cx:640,  cy:200, flash:0 },
+        { baseX:1090, baseY:295, moving:false, pts:2, axis:"x", range:0,   w:0,   ph:0,            cx:1090, cy:295, flash:0 },
+        { baseX:395,  baseY:440, moving:true,  pts:3, axis:"x", range:125, w:1.5, ph:0,            cx:395,  cy:440, flash:0 },
+        { baseX:885,  baseY:440, moving:true,  pts:3, axis:"x", range:125, w:1.5, ph:Math.PI,     cx:885,  cy:440, flash:0 },
+        { baseX:640,  baseY:400, moving:true,  pts:3, axis:"y", range:62,  w:2.0, ph:0,            cx:640,  cy:400, flash:0 }
+      ];
+    }
+    function hoopPos(h, t){
+      if(!h.moving) return { x:h.baseX, y:h.baseY };
+      var s = Math.sin(t * h.w + h.ph) * h.range;
+      return h.axis === "x" ? { x:h.baseX + s, y:h.baseY } : { x:h.baseX, y:h.baseY + s };
+    }
+
+    /* =====================================================================
+       GAME STATE (host-authoritative)
+       ===================================================================== */
+    function Game(code){
+      this.code = code;
+      this.phase = "lobby";           /* lobby | playing | ended */
+      this.players = {}; this.order = [];
+      this.balls = []; this.popups = [];
+      this.hoops = makeHoops();
+      this.timeLeft = ROUND_SECONDS;
+      this.elapsed = 0;
+      this.demo = false;
+      this.goFlash = 0;
+      this.scoreDirty = true;
+    }
+    Game.prototype.playerList = function(){
+      var self = this;
+      return this.order.map(function(id){ return self.players[id]; }).filter(Boolean);
+    };
+    Game.prototype.addPlayer = function(id, name, isBot, skill){
+      var existing = this.players[id];
+      if(existing) return existing;
+      var idx = this.order.length % PALETTE.length;
+      var p = {
+        id:id,
+        name:(typeof name === "string" && name.trim()) ? name.trim().slice(0, 14) : "Player",
+        isBot:!!isBot,
+        colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
+        score:0, shots:0, lastShotAt:0,
+        botSkill: skill == null ? rand(0.35, 0.9) : skill,
+        botNext: rand(0.8, 2.2),
+        _psKey:null, _psAt:0, _psPending:null, _psTimer:null
+      };
+      this.players[id] = p; this.order.push(id);
+      this.scoreDirty = true;
+      return p;
+    };
+    Game.prototype.launchX = function(p){
+      var n = Math.max(1, this.order.length);
+      var i = this.order.indexOf(p.id);
+      if(n === 1) return AW / 2;
+      return 150 + (AW - 300) * (i / (n - 1));
+    };
+    Game.prototype.rankOf = function(p){
+      var r = 1, list = this.playerList();
+      for(var i=0;i<list.length;i++) if(list[i].score > p.score) r++;
+      return r;
+    };
+    Game.prototype.resetMatch = function(){
+      this.playerList().forEach(function(p){ p.score = 0; p.shots = 0; p.lastShotAt = 0; p.botNext = rand(0.6, 2.0); });
+      this.balls = []; this.popups = [];
+      this.hoops = makeHoops();
+      this.timeLeft = ROUND_SECONDS; this.elapsed = 0;
+      this.scoreDirty = true;
+    };
+
+    /* One flick = one ball. The host enforces the cooldown: a flick that
+       arrives inside the window is dropped, whatever the phone claims. */
+    function hostShoot(game, p, lean, power){
+      if(game.phase !== "playing") return false;
+      var now = Date.now();
+      if(now - p.lastShotAt < COOLDOWN_MS - 60) return false;
+      p.lastShotAt = now;
+      p.shots++;
+      lean = clamp(typeof lean === "number" ? lean : 0, -1, 1);
+      power = clamp(typeof power === "number" ? power : 0.5, 0.15, 1);
+      if(game.balls.length >= MAX_BALLS) game.balls.shift();
+      game.balls.push({
+        x: game.launchX(p) + rand(-5, 5), y: AH - 16,
+        vx: lean * 560, vy: -(640 + power * 720),
+        color: p.color, pid: p.id, scored: -1, spin: rand(0, 6.28), dead: false
+      });
+      return true;
+    }
+
+    /* Bots aim at a random basket: solve the arc for a chosen flight time,
+       then blur the target by (1 - skill). Skilled bots drop a lot of
+       shots; clumsy ones keep the chaos honest. */
+    function botShoot(game, p){
+      var h = game.hoops[Math.floor(Math.random() * game.hoops.length)];
+      var lx = game.launchX(p), ly = AH - 16;
+      var err = (1 - p.botSkill) * 95 + rand(-14, 14);
+      var tx = h.cx + err, ty = h.cy;
+      var T = rand(0.95, 1.25);
+      var vx = (tx - lx) / T;
+      var vy = (ty - ly - 0.5 * GRAV * T * T) / T;
+      if(game.balls.length >= MAX_BALLS) game.balls.shift();
+      game.balls.push({
+        x: lx, y: ly, vx: vx, vy: vy,
+        color: p.color, pid: p.id, scored: -1, spin: rand(0, 6.28), dead: false
+      });
+      p.lastShotAt = Date.now();
+      p.shots++;
+    }
+
+    function updateGame(game, dt){
+      game.elapsed += dt;
+      var t = game.elapsed;
+      game.hoops.forEach(function(h){
+        var pos = hoopPos(h, t);
+        h.cx = pos.x; h.cy = pos.y;
+        if(h.flash > 0) h.flash = Math.max(0, h.flash - dt * 2.2);
+      });
+      if(game.goFlash > 0) game.goFlash = Math.max(0, game.goFlash - dt);
+
+      if(game.phase === "playing"){
+        game.timeLeft -= dt;
+        /* bots */
+        game.playerList().forEach(function(p){
+          if(!p.isBot) return;
+          p.botNext -= dt;
+          if(p.botNext <= 0){
+            botShoot(game, p);
+            p.botNext = rand(1.1, 2.3) * (1.25 - p.botSkill * 0.5);
+          }
+        });
+        if(game.timeLeft <= 0){
+          game.timeLeft = 0;
+          endMatch(game);
+        }
+      }
+
+      /* balls */
+      for(var i = game.balls.length - 1; i >= 0; i--){
+        var b = game.balls[i];
+        stepBall(game, b, dt);
+        if(b.dead) game.balls.splice(i, 1);
+      }
+      /* popups */
+      for(var j = game.popups.length - 1; j >= 0; j--){
+        var pp = game.popups[j];
+        pp.t += dt; pp.y -= 44 * dt;
+        if(pp.t > 1.1) game.popups.splice(j, 1);
+      }
+    }
+
+    function stepBall(game, b, dt){
+      var prevY = b.y;
+      b.vy += GRAV * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.spin += b.vx * dt * 0.01;
+
+      for(var hi = 0; hi < game.hoops.length; hi++){
+        var h = game.hoops[hi];
+        /* --- scoring: falling ball crosses the rim plane inside the
+           opening (plus a forgiving tolerance — near-makes drop). --- */
+        if(b.scored < 0 && b.vy > 0 && prevY < h.cy && b.y >= h.cy &&
+           Math.abs(b.x - h.cx) <= RIM_HALF + SCORE_TOL){
+          b.scored = hi;
+          var shooter = game.players[b.pid];
+          if(shooter && game.phase === "playing"){
+            shooter.score += h.pts;
+            game.scoreDirty = true;
+            game.popups.push({ x:h.cx, y:h.cy - 56, text:"+" + h.pts, color:shooter.color, t:0 });
+            h.flash = 1;
+            game.playerList().forEach(function(pl){ sendPState(game, pl); });
+          }
+        }
+        /* --- through the net: straighten and slow the ball --- */
+        if(b.scored === hi && b.y > h.cy && b.y < h.cy + 42){
+          b.x += (h.cx - b.x) * Math.min(1, dt * 12);
+          b.vx *= 0.75;
+          if(b.vy > 150) b.vy = 150;
+        }
+        /* --- rim posts: two small circles that bounce the ball.
+           Forgiving party rule: a ball still rising from below the rim
+           plane doesn't clip the posts — a dead-center shot's edge would
+           otherwise graze a post on the way up and ricochet wildly.
+           Falling balls rattle off the iron like they should. --- */
+        if(!(b.vy < 0 && b.y > h.cy + 2)){
+          bounceCircle(b, h.cx - RIM_HALF, h.cy, 3.5);
+          bounceCircle(b, h.cx + RIM_HALF, h.cy, 3.5);
+        }
+        /* --- backboard: rectangle above the rim --- */
+        bounceBoard(b, h.cx - 50, h.cy - 104, 100, 62);
+      }
+
+      if(b.y > AH + 40 || b.x < -50 || b.x > AW + 50) b.dead = true;
+    }
+    function bounceCircle(b, cx, cy, cr){
+      var dx = b.x - cx, dy = b.y - cy;
+      var d2 = dx * dx + dy * dy, rr = BALL_R + cr;
+      if(d2 >= rr * rr || d2 === 0) return;
+      var d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+      b.x = cx + nx * rr; b.y = cy + ny * rr;
+      var vn = b.vx * nx + b.vy * ny;
+      if(vn < 0){
+        b.vx -= 1.55 * vn * nx;
+        b.vy -= 1.55 * vn * ny;
+        b.vx *= 0.82; b.vy *= 0.82;
+      }
+    }
+    function bounceBoard(b, rx, ry, rw, rh){
+      var nx = clamp(b.x, rx, rx + rw), ny = clamp(b.y, ry, ry + rh);
+      var dx = b.x - nx, dy = b.y - ny;
+      var d2 = dx * dx + dy * dy;
+      if(d2 >= BALL_R * BALL_R) return;
+      if(d2 > 0.01){
+        var d = Math.sqrt(d2), ux = dx / d, uy = dy / d;
+        b.x = nx + ux * BALL_R; b.y = ny + uy * BALL_R;
+        var vn = b.vx * ux + b.vy * uy;
+        if(vn < 0){ b.vx -= 1.6 * vn * ux; b.vy -= 1.6 * vn * uy; b.vx *= 0.6; b.vy *= 0.6; }
+      } else {
+        /* center inside the board: push out the nearest face */
+        var left = b.x - rx, right = rx + rw - b.x, top = b.y - ry, bot = ry + rh - b.y;
+        var m = Math.min(left, right, top, bot);
+        if(m === left){ b.x = rx - BALL_R; b.vx = -Math.abs(b.vx) * 0.6; }
+        else if(m === right){ b.x = rx + rw + BALL_R; b.vx = Math.abs(b.vx) * 0.6; }
+        else if(m === top){ b.y = ry - BALL_R; b.vy = -Math.abs(b.vy) * 0.6; }
+        else { b.y = ry + rh + BALL_R; b.vy = Math.abs(b.vy) * 0.6; }
+      }
+    }
+
+    /* =====================================================================
+       HOST RENDERING — the court on canvas
+       ===================================================================== */
+    function drawGame(game, now){
+      var cv = $("game-canvas");
+      if(!cv) return;
+      var ctx = cv.getContext("2d");
+
+      /* arena wall */
+      var wall = ctx.createLinearGradient(0, 0, 0, AH);
+      wall.addColorStop(0, "#f8e8cd");
+      wall.addColorStop(0.62, "#f3ddb8");
+      wall.addColorStop(0.63, "#caa06a");
+      wall.addColorStop(1, "#b98548");
+      ctx.fillStyle = wall;
+      ctx.fillRect(0, 0, AW, AH);
+
+      /* crowd band */
+      ctx.fillStyle = "rgba(120,84,40,.20)";
+      ctx.fillRect(0, 54, AW, 64);
+      var ci, cj;
+      for(ci = 0; ci < 64; ci++){
+        for(cj = 0; cj < 3; cj++){
+          var cxp = 12 + ci * 20 + ((cj % 2) ? 6 : 0);
+          var cyp = 68 + cj * 18 + Math.sin(now / 380 + ci * 1.7 + cj) * 2.5;
+          ctx.fillStyle = "hsla(" + ((ci * 47 + cj * 91) % 360) + ",38%,42%,.5)";
+          ctx.beginPath(); ctx.arc(cxp, cyp, 5.2, 0, 6.2832); ctx.fill();
+        }
+      }
+      /* wall banner */
+      ctx.fillStyle = "rgba(179,84,30,.85)";
+      ctx.font = "900 30px 'Trebuchet MS', system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("F R E E - T H R O W   S H O O T E R", AW / 2, 40);
+
+      /* court floor */
+      ctx.fillStyle = "#cf9250";
+      ctx.fillRect(0, AH - 88, AW, 88);
+      ctx.strokeStyle = "rgba(122,74,26,.35)";
+      ctx.lineWidth = 2;
+      for(var px = 0; px <= AW; px += 92){
+        ctx.beginPath(); ctx.moveTo(px, AH - 88); ctx.lineTo(px - 26, AH); ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(255,250,240,.75)";
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(0, AH - 88); ctx.lineTo(AW, AH - 88); ctx.stroke();
+      ctx.beginPath(); ctx.arc(AW / 2, AH + 66, 150, Math.PI, 2 * Math.PI); ctx.stroke();
+
+      /* hoops (behind balls) */
+      game.hoops.forEach(function(h){ drawHoop(ctx, h); });
+
+      /* launch pads */
+      game.playerList().forEach(function(p){
+        var lx = game.launchX(p);
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.ellipse(lx, AH - 12, 30, 9, 0, 0, 6.2832); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.92)";
+        ctx.font = "900 13px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(p.name.slice(0, 1).toUpperCase(), lx, AH - 8);
+      });
+
+      /* balls */
+      game.balls.forEach(function(b){ drawBall(ctx, b); });
+
+      /* score popups */
+      game.popups.forEach(function(pp){
+        var a = pp.t < 0.7 ? 1 : 1 - (pp.t - 0.7) / 0.4;
+        ctx.globalAlpha = Math.max(0, a);
+        ctx.font = "900 40px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.lineWidth = 7; ctx.strokeStyle = "rgba(255,250,240,.95)";
+        ctx.strokeText(pp.text, pp.x, pp.y);
+        ctx.fillStyle = pp.color;
+        ctx.fillText(pp.text, pp.x, pp.y);
+        ctx.globalAlpha = 1;
+      });
+
+      /* GO flash */
+      if(game.goFlash > 0){
+        ctx.globalAlpha = Math.min(1, game.goFlash * 1.6);
+        ctx.fillStyle = "#b3541e";
+        ctx.font = "900 110px 'Trebuchet MS', system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("SHOOT!", AW / 2, AH / 2);
+        ctx.globalAlpha = 1;
+      }
+
+      /* final countdown */
+      if(game.phase === "playing" && game.timeLeft <= 10 && game.timeLeft > 0){
+        ctx.fillStyle = "rgba(192,57,43,.92)";
+        ctx.font = "900 54px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(Math.ceil(game.timeLeft), AW / 2, 92);
+      }
+      /* lobby hint on the court itself */
+      if(game.phase === "lobby"){
+        ctx.fillStyle = "rgba(46,36,23,.55)";
+        ctx.font = "800 30px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(game.playerList().length ? "Waiting for the host to start…" : "Waiting for players — scan the code to join!", AW / 2, AH - 118);
+      }
+    }
+
+    function drawHoop(ctx, h){
+      var cx = h.cx, cy = h.cy;
+      /* support pole + arm */
+      ctx.strokeStyle = "#5b4a33"; ctx.lineWidth = 10; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(cx + 64, cy - 74); ctx.lineTo(cx + 96, AH - 88); ctx.stroke();
+      ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.moveTo(cx + 48, cy - 74); ctx.lineTo(cx + 66, cy - 74); ctx.stroke();
+      /* backboard */
+      ctx.fillStyle = h.flash > 0 ? "#ffe9a8" : "#fffaf0";
+      ctx.strokeStyle = "#b3541e"; ctx.lineWidth = 4;
+      roundRect(ctx, cx - 50, cy - 104, 100, 62, 6); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = "#e07b39"; ctx.lineWidth = 3;
+      ctx.strokeRect(cx - 17, cy - 76, 34, 24);
+      /* points label, big on the board */
+      ctx.fillStyle = "#2e2417";
+      ctx.font = "900 25px system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(String(h.pts), cx, cy - 84);
+      if(h.moving){
+        ctx.fillStyle = "#b3541e";
+        ctx.font = "900 11px system-ui, sans-serif";
+        ctx.fillText("MOVING", cx, cy - 50);
+      }
+      /* net */
+      ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 2;
+      for(var i = 0; i < 5; i++){
+        var fx = cx - RIM_HALF + i * (RIM_HALF * 2 / 4);
+        ctx.beginPath(); ctx.moveTo(fx, cy + 2);
+        ctx.lineTo(cx + (fx - cx) * 0.55, cy + 34); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(fx, cy + 2);
+        ctx.lineTo(cx + (fx - cx) * 0.55 + (i % 2 ? 7 : -7), cy + 34); ctx.stroke();
+      }
+      /* rim */
+      ctx.strokeStyle = h.flash > 0 ? "#ffb03a" : "#d35400"; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.ellipse(cx, cy, RIM_HALF, 6, 0, 0, 6.2832); ctx.stroke();
+    }
+    function roundRect(ctx, x, y, w, h, r){
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+    function drawBall(ctx, b){
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,.38)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 6.2832); ctx.stroke();
+      ctx.rotate(b.spin);
+      ctx.beginPath(); ctx.moveTo(-BALL_R, 0); ctx.lineTo(BALL_R, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -BALL_R); ctx.lineTo(0, BALL_R); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-BALL_R * 1.35, 0, BALL_R * 0.95, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(BALL_R * 1.35, 0, BALL_R * 0.95, Math.PI - 0.9, Math.PI + 0.9); ctx.stroke();
+      ctx.restore();
+    }
+
+    /* =====================================================================
+       HOST NETWORKING / FLOW
+       ===================================================================== */
+    var host = null, hostBus = null, hostId = null, hostRAF = null, hostLastTs = 0, demoRestartTimer = null;
+
+    /* Firestore write budget (the project burned its free quota once):
+       pstate is sent only when something a phone displays has changed —
+       score, rank, phase — and at most ~4.5 sends/sec per player. The
+       clock rides along in the payload but does NOT trigger sends; the
+       phone ticks its own clock between syncs. Discrete events (welcome,
+       phase, ended) never pass through here. Flicks and joins are
+       discrete writes from the phones. */
+    var PSTATE_MIN_MS = 220;
+    function emitPState(p, payload, key){
+      if(!hostBus) return;
+      if(key === p._psKey) return;
+      p._psKey = key; p._psAt = Date.now();
+      hostBus.send("pstate", payload, p.id);
+    }
+    function sendPState(game, p){
+      if(!hostBus || !p || p.isBot) return;
+      var payload = {
+        score:p.score, rank:game.rankOf(p), count:game.playerList().length,
+        phase:game.phase, timeLeft:Math.ceil(game.timeLeft)
+      };
+      var keyObj = { score:payload.score, rank:payload.rank, count:payload.count, phase:payload.phase };
+      var key = JSON.stringify(keyObj);
+      if(key === p._psKey){ p._psPending = null; return; }
+      var wait = (p._psAt || 0) + PSTATE_MIN_MS - Date.now();
+      if(wait > 0){
+        /* Inside the rate window: keep only the newest state and flush it
+           when the window opens, so a change is delayed, never lost. */
+        p._psPending = { payload:payload, key:key };
+        if(!p._psTimer){
+          p._psTimer = setTimeout(function(){
+            p._psTimer = null;
+            var pend = p._psPending; p._psPending = null;
+            if(pend) emitPState(p, pend.payload, pend.key);
+          }, wait);
+        }
+        return;
+      }
+      p._psPending = null;
+      emitPState(p, payload, key);
+    }
+    function hostBroadcast(type, data){
+      if(hostBus) hostBus.send(type, data || {});
+    }
+    function sortedPlayers(game){
+      return game.playerList().slice().sort(function(a, b){ return b.score - a.score; });
+    }
+    function renderScores(game){
+      var list = sortedPlayers(game);
+      $("score-list").innerHTML = list.length ? list.map(function(p, i){
+        return '<div class="score-row' + (i === 0 && p.score > 0 ? " leader" : "") + '">' +
+          '<span class="rk">' + (i + 1) + '</span>' +
+          '<span class="dot" style="background:' + p.color + '"></span>' +
+          '<span class="nm">' + esc(p.name) + (p.isBot ? ' <span class="muted" style="font-size:13px;">(bot)</span>' : "") + '</span>' +
+          '<span class="sc">' + p.score + "</span></div>";
+      }).join("") : '<p class="muted">No players yet.</p>';
+    }
+    function renderLobby(game){
+      $("lobby-code").textContent = game.code;
+      $("hud-code").textContent = game.code;
+      var chips = game.playerList().map(function(p){
+        return '<span class="pchip" style="background:' + p.color + '">' + esc(p.name) + (p.isBot ? " (bot)" : "") + "</span>";
+      }).join("");
+      $("lobby-players").innerHTML = chips || '<span class="muted">No players yet — be the first!</span>';
+      var n = game.playerList().length;
+      if(n > 0){ var cn = $("conn-note"); if(cn){ cn.textContent = ""; cn.style.color = ""; } }
+      $("btn-start").disabled = n === 0;
+      $("start-note").textContent = n === 0 ? "Waiting for players to join…" :
+        n + (n === 1 ? " player" : " players") + " in. Start when everyone's ready!";
+      renderScores(game);
+    }
+    function renderQR(code){
+      var url = location.href.split(/[?#]/)[0] + "?code=" + code;
+      $("join-url").textContent = url;
+      var box = $("qr-box");
+      if(window.qrcode){
+        try{
+          var qr = qrcode(0, "M");
+          qr.addData(url); qr.make();
+          box.innerHTML = qr.createSvgTag({ cellSize:5, margin:6, scalable:true });
+          return;
+        }catch(e){ /* fall through to text */ }
+      }
+      box.innerHTML = '<span class="muted" style="font-size:13px; padding:8px; text-align:center;">Open this page on your phone and enter code <b>' + code + "</b></span>";
+    }
+    function hostReportError(context, err){
+      var msg = "Connection problem (" + context + "): " + errText(err);
+      var el = $("conn-note");
+      if(el && host && host.phase === "lobby"){ el.textContent = msg; el.style.color = "var(--danger)"; }
+      var alert = $("host-alert");
+      if(alert){ alert.textContent = msg + " — check this device's internet connection."; alert.classList.remove("hidden"); }
+    }
+    /* Every message is dispatched inside a guard: a throw while handling
+       one message must never propagate into the transport's delivery loop,
+       where it would abort the rest of the batch (two phones joining in
+       the same snapshot is exactly that case) or kill the listener. */
+    function hostOnMessage(msg){
+      if(!host || !msg) return;
+      try{ hostDispatch(msg); }
+      catch(err){ hostReportError("message '" + (msg && msg.type) + "'", err); }
+    }
+    function hostDispatch(msg){
+      var game = host, d = msg.data || {};
+      if(msg.type === "join"){
+        /* A match holds at most 8 players. A phone beyond that is told
+           the match is full, right on its join screen — never silently
+           parked. A phone that is already registered re-joining (its
+           retries) is always answered normally. */
+        if(!game.players[msg.from] && game.order.length >= MAX_PLAYERS){
+          hostBus.send("full", {}, msg.from);
+          return;
+        }
+        var p = null;
+        try{ p = game.addPlayer(msg.from, d.name, false); }
+        catch(err){
+          /* A failed addPlayer must not silently strand the phone with
+             "No host answered": register a minimal player directly and
+             carry on to the welcome. */
+          hostReportError("adding a player", err);
+          var idx = game.order.length % PALETTE.length;
+          p = {
+            id:msg.from, name:(typeof d.name === "string" && d.name.trim()) ? d.name.trim().slice(0, 14) : "Player",
+            isBot:false, colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
+            score:0, shots:0, lastShotAt:0, botSkill:0, botNext:0,
+            _psKey:null, _psAt:0, _psPending:null, _psTimer:null
+          };
+          game.players[msg.from] = p; game.order.push(msg.from);
+        }
+        /* The welcome goes out FIRST — once the phone hears back it is in
+           the match, whatever the lobby bookkeeping below does. */
+        hostBus.send("welcome", { color:p.color, colorName:p.colorName, name:p.name, phase:game.phase }, msg.from);
+        try{ sendPState(game, p); renderLobby(game); }
+        catch(err){ hostReportError("after a player joined", err); }
+      } else if(msg.type === "shoot"){
+        var ps = game.players[msg.from];
+        if(ps) hostShoot(game, ps, d.lean, d.power);
+      }
+    }
+    function startMatch(game){
+      game.resetMatch();
+      game.phase = "playing";
+      game.goFlash = 1;
+      $("lobby-panel").classList.add("hidden");
+      $("end-overlay").classList.add("hidden");
+      $("hud-phase").textContent = "Match running";
+      $("host-status").textContent = "Match running — still baskets 2 pts · moving baskets 3 pts.";
+      hostBroadcast("phase", { phase:"playing", timeLeft:game.timeLeft });
+      game.playerList().forEach(function(p){ sendPState(game, p); });
+      renderScores(game);
+    }
+    function endMatch(game){
+      if(game.phase === "ended") return;
+      game.phase = "ended";
+      $("hud-phase").textContent = "Match over";
+      var standings = sortedPlayers(game).map(function(p){
+        return { id:p.id, name:p.name, color:p.color, score:p.score };
+      });
+      var top = standings.length ? standings[0].score : 0;
+      var winners = standings.filter(function(s){ return s.score === top; });
+      hostBroadcast("ended", { standings:standings, winners:winners.map(function(w){ return w.id; }), top:top });
+      if(!standings.length){
+        $("end-title").textContent = "Match over";
+        $("end-sub").textContent = "";
+      } else if(top === 0){
+        $("end-title").textContent = "No baskets!";
+        $("end-sub").textContent = "Nobody scored — the hoops win this one. Run it back!";
+      } else if(winners.length > 1){
+        $("end-title").textContent = "It's a tie!";
+        $("end-sub").textContent = winners.map(function(w){ return esc(w.name); }).join(" & ") +
+          " share the win with " + top + " points!";
+      } else {
+        $("end-title").textContent = winners[0].name + " wins!";
+        $("end-sub").textContent = top + " points — nice shooting!";
+      }
+      $("end-standings").innerHTML = standings.map(function(s, i){
+        return '<div class="score-row"><span class="rk">' + (i + 1) + '</span>' +
+               '<span class="dot" style="background:' + s.color + '"></span>' +
+               '<span class="nm">' + esc(s.name) + '</span><span class="sc">' + s.score + "</span></div>";
+      }).join("");
+      $("end-overlay").classList.remove("hidden");
+      game.playerList().forEach(function(p){ sendPState(game, p); });
+      renderScores(game);
+      /* Attract mode: a bot demo restarts itself so the screen never sits
+         dead in a bar. Any human touch (buttons below) cancels the loop. */
+      if(game.demo){
+        clearTimeout(demoRestartTimer);
+        demoRestartTimer = setTimeout(function(){
+          if(host === game && game.phase === "ended" && game.demo) startMatch(game);
+        }, 8000);
+      }
+    }
+    function backToLobby(game){
+      clearTimeout(demoRestartTimer);
+      game.phase = "lobby";
+      game.resetMatch();
+      $("end-overlay").classList.add("hidden");
+      $("lobby-panel").classList.remove("hidden");
+      $("hud-phase").textContent = "Lobby";
+      $("host-status").textContent = "Still baskets 2 pts · Moving baskets 3 pts · 90 seconds · most points wins.";
+      hostBroadcast("phase", { phase:"lobby", timeLeft:game.timeLeft });
+      game.playerList().forEach(function(p){ p._psKey = null; sendPState(game, p); });
+      renderLobby(game);
+    }
+    function hostLoop(ts){
+      if(!host) return;
+      var dt = Math.min(0.05, (ts - hostLastTs) / 1000 || 0.016);
+      hostLastTs = ts;
+      updateGame(host, dt);
+      drawGame(host, ts);
+      var t = fmtTime(host.phase === "playing" ? host.timeLeft : (host.phase === "ended" ? 0 : ROUND_SECONDS));
+      var hud = $("hud-timer");
+      if(hud.textContent !== t) hud.textContent = t;
+      if(host.scoreDirty){ host.scoreDirty = false; renderScores(host); }
+      hostRAF = requestAnimationFrame(hostLoop);
+    }
+    function startHost(withBots){
+      teardownHost(); teardownController();
+      var code = makeCode();
+      hostId = uid();
+      host = new Game(code);
+      host.demo = !!withBots;
+      hostBus = makeBus(code, hostId, { catchUpJoins:true });
+      hostBus.on(hostOnMessage);
+      var busFailed = false;
+      hostBus.onReady(function(){
+        /* A transport is live. If Firestore failed and this is the
+           same-browser fallback, say exactly that — phones on other
+           devices cannot see this screen — instead of leaving a stale
+           red alert up over a working demo. */
+        var alert = $("host-alert");
+        if(alert) alert.classList.add("hidden");
+        var el = $("conn-note");
+        if(el && busFailed){
+          el.textContent = "Live service unreachable — running in same-browser demo mode: only tabs of this browser can join. Check this device's internet for real phones.";
+          el.style.color = "var(--danger)";
+        } else if(el && host && host.playerList().length === 0){
+          el.textContent = "Live connection ready — phones can join now.";
+        }
+      });
+      hostBus.onError(function(err){ busFailed = true; hostReportError("live connection", err); });
+      if(withBots){
+        var botNames = ["Buckets", "Swish", "Brick", "Airball"];
+        var skills = [0.88, 0.68, 0.45, 0.3];
+        botNames.forEach(function(nm, i){ host.addPlayer(uid(), nm, true, skills[i]); });
+      }
+      showView("view-arena");
+      $("lobby-panel").classList.remove("hidden");
+      $("end-overlay").classList.add("hidden");
+      $("host-alert").classList.add("hidden");
+      $("hud-phase").textContent = "Lobby";
+      $("hud-timer").textContent = fmtTime(ROUND_SECONDS);
+      $("host-status").textContent = "Still baskets 2 pts · Moving baskets 3 pts · 90 seconds · most points wins.";
+      renderQR(code);
+      renderLobby(host);
+      hostLastTs = performance.now();
+      hostRAF = requestAnimationFrame(hostLoop);
+      if(withBots){
+        /* Attract mode starts itself — nobody should have to click. */
+        setTimeout(function(){ if(host && host.demo && host.phase === "lobby") startMatch(host); }, 900);
+      }
+    }
+    function teardownHost(){
+      if(hostRAF) cancelAnimationFrame(hostRAF);
+      hostRAF = null;
+      clearTimeout(demoRestartTimer);
+      if(hostBus){ hostBus.close(); hostBus = null; }
+      host = null;
+    }
+
+    /* =====================================================================
+       CONTROLLER — phone shooting hand
+       ===================================================================== */
+    var ctrl = null;
+
+    function newController(code, name){
+      return {
+        code:code, name:name, id:uid(), bus:null,
+        color:"#888", colorName:"", welcomed:false, refused:false, joinTries:0, joinTimer:null, connError:null,
+        phase:"lobby",
+        pstate:{ score:0, rank:0, count:0 },
+        /* local match clock: the host no longer broadcasts every second
+           (write budget), so the phone ticks from the last pstate sync */
+        clock:{ base:ROUND_SECONDS, at:0, run:false }, clockTimer:null,
+        cooldownUntil:0, coolTimer:null,
+        drag:null
+      };
+    }
+    function toast(text, ms){
+      var el = $("ctrl-toast");
+      el.textContent = text;
+      el.classList.remove("hidden");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(function(){ el.classList.add("hidden"); }, ms || 2200);
+    }
+    function paintClock(){
+      if(!ctrl) return;
+      var c = ctrl.clock;
+      var secs = c.run ? c.base - (Date.now() - c.at) / 1000 : c.base;
+      secs = Math.max(0, secs);
+      var txt = fmtTime(secs), el = $("ctrl-time");
+      if(el && el.textContent !== txt) el.textContent = txt;
+    }
+    function paintController(){
+      if(!ctrl) return;
+      $("ctrl-score").textContent = ctrl.pstate.score;
+      $("ctrl-rank").textContent = ctrl.pstate.rank ? ("#" + ctrl.pstate.rank + " of " + ctrl.pstate.count) : "–";
+      $("ctrl-phase-label").textContent =
+        ctrl.phase === "playing" ? "Shooting!" : (ctrl.phase === "ended" ? "Match over" : "Lobby");
+      var playing = ctrl.phase === "playing";
+      $("flick-panel").classList.toggle("hidden", !playing);
+      $("wait-panel").classList.toggle("hidden", playing);
+      paintClock();
+    }
+    function ctrlOnMessage(msg){
+      if(!ctrl || !msg) return;
+      var d = msg.data || {};
+      if(msg.type === "welcome"){
+        ctrl.welcomed = true;
+        clearInterval(ctrl.joinTimer);
+        ctrl.color = d.color || ctrl.color;
+        ctrl.colorName = d.colorName || "";
+        ctrl.phase = d.phase || "lobby";
+        ctrl.clock.base = ROUND_SECONDS; ctrl.clock.at = Date.now();
+        ctrl.clock.run = ctrl.phase === "playing";
+        $("ctrl-band").style.background = ctrl.color;
+        $("flick-area").style.background =
+          "linear-gradient(180deg, " + ctrl.color + " 0%, " + ctrl.color + " 55%, rgba(0,0,0,.22) 130%)";
+        $("ctrl-name").textContent = ctrl.name + " · " + ctrl.colorName;
+        $("join-status").textContent = "";
+        showView("view-controller");
+        $("end-banner").classList.add("hidden");
+        if(ctrl.phase === "lobby"){
+          $("wait-title").textContent = "You're in, " + ctrl.name + "!";
+          $("wait-text").textContent = "Waiting for the host to start the match. Your balls launch from your colored pad at the bottom of the big screen — watch for your color.";
+        }
+        paintController();
+      } else if(msg.type === "full"){
+        /* The match already has 8 players: the host refused this join.
+           Say so plainly on the join screen and stop knocking. */
+        ctrl.refused = true;
+        clearInterval(ctrl.joinTimer);
+        $("join-status").textContent = "That match is full — 8 players are already in. Watch the big screen, or wait for the next match.";
+      } else if(msg.type === "pstate"){
+        var prevScore = ctrl.pstate.score;
+        ctrl.pstate = {
+          score: d.score || 0,
+          rank: d.rank || 0,
+          count: d.count || 0
+        };
+        if(d.phase) ctrl.phase = d.phase;
+        /* Resync the local clock from this pstate; it ticks on its own
+           between syncs (see the clock ticker in startController). */
+        ctrl.clock.base = (d.timeLeft == null ? ROUND_SECONDS : d.timeLeft);
+        ctrl.clock.at = Date.now();
+        ctrl.clock.run = ctrl.phase === "playing";
+        if(ctrl.phase === "playing" && ctrl.pstate.score > prevScore)
+          toast("Swish! +" + (ctrl.pstate.score - prevScore), 1600);
+        paintController();
+      } else if(msg.type === "phase"){
+        ctrl.phase = d.phase;
+        if(d.phase === "playing"){
+          ctrl.clock.base = (d.timeLeft == null ? ROUND_SECONDS : d.timeLeft);
+          ctrl.clock.at = Date.now(); ctrl.clock.run = true;
+          $("end-banner").classList.add("hidden");
+          toast("Match started — flick to shoot!");
+        } else {
+          ctrl.clock.run = false;
+          if(d.phase === "lobby"){
+            ctrl.clock.base = ROUND_SECONDS;
+            $("wait-title").textContent = "You're in, " + ctrl.name + "!";
+            $("wait-text").textContent = "Waiting for the host to start the next match.";
+          }
+        }
+        paintClock();
+        paintController();
+      } else if(msg.type === "ended"){
+        ctrl.phase = "ended";
+        ctrl.clock.run = false; paintClock();
+        var st = d.standings || [];
+        var winners = d.winners || [];
+        var mine = null, myRank = 0;
+        st.forEach(function(s, i){ if(s.id === ctrl.id){ mine = s; myRank = i + 1; } });
+        var myScore = mine ? mine.score : ctrl.pstate.score;
+        var iWin = winners.indexOf(ctrl.id) >= 0;
+        var txt;
+        if(!st.length) txt = "Match over!";
+        else if((d.top || 0) === 0) txt = "Match over — nobody scored! The hoops win this one.";
+        else if(iWin && winners.length > 1) txt = "It's a tie — you share the win with " + myScore + " points!";
+        else if(iWin) txt = "You win with " + myScore + " points! Nice shooting!";
+        else txt = "Match over! You placed #" + myRank + " with " + myScore + " points. " +
+                   st[0].name + " wins with " + st[0].score + ".";
+        $("end-banner").textContent = txt;
+        $("end-banner").classList.remove("hidden");
+        $("wait-title").textContent = "Match over";
+        $("wait-text").textContent = "Waiting for the host to start the next match.";
+        paintController();
+      }
+    }
+    function startController(code, name){
+      teardownHost(); teardownController();
+      ctrl = newController(code, name);
+      ctrl.bus = makeBus(code, ctrl.id);
+      ctrl.bus.on(ctrlOnMessage);
+      ctrl.bus.onError(function(err){
+        if(!ctrl) return;
+        ctrl.connError = errText(err);
+        if(!ctrl.welcomed)
+          $("join-status").textContent = "Connection problem: " + ctrl.connError + " — still trying to join…";
+      });
+      ctrl.bus.send("join", { name:name });
+      /* Keep knocking until the host answers. Stopping after a while (the
+         old behavior in the sibling games) stranded the phone whenever the
+         host was slow to start listening — asleep tab, page still loading,
+         slow network. */
+      ctrl.joinTimer = setInterval(function(){
+        if(!ctrl || ctrl.welcomed || ctrl.refused) { clearInterval(ctrl && ctrl.joinTimer); return; }
+        ctrl.joinTries += 1;
+        ctrl.bus.send("join", { name:name });
+        if(ctrl.connError) return; /* the real error is already on screen */
+        if(ctrl.joinTries === 8){
+          $("join-status").textContent = "No host answered for code " + code + " yet — still trying. " +
+            "Check the code, and that the host screen is open on the lobby for this match.";
+        } else if(ctrl.joinTries > 8 && ctrl.joinTries % 12 === 0){
+          $("join-status").textContent = "Still trying to reach the host for code " + code +
+            "… (" + Math.round(ctrl.joinTries * 2.5) + "s)";
+        }
+      }, 2500);
+      ctrl.clockTimer = setInterval(function(){ paintClock(); }, 250);
+      paintController();
+    }
+    function teardownController(){
+      if(ctrl){
+        if(ctrl.bus) ctrl.bus.close();
+        if(ctrl.clockTimer) clearInterval(ctrl.clockTimer);
+        if(ctrl.joinTimer) clearInterval(ctrl.joinTimer);
+        if(ctrl.coolTimer) clearInterval(ctrl.coolTimer);
+        ctrl = null;
+      }
+    }
+
+    /* ---------------- the flick ----------------
+       One flick = one shot. The phone measures the gesture and sends ONE
+       discrete message with the flick vector: lean (direction, -1..1 from
+       vertical) and power (0..1 from flick speed). Then a ~0.8s cooldown,
+       mirrored by the host, before the next flick counts. */
+    function flickSend(lean, power){
+      if(!ctrl || !ctrl.welcomed || ctrl.phase !== "playing") return;
+      var now = Date.now();
+      if(now < ctrl.cooldownUntil){
+        $("flick-msg").textContent = "Too fast — give it a beat!";
+        return;
+      }
+      ctrl.cooldownUntil = now + COOLDOWN_MS;
+      ctrl.bus.send("shoot", { lean: Math.round(lean * 100) / 100, power: Math.round(power * 100) / 100 });
+      $("flick-msg").textContent = "Shot away!";
+      $("flick-ball").style.transition = "transform .18s ease-out";
+      $("flick-ball").style.transform = "translate(" + (lean * 60) + "px,-120px) scale(.82)";
+      clearTimeout(flickSend._bt);
+      flickSend._bt = setTimeout(function(){
+        var ball = $("flick-ball");
+        if(ball){ ball.style.transition = "transform .25s ease-in"; ball.style.transform = ""; }
+        if(ctrl && ctrl.phase === "playing") $("flick-msg").textContent = "Flick up to shoot!";
+      }, 240);
+      /* cooldown bar */
+      clearInterval(ctrl.coolTimer);
+      ctrl.coolTimer = setInterval(function(){
+        var left = ctrl.cooldownUntil - Date.now();
+        var fill = $("cool-fill");
+        if(fill) fill.style.width = (left <= 0 ? 100 : 100 * (1 - left / COOLDOWN_MS)) + "%";
+        if(left <= 0) clearInterval(ctrl.coolTimer);
+      }, 30);
+    }
+    function bindFlick(){
+      var area = $("flick-area"), ball = $("flick-ball");
+      function pos(ev){ var r = area.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top, t: Date.now() }; }
+      area.addEventListener("pointerdown", function(ev){
+        if(!ctrl) return;
+        ev.preventDefault();
+        try{ area.setPointerCapture(ev.pointerId); }catch(e){}
+        ctrl.drag = { start: pos(ev), last: pos(ev), id: ev.pointerId };
+      });
+      area.addEventListener("pointermove", function(ev){
+        if(!ctrl || !ctrl.drag || ev.pointerId !== ctrl.drag.id) return;
+        var p = pos(ev);
+        ctrl.drag.last = p;
+        var dx = p.x - ctrl.drag.start.x, dy = ctrl.drag.start.y - p.y;
+        ball.style.transition = "none";
+        ball.style.transform = "translate(" + clamp(dx * 0.35, -46, 46) + "px," + clamp(-dy * 0.3, -54, 10) + "px)";
+      });
+      function finish(ev){
+        if(!ctrl || !ctrl.drag || ev.pointerId !== ctrl.drag.id) return;
+        var drag = ctrl.drag; ctrl.drag = null;
+        ball.style.transition = "transform .25s ease-in";
+        ball.style.transform = "";
+        var end = pos(ev);
+        var dy = drag.start.y - end.y;              /* up is positive */
+        var dx = end.x - drag.start.x;
+        var dt = Math.max(16, end.t - drag.start.t);
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if(dy < 42 || dist / dt < 0.28){
+          $("flick-msg").textContent = "Flick up — quick and snappy!";
+          return;
+        }
+        var lean = clamp(dx / Math.max(90, dy), -1, 1);
+        var power = clamp((dist / dt) / 2.3, 0.2, 1);
+        flickSend(lean, power);
+      }
+      area.addEventListener("pointerup", finish);
+      area.addEventListener("pointercancel", function(){
+        if(ctrl) ctrl.drag = null;
+        ball.style.transition = "transform .25s ease-in";
+        ball.style.transform = "";
+      });
+    }
+
+    /* =====================================================================
+       BOOT / WIRING
+       ===================================================================== */
+    $("btn-host").addEventListener("click", function(){ startHost(false); });
+    $("btn-bots").addEventListener("click", function(){ startHost(true); });
+    $("btn-go-join").addEventListener("click", function(){ showView("view-join"); });
+    $("btn-join-back").addEventListener("click", function(){ showView("view-home"); });
+    $("btn-leave-host").addEventListener("click", function(){ teardownHost(); showView("view-home"); });
+    $("btn-start").addEventListener("click", function(){ if(host && host.phase === "lobby") startMatch(host); });
+    $("btn-play-again").addEventListener("click", function(){ if(host) backToLobby(host); });
+    $("btn-end-home").addEventListener("click", function(){ teardownHost(); showView("view-home"); });
+    $("btn-join").addEventListener("click", function(){
+      var code = $("join-code").value.trim().toUpperCase();
+      var name = $("join-name").value.trim();
+      if(code.length !== 4){ $("join-status").textContent = "Enter the 4-letter code from the big screen."; return; }
+      if(!name){ $("join-status").textContent = "Enter your name so the scoreboard knows you."; return; }
+      $("join-status").textContent = "Joining match " + code + "…";
+      startController(code, name);
+    });
+    $("join-code").addEventListener("input", function(){
+      this.value = this.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+    });
+    bindFlick();
+
+    /* Opened from a QR code (?code=ABCD): land straight on the join
+       screen with the code filled in. */
+    (function(){
+      var m = /[?&]code=([A-Za-z]{4})/.exec(location.search || "");
+      if(m){
+        $("join-code").value = m[1].toUpperCase();
+        showView("view-join");
+        $("join-name").focus();
+      }
+    })();
+
+    /* Test hooks: headless verification drives the same code paths the
+       buttons and buses use. Harmless in production. */
+    window.__ft = {
+      Game: Game, makeBus: makeBus, startHost: startHost, startController: startController,
+      hostShoot: hostShoot, updateGame: updateGame, endMatch: endMatch,
+      getHost: function(){ return host; }, getCtrl: function(){ return ctrl; },
+      ROUND_SECONDS: ROUND_SECONDS, COOLDOWN_MS: COOLDOWN_MS
+    };
+    </script>
+  </body>
+</html>
