@@ -179,6 +179,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         position:relative; margin:4px 74px 4px 6px; touch-action:none; user-select:none; -webkit-user-select:none;
       }
       #bow-svg{ width:100%; height:auto; display:block; }
+      /* Neon Siege: as the draw starts, the laser bolt digitizes onto the
+         chrome bow — pixel fragments converge, the core flickers in. */
+      #digit-bolt .db-frag{ animation:dig-in .38s steps(6) both; }
+      #db-core, #db-tip{ animation:dig-flick .38s steps(5) both; }
+      #db-glow{ animation:dig-glow .38s steps(5) both; }
+      @keyframes dig-in{
+        0%{ transform:translate(var(--dx,0px), var(--dy,0px)); opacity:0; }
+        55%{ opacity:1; }
+        100%{ transform:translate(0,0); opacity:.55; }
+      }
+      @keyframes dig-flick{
+        0%{ opacity:0; } 30%{ opacity:.85; } 50%{ opacity:.1; } 75%{ opacity:.9; } 100%{ opacity:1; }
+      }
+      @keyframes dig-glow{
+        0%{ opacity:0; } 40%{ opacity:.35; } 60%{ opacity:.05; } 100%{ opacity:.35; }
+      }
+      @media (prefers-reduced-motion: reduce){
+        #digit-bolt .db-frag, #db-core, #db-tip, #db-glow{ animation:none; }
+      }
       #power-wrap{ height:14px; background:var(--panel2); border:1px solid var(--line); border-radius:999px; overflow:hidden; margin:8px 74px 4px 6px; }
       #power-fill{ height:100%; width:0%; background:var(--accent); transition:width .05s linear; }
       #ctrl-hint{ min-height:24px; font-weight:700; text-align:center; margin-right:68px; }
@@ -275,7 +294,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <p><b>Players:</b> drag an arrow from your quiver to the bow, pull the string back, and aim by pointing your phone at the big screen.</p>
             <p><b>Scoring:</b> targets 5 pts · moving targets 15 pts · shoot a bomb to clear everything near it and take the points. First to 100 pts wins — the range screen tints toward the leader's color as they close in. Hits earn shop credits (points ÷ 2, rounded up).</p>
             <p><b>Solo defense:</b> one archer holds the line alone against an orc horde marching in from the horizon. Orcs 5 pts · giants 15 pts (5 hits — an exploding arrow hits for 3) · skinwalkers 25 pts, and only white bolts from the shop can kill them. If the horde reaches you, it costs health — survive as long as you can.</p>
-            <p><b>Neon Siege:</b> the cyberpunk defense. Your crossbow auto-loads laser bolts — just aim and tap to fire, no nocking. Switch weapons on your phone: an <b>EMP blast</b> that stuns everything in a cone, a <b>railgun</b> you hold to charge that pierces the whole line and kills instantly, and a <b>laser beam</b> that burns while you hold it, then needs a long recharge. Robots 5 pts · robot dogs 5 pts (fast, in packs) · drones 25 pts · mechs 15 pts, the tanks of the street. Same 100-point health bar.</p>
+            <p><b>Neon Siege:</b> the cyberpunk defense. Your crossbow is chrome here, and its laser bolts still need a draw: touch the string, pull back, and a bolt digitizes onto the bow — release to fire. No quiver, no dragging an arrow over. Switch weapons on your phone: an <b>EMP blast</b> that stuns everything in a cone, a <b>railgun</b> you hold to charge that pierces the whole line and kills instantly, and a <b>laser beam</b> that burns while you hold it, then needs a long recharge. Robots 5 pts · robot dogs 5 pts (fast, in packs) · drones 25 pts · mechs 15 pts, the tanks of the street. Same 100-point health bar.</p>
           </div>
         </div>
       </section>
@@ -388,12 +407,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div id="dot-preview"><div id="preview-dot"></div></div>
           <div id="bow-area">
             <svg id="bow-svg" viewBox="0 0 300 250" aria-label="Crossbow">
+              <defs>
+                <!-- chrome skins, applied to the bow in Neon Siege only -->
+                <linearGradient id="chrome-v" gradientUnits="userSpaceOnUse" x1="0" y1="58" x2="0" y2="236">
+                  <stop offset="0" stop-color="#f7fafc"/><stop offset=".3" stop-color="#c9d3de"/>
+                  <stop offset=".52" stop-color="#828fa1"/><stop offset=".7" stop-color="#e6edf4"/>
+                  <stop offset="1" stop-color="#5f6d7f"/>
+                </linearGradient>
+                <linearGradient id="chrome-h" gradientUnits="userSpaceOnUse" x1="18" y1="0" x2="282" y2="0">
+                  <stop offset="0" stop-color="#5f6d7f"/><stop offset=".25" stop-color="#e6edf4"/>
+                  <stop offset=".5" stop-color="#828fa1"/><stop offset=".75" stop-color="#dbe4ee"/>
+                  <stop offset="1" stop-color="#5f6d7f"/>
+                </linearGradient>
+                <linearGradient id="chrome-d" gradientUnits="userSpaceOnUse" x1="0" y1="196" x2="0" y2="212">
+                  <stop offset="0" stop-color="#aeb9c6"/><stop offset=".5" stop-color="#66727f"/>
+                  <stop offset="1" stop-color="#39424e"/>
+                </linearGradient>
+              </defs>
               <!-- stock -->
-              <rect x="141" y="58" width="18" height="178" rx="7" fill="#8a5a2b"/>
-              <rect x="128" y="196" width="44" height="16" rx="6" fill="#6e4520"/>
+              <rect id="bow-stock" x="141" y="58" width="18" height="178" rx="7" fill="#8a5a2b"/>
+              <rect id="bow-grip" x="128" y="196" width="44" height="16" rx="6" fill="#6e4520"/>
               <!-- limbs -->
-              <path d="M150 62 C 96 18, 44 16, 18 40" stroke="#5d3c1a" stroke-width="11" fill="none" stroke-linecap="round"/>
-              <path d="M150 62 C 204 18, 256 16, 282 40" stroke="#5d3c1a" stroke-width="11" fill="none" stroke-linecap="round"/>
+              <path id="bow-limb-l" d="M150 62 C 96 18, 44 16, 18 40" stroke="#5d3c1a" stroke-width="11" fill="none" stroke-linecap="round"/>
+              <path id="bow-limb-r" d="M150 62 C 204 18, 256 16, 282 40" stroke="#5d3c1a" stroke-width="11" fill="none" stroke-linecap="round"/>
               <!-- string (path updated by JS) -->
               <path id="string-path" d="M18 40 L150 62 L282 40" stroke="#e8e2d2" stroke-width="3.5" fill="none"/>
               <!-- nocked arrow (group updated by JS) -->
@@ -402,7 +438,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                 <polygon id="na-tip" points="150,-4 143,12 157,12" fill="#444"/>
                 <path id="na-fletch" d="M150 52 l-11 12 M150 52 l11 12" stroke-width="5" fill="none"/>
               </g>
-              <circle cx="150" cy="62" r="7" fill="#3a2a16"/>
+              <!-- neon laser bolt: digitizes onto the bow as the draw starts -->
+              <g id="digit-bolt" style="display:none;">
+                <line id="db-glow" x1="150" y1="12" x2="150" y2="62" stroke="#37e0ff" stroke-width="11" opacity="0.35" stroke-linecap="round"/>
+                <line id="db-core" x1="150" y1="12" x2="150" y2="62" stroke="#d9fbff" stroke-width="3.5" stroke-linecap="round"/>
+                <polygon id="db-tip" points="150,1 144,14 156,14" fill="#aef4ff"/>
+                <rect class="db-frag" x="141" y="16" width="5" height="5" fill="#37e0ff" style="--dx:-30px; --dy:-18px;"/>
+                <rect class="db-frag" x="154" y="20" width="4" height="4" fill="#aef4ff" style="--dx:34px; --dy:-10px;"/>
+                <rect class="db-frag" x="144" y="28" width="5" height="5" fill="#37e0ff" style="--dx:-22px; --dy:16px;"/>
+                <rect class="db-frag" x="152" y="34" width="4" height="4" fill="#37e0ff" style="--dx:26px; --dy:20px;"/>
+                <rect class="db-frag" x="140" y="40" width="5" height="5" fill="#aef4ff" style="--dx:-36px; --dy:6px;"/>
+                <rect class="db-frag" x="155" y="46" width="4" height="4" fill="#37e0ff" style="--dx:30px; --dy:-16px;"/>
+                <rect class="db-frag" x="146" y="50" width="5" height="5" fill="#37e0ff" style="--dx:-14px; --dy:26px;"/>
+                <rect class="db-frag" x="149" y="10" width="3" height="3" fill="#aef4ff" style="--dx:8px; --dy:-28px;"/>
+              </g>
+              <circle id="bow-hub" cx="150" cy="62" r="7" fill="#3a2a16"/>
             </svg>
           </div>
           <div id="power-wrap"><div id="power-fill"></div></div>
@@ -842,8 +892,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     /* =====================================================================
        NEON SIEGE — cyberpunk solo defense. Same depth-march system and
-       100-point health bar as Hold the Line, but the crossbow auto-loads
-       laser bolts (no nocking — aim and fire) and the phone switches
+       100-point health bar as Hold the Line, but the chrome crossbow
+       needs no quiver: laser bolts digitize onto it as the string is
+       drawn (no nocking, no dragging an arrow over) and the phone switches
        between four weapon settings: standard bolt, EMP blast (stuns
        everything in a cone), railgun (hold to charge; the shot pierces
        the WHOLE line and instant-kills everything along it, mechs
@@ -2392,7 +2443,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("hud-health").classList.toggle("hidden", !soloMode);
       $("score-title").textContent = neonMode ? "Siege" : (soloMode ? "Defense" : "Scores");
       $("score-note").textContent = neonMode ?
-        "Robot 5 pts · Robot dog 5 pts (fast, hunts in packs) · Drone 25 pts · Mech 15 pts (5 hits — a charged railgun shot kills it instantly). Breaches cost health: robot & dog 10, drone 15, mech 25. Phone weapons: laser bolts, EMP stun cone, railgun, laser beam. No shop in the neon streets." :
+        "Robot 5 pts · Robot dog 5 pts (fast, hunts in packs) · Drone 25 pts · Mech 15 pts (5 hits — a charged railgun shot kills it instantly). Breaches cost health: robot & dog 10, drone 15, mech 25. Phone weapons: laser bolts (draw the string — the bolt digitizes onto the chrome bow), EMP stun cone, railgun, laser beam. No shop in the neon streets." :
         soloMode ?
         "Orc 5 pts · Giant 15 pts (5 hits — an exploding arrow hits for 3) · Skinwalker 25 pts, and only a white bolt can kill it. White bolts are in the phone shop for 5 credits. Breaches cost health: orc 10, skinwalker 15, giant 25." :
         "Targets 5 pts · Moving 15 pts · Bombs clear nearby targets for the shooter. First to 100 wins — the range screen takes on the leader's color as their score climbs toward 100.";
@@ -2427,7 +2478,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         code:code, name:name, id:uid(), bus:null,
         color:"#888", colorName:"", welcomed:false, joinTries:0, joinTimer:null,
         phase:"lobby", soloMode:false, isDefender:true, theme:"medieval",
-        neonWeapon:"bolt", neonCharging:false, beamHeld:false, neonFireAt:0,
+        neonWeapon:"bolt", neonCharging:false, neonBoltDraw:false, beamHeld:false,
         pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
                  weap:{ empCd:0, railCd:0, beamCharge:100, beamLock:0 } },
         /* sensors */
@@ -2703,6 +2754,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("quiver").classList.toggle("hidden", neonMode);
       $("weapon-panel").classList.toggle("hidden", !neonMode);
       $("btn-shop").classList.toggle("hidden", neonMode);
+      paintBowSkin();
       if(neonMode) paintWeapons();
       /* quiver token */
       var col = arrowColor(ctrl.selected), cnt = selectedCount();
@@ -2749,6 +2801,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       Array.prototype.forEach.call($("weapon-chips").querySelectorAll(".sp-chip[data-weap]"), function(ch){
         ch.addEventListener("click", function(){
           if(ctrl.beamHeld){ ctrl.beamHeld = false; ctrl.bus.send("beam", { on:false }); }
+          ctrl.drawing = false; ctrl.neonCharging = false; ctrl.neonBoltDraw = false; ctrl.power = 0;
           ctrl.neonWeapon = ch.getAttribute("data-weap");
           paintController();
         });
@@ -2767,14 +2820,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
            "Hold the bow to charge the railgun, release to fire.");
       if(ctrl.neonWeapon === "beam")
         return w.beamLock > 0.05 ? "Beam recharging — " + Math.ceil(w.beamLock) + "s" : "Hold the bow to burn your dot with the beam.";
-      return "Tap the bow to fire a laser bolt.";
+      return ctrl.drawing ? (ctrl.power < 0.22 ? "Bolt digitizing… pull back further" : "Release to fire!") :
+        "Touch the string and pull back — a bolt digitizes onto the bow. Release to fire.";
     }
     function neonPowerPct(){
       if(!ctrl) return 0;
       var w = ctrl.pstate.weap || { beamCharge:100 };
       if(ctrl.neonWeapon === "rail") return ctrl.drawing ? ctrl.power * 100 : 0;
       if(ctrl.neonWeapon === "beam") return w.beamCharge;
+      if(ctrl.neonWeapon === "bolt") return ctrl.drawing ? ctrl.power * 100 : 0;
       return 0;
+    }
+    /* Neon Siege dresses the phone crossbow in chrome; medieval and
+       multiplayer keep the wooden bow. */
+    function paintBowSkin(){
+      if(!ctrl) return;
+      var neon = ctrl.theme === "neon";
+      $("bow-stock").setAttribute("fill", neon ? "url(#chrome-v)" : "#8a5a2b");
+      $("bow-grip").setAttribute("fill", neon ? "url(#chrome-d)" : "#6e4520");
+      $("bow-limb-l").setAttribute("stroke", neon ? "url(#chrome-h)" : "#5d3c1a");
+      $("bow-limb-r").setAttribute("stroke", neon ? "url(#chrome-h)" : "#5d3c1a");
+      $("bow-hub").setAttribute("fill", neon ? "#cfd9e4" : "#3a2a16");
+      $("string-path").setAttribute("stroke", neon ? "#8fe8ff" : "#e8e2d2");
     }
     function paintBow(){
       if(!ctrl) return;
@@ -2791,6 +2858,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         $("na-fletch").setAttribute("d", "M150 " + (sy - 10) + " l-11 12 M150 " + (sy - 10) + " l11 12");
       } else {
         g.style.display = "none";
+      }
+      /* the neon bolt exists only while the string is drawn: it digitizes
+         on as the draw starts and stretches with the string */
+      var dg = $("digit-bolt");
+      if(ctrl.theme === "neon" && ctrl.neonBoltDraw && ctrl.drawing){
+        dg.style.display = "";
+        $("db-glow").setAttribute("y2", sy);
+        $("db-core").setAttribute("y2", sy);
+      } else {
+        dg.style.display = "none";
       }
       $("power-fill").style.width = (draw * 100) + "%";
       $("ctrl-hint").textContent =
@@ -2888,19 +2965,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       token.addEventListener("pointerup", endDrag);
       token.addEventListener("pointercancel", endDrag);
 
-      /* Neon Siege firing: no nocking — the selected weapon decides what
-         a press on the bow does. Bolt and EMP fire on tap, the railgun
-         charges while held and fires on release, the beam burns while
-         held and stops on release. */
+      /* Neon Siege firing: no nocking, no quiver — the selected weapon
+         decides what a press on the bow does. The standard bolt still
+         needs a draw: press the string and pull back, and a laser bolt
+         digitizes onto the bow as the draw starts; release fires it.
+         EMP fires on tap, the railgun charges while held and fires on
+         release, the beam burns while held and stops on release. */
       function neonPointerDown(e){
         if(!ctrl || ctrl.phase !== "playing" || !ctrl.isDefender) return;
         var w = ctrl.pstate.weap || { empCd:0, railCd:0, beamCharge:100, beamLock:0 };
         var a = computeAim() || ctrl.aim;
         if(ctrl.neonWeapon === "bolt"){
-          if(Date.now() - ctrl.neonFireAt < 130) return;
-          ctrl.neonFireAt = Date.now();
-          ctrl.bus.send("shoot", { x:a.x, y:a.y, power:1, kind:"bolt" });
-          if(navigator.vibrate) navigator.vibrate(10);
+          ctrl.neonBoltDraw = true;
+          ctrl.drawing = true;
+          ctrl.drawStartY = e.clientY;
+          ctrl.power = 0;
+          bowArea.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          paintBow();
         } else if(ctrl.neonWeapon === "emp"){
           if(w.empCd > 0.05){ toast("EMP still recharging — " + w.empCd.toFixed(1) + "s"); return; }
           ctrl.bus.send("shoot", { x:a.x, y:a.y, power:1, kind:"emp" });
@@ -2956,6 +3038,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if(navigator.vibrate) navigator.vibrate(45);
             } else {
               toast("Railgun needs more charge — hold longer.");
+            }
+            paintBow();
+          }
+          if(ctrl.neonBoltDraw){
+            ctrl.neonBoltDraw = false;
+            var bp = ctrl.power; ctrl.power = 0;
+            if(bp >= 0.18){
+              var ba = computeAim() || ctrl.aim;
+              ctrl.bus.send("shoot", { x:ba.x, y:ba.y, power:bp, kind:"bolt" });
+              if(navigator.vibrate) navigator.vibrate(20);
+            } else {
+              toast("Too weak — the bolt fizzled before it formed. Pull back further.");
             }
             paintBow();
           }
