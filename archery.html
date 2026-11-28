@@ -639,6 +639,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       this.hurtT = 0;         /* red-flash timer after a breach */
       this.defenderId = null; /* the one archer in solo mode */
       this.nextEnemyId = 1;
+      this.shrubs = makeShrubs(); /* light bushes scattered as depth landmarks */
+      this.shopPaused = false; /* solo only: frozen while the defender's shop is open */
+      this.pauseNow = 0;      /* animation clock frozen at the pause moment */
     }
     Game.prototype.playerList = function(){
       var self = this;
@@ -662,6 +665,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     Game.prototype.resetMatch = function(){
       this.targets = []; this.arrows = []; this.effects = []; this.smokes = [];
       this.enemies = []; this.health = 100; this.elapsed = 0; this.kills = 0; this.hurtT = 0;
+      this.shrubs = makeShrubs(); this.shopPaused = false; this.pauseNow = 0;
       this.timeLeft = MATCH_SECONDS; this.spawnT = 0;
       this.playerList().forEach(function(p){
         p.score = 0; p.credits = 0; p.quiver = QUIVER_MAX; p.refillT = 0;
@@ -716,6 +720,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function enemyCenter(e, es){
       es = es || enemyScreen(e);
       return { x: es.x, y: es.y - ENEMY_DIMS[e.kind].h * es.s / 2 };
+    }
+    /* Light shrubbery scattered over the field as depth landmarks. Each
+       shrub lives in the same depth space as the horde (z: 0 horizon →
+       1 barricade) and projects with the same math, so a far bush is a
+       speck on the horizon and a near one is a big pale mound — your eye
+       can read how far away an orc is by the bushes it passes. */
+    function makeShrubs(){
+      var shrubs = [], i;
+      for(i = 0; i < 30; i++){
+        shrubs.push({
+          xFrac: rand(0.02, 0.98),
+          z: 0.05 + 0.93 * Math.pow(Math.random(), 0.85),
+          size: rand(0.7, 1.4),
+          seed: rand(0, Math.PI * 2),
+          tone: Math.floor(rand(0, 3))
+        });
+      }
+      return shrubs;
+    }
+    function shrubScreen(sh){
+      var ez = Math.pow(sh.z, 1.35);
+      return {
+        x: AW/2 + (sh.xFrac - 0.5) * AW * (0.30 + 0.70 * ez),
+        y: HORIZON_Y + (LINE_Y - HORIZON_Y) * ez,
+        s: (0.16 + Math.pow(sh.z, 1.6)) * sh.size
+      };
+    }
+    var SHRUB_TONES = [
+      ["#b9d18c", "#a6c476", "#cfe0a6"],
+      ["#c6da95", "#b3d184", "#dbe8b2"],
+      ["#aed09a", "#9cc684", "#c2deb0"]
+    ];
+    function drawShrub(ctx, sh){
+      var ss = shrubScreen(sh), s = ss.s, x = ss.x, base = ss.y;
+      var tones = SHRUB_TONES[sh.tone % SHRUB_TONES.length];
+      ctx.save();
+      ctx.fillStyle = "rgba(34,54,18,.22)";
+      ctx.beginPath(); ctx.ellipse(x, base + 2 * s, 30 * s, 6 * s, 0, 0, Math.PI * 2); ctx.fill();
+      var blobs = [ [0,-19,25,17], [-18,-12,17,12], [18,-12,17,12], [-8,-27,16,12], [10,-26,15,11] ];
+      for(var i = 0; i < blobs.length; i++){
+        var b = blobs[i], wob = Math.sin(sh.seed + i * 1.7) * 3;
+        ctx.fillStyle = tones[i % tones.length];
+        ctx.beginPath();
+        ctx.ellipse(x + (b[0] + wob) * s, base + b[1] * s, b[2] * s, b[3] * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(243,248,218,.45)";
+      ctx.beginPath(); ctx.ellipse(x - 7 * s, base - 28 * s, 9 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 12 * s, base - 20 * s, 7 * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
     function pickEnemyKind(elapsed){
       var r = Math.random();
@@ -1009,6 +1063,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function updateGame(game, dt, now){
       var i, p, t;
+      /* Solo defense freezes solid while the defender's shop is open:
+         no marching, no spawning, no survival clock, arrows hang in the
+         air. Multiplayer matches NEVER pause for a shop. */
+      if(game.mode === "solo" && game.shopPaused && game.phase === "playing") return;
       if(game.mode === "solo") updateSoloCore(game, dt, now);
       if(game.mode !== "solo" && game.phase === "playing"){
         game.timeLeft -= dt;
@@ -1235,7 +1293,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var step = Math.sin(now / 150 + e.ph);
       var bob = Math.abs(Math.sin(now / 150 + e.ph)) * 2.2 * s;
       ctx.save();
-      ctx.globalAlpha = 0.5 + 0.5 * e.z; /* distance haze */
+      ctx.globalAlpha = 0.68 + 0.32 * e.z; /* gentle distance haze — far foes stay readable on the bright field */
       ctx.fillStyle = "rgba(0,0,0,.28)";
       ctx.beginPath(); ctx.ellipse(x, feet + 3 * s, 20 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
       ctx.translate(x, feet - bob);
@@ -1313,6 +1371,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctx.beginPath();
         ctx.moveTo(-10 * s, -84 * s); ctx.lineTo(10 * s, -84 * s); ctx.lineTo(7 * s, -48 * s); ctx.lineTo(-7 * s, -48 * s);
         ctx.closePath(); ctx.fill();
+        /* umber outline so the pale body doesn't wash out on the bright field */
+        ctx.strokeStyle = "rgba(84,70,44,.55)"; ctx.lineWidth = 1.6 * s; ctx.stroke();
         ctx.strokeStyle = "#d8d1bf"; ctx.lineWidth = 4.5 * s;
         ctx.beginPath();
         ctx.moveTo(-10 * s, -80 * s); ctx.lineTo(-14 * s, -26 * s);
@@ -1327,6 +1387,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         /* head + glowing white eyes */
         ctx.fillStyle = "#efe9db";
         ctx.beginPath(); ctx.ellipse(0, -93 * s, 7.5 * s, 10 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(84,70,44,.5)"; ctx.lineWidth = 1.4 * s; ctx.stroke();
         ctx.save();
         ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 10 * s;
         ctx.fillStyle = "#ffffff";
@@ -1368,41 +1429,55 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     function drawSoloGame(game, now){
       var cv = $("game-canvas"), ctx = cv.getContext("2d");
-      /* dusk sky */
+      /* while shop-paused, the animation clock freezes with the horde */
+      var animNow = (game.shopPaused && game.pauseNow) ? game.pauseNow : now;
+      /* bright morning sky — the horde stands out dark against it */
       var sky = ctx.createLinearGradient(0, 0, 0, HORIZON_Y + 40);
-      sky.addColorStop(0, "#252b36"); sky.addColorStop(0.7, "#4c4a3e"); sky.addColorStop(1, "#7d6c4e");
+      sky.addColorStop(0, "#8ab6e6"); sky.addColorStop(0.6, "#c2ddef"); sky.addColorStop(1, "#eef0d2");
       ctx.fillStyle = sky; ctx.fillRect(0, 0, AW, HORIZON_Y + 40);
-      /* distant mountains */
-      ctx.fillStyle = "#31363f";
+      /* pale sun, high right */
+      ctx.fillStyle = "rgba(255,246,200,.85)";
+      ctx.beginPath(); ctx.arc(AW - 170, 62, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,246,200,.30)";
+      ctx.beginPath(); ctx.arc(AW - 170, 62, 52, 0, Math.PI * 2); ctx.fill();
+      /* distant hills, hazed blue-green */
+      ctx.fillStyle = "#9db894";
       ctx.beginPath(); ctx.moveTo(0, HORIZON_Y);
       [[90,60],[210,110],[330,70],[470,130],[620,84],[760,120],[900,66],[1040,116],[1160,78],[1280,100]].forEach(function(pt){
         ctx.lineTo(pt[0], HORIZON_Y - pt[1]);
       });
       ctx.lineTo(AW, HORIZON_Y); ctx.closePath(); ctx.fill();
-      /* ground */
+      /* grassy plane: pale at the horizon, rich green at your feet */
       var gnd = ctx.createLinearGradient(0, HORIZON_Y, 0, AH);
-      gnd.addColorStop(0, "#5a4c33"); gnd.addColorStop(1, "#2c2416");
+      gnd.addColorStop(0, "#a4c06a"); gnd.addColorStop(0.45, "#7cab4c"); gnd.addColorStop(1, "#4c7a30");
       ctx.fillStyle = gnd; ctx.fillRect(0, HORIZON_Y, AW, AH - HORIZON_Y);
-      /* perspective furrows + depth bands */
+      /* perspective mow lines + depth bands */
       ctx.lineWidth = 2;
       for(var f = -6; f <= 6; f++){
-        ctx.strokeStyle = "rgba(0,0,0,.18)";
+        ctx.strokeStyle = "rgba(38,66,22,.20)";
         ctx.beginPath(); ctx.moveTo(AW / 2 + f * 14, HORIZON_Y); ctx.lineTo(AW / 2 + f * 150, AH); ctx.stroke();
       }
       [0.2, 0.45, 0.7].forEach(function(z){
         var y = HORIZON_Y + (LINE_Y - HORIZON_Y) * Math.pow(z, 1.35);
-        ctx.strokeStyle = "rgba(255,255,255,.06)";
+        ctx.strokeStyle = "rgba(255,255,240,.13)";
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(AW, y); ctx.stroke();
       });
-      /* the horde, far to near */
-      game.enemies.slice().sort(function(a, b){ return a.z - b.z; }).forEach(function(e){ drawEnemy(ctx, e, now); });
+      /* shrubs and the horde together, far to near, so each orc passes
+         in front of the bushes behind it and behind the ones in front */
+      var things = [];
+      game.shrubs.forEach(function(sh){ things.push({ z: sh.z, shrub: sh }); });
+      game.enemies.forEach(function(e){ things.push({ z: e.z, enemy: e }); });
+      things.sort(function(a, b){ return a.z - b.z; });
+      things.forEach(function(t){
+        if(t.shrub) drawShrub(ctx, t.shrub); else drawEnemy(ctx, t.enemy, animNow);
+      });
       /* horizon mist (far enemies only — near ones stand below it) */
       var mist = ctx.createLinearGradient(0, HORIZON_Y - 4, 0, HORIZON_Y + 110);
-      mist.addColorStop(0, "rgba(205,205,195,.30)"); mist.addColorStop(1, "rgba(205,205,195,0)");
+      mist.addColorStop(0, "rgba(238,244,226,.32)"); mist.addColorStop(1, "rgba(238,244,226,0)");
       ctx.fillStyle = mist; ctx.fillRect(0, HORIZON_Y - 4, AW, 114);
       drawSmokes(ctx, game);
       drawArrows(ctx, game);
-      drawEffects(ctx, game, now);
+      drawEffects(ctx, game, animNow);
       drawBarricade(ctx, game);
       drawBowsDots(ctx, game);
       /* hurt flash + low-health pulse */
@@ -1415,6 +1490,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctx.fillStyle = vg; ctx.fillRect(0, 0, AW, AH);
       }
       ctx.textAlign = "center";
+      if(game.shopPaused && game.phase === "playing"){
+        ctx.fillStyle = "rgba(18,26,14,.48)"; ctx.fillRect(0, 0, AW, AH);
+        ctx.fillStyle = "#fdf6dd";
+        ctx.font = "800 48px 'Trebuchet MS', system-ui";
+        ctx.fillText("PAUSED", AW / 2, 322);
+        ctx.font = "600 22px system-ui";
+        ctx.fillText("The horde waits while the defender is in the shop.", AW / 2, 362);
+      }
       if(game.phase === "lobby"){
         ctx.fillStyle = "rgba(16,18,14,.45)"; ctx.fillRect(0, 0, AW, AH);
         ctx.fillStyle = "#f0e6d2";
@@ -1537,6 +1620,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var txt = $("range-status-text"), dot = $("range-status") ? $("range-status").querySelector(".rdot") : null;
       if(!txt) return;
       if(game.mode === "solo"){
+        if(game.shopPaused && game.phase === "playing"){
+          txt.textContent = "Paused — the horde waits while the defender is in the shop.";
+          if(dot) dot.style.background = "#e8b93c";
+          return;
+        }
         var def = game.playerList()[0];
         txt.textContent = "Hold the line · Health " + game.health + " · " + game.kills + " kills · Score " +
           (def ? def.score : 0) + " · the horde grows stronger the longer you last.";
@@ -1589,6 +1677,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else if(msg.type === "buy"){
         var pb = game.players[msg.from];
         if(pb) hostBuy(game, pb, d.item);
+      } else if(msg.type === "shopstate"){
+        /* Solo defense only: the defender's open shop freezes the horde.
+           Multiplayer ignores this outright — a shop never pauses a match. */
+        if(game.mode === "solo" && msg.from === game.defenderId){
+          game.shopPaused = !!d.open;
+          game.pauseNow = game.shopPaused ? performance.now() : 0;
+          if(game.phase === "playing")
+            $("hud-phase").textContent = game.shopPaused ? "Paused — shop open" : "Defense running";
+          renderScores(game);
+        }
       }
     }
     function hostBuy(game, p, item){
@@ -2039,6 +2137,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         selectedCount() <= 0 ? (ctrl.selected === "std" ? "Quiver empty — arrows refill over time." : "None of those left — pick another arrow.") :
         "Drag the arrow from the quiver onto the bow.";
     }
+    /* Opening/closing the shop tells the host. In solo defense the host
+       freezes the horde while the shop is up; in multiplayer the host
+       ignores it and the match plays on. */
+    function setShopOpen(open){
+      $("shop-overlay").classList.toggle("hidden", !open);
+      if(ctrl && ctrl.soloMode && ctrl.bus) ctrl.bus.send("shopstate", { open: open });
+    }
     function paintShop(){
       if(!ctrl) return;
       $("shop-credits").textContent = ctrl.pstate.credits;
@@ -2249,11 +2354,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("btn-recal").addEventListener("click", function(){ startCalib(); });
       $("btn-shop").addEventListener("click", function(){
         paintShop();
-        $("shop-overlay").classList.remove("hidden");
+        setShopOpen(true);
       });
-      $("btn-shop-close").addEventListener("click", function(){ $("shop-overlay").classList.add("hidden"); });
+      $("btn-shop-close").addEventListener("click", function(){ setShopOpen(false); });
       $("shop-overlay").addEventListener("click", function(e){
-        if(e.target === $("shop-overlay")) $("shop-overlay").classList.add("hidden");
+        if(e.target === $("shop-overlay")) setShopOpen(false);
       });
 
       /* QR join: ?code=XXXX lands straight on the join form */
