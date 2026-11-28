@@ -282,8 +282,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="home-actions">
             <button class="btn green" id="btn-host">Host a match on this screen</button>
             <button class="btn ghost" id="btn-solo">Solo demo with bots</button>
-            <button class="btn" id="btn-defense">Solo defense: Hold the Line</button>
-            <button class="btn" id="btn-neon">Solo defense: Neon Siege</button>
+            <button class="btn" id="btn-defense">Co-op defense: Hold the Line</button>
+            <button class="btn" id="btn-neon">Co-op defense: Neon Siege</button>
           </div>
           <div class="divider">playing on your phone?</div>
           <div class="home-actions">
@@ -293,8 +293,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <p><b>Host:</b> open this page on the laptop or TV, start a match, and players scan the QR code to join.</p>
             <p><b>Players:</b> drag an arrow from your quiver to the bow, pull the string back, and aim by pointing your phone at the big screen.</p>
             <p><b>Scoring:</b> targets 5 pts · moving targets 15 pts · shoot a bomb to clear everything near it and take the points. First to 100 pts wins — the range screen tints toward the leader's color as they close in. Hits earn shop credits (points ÷ 2, rounded up).</p>
-            <p><b>Solo defense:</b> one archer holds the line alone against an orc horde marching in from the horizon. Orcs 5 pts · giants 15 pts (5 hits — an exploding arrow hits for 3) · skinwalkers 25 pts, and only white bolts from the shop can kill them. If the horde reaches you, it costs health — survive as long as you can.</p>
-            <p><b>Neon Siege:</b> the cyberpunk defense. Your crossbow is chrome here, and its laser bolts still need a draw: touch the string, pull back, and a bolt digitizes onto the bow — release to fire. No quiver, no dragging an arrow over. Switch weapons on your phone: an <b>EMP blast</b> that stuns everything in a cone, a <b>railgun</b> you hold to charge that pierces the whole line and kills instantly, and a <b>laser beam</b> that burns while you hold it, then needs a long recharge. Robots 5 pts · robot dogs 5 pts (fast, in packs) · drones 25 pts · mechs 15 pts, the tanks of the street. Same 100-point health bar.</p>
+            <p><b>Co-op defense:</b> up to three archers hold the line together against an orc horde marching in from the horizon, sharing one 100-point health bar — scores, credits and shops stay your own. Orcs 5 pts · giants 15 pts (5 hits, tougher with more archers — an exploding arrow hits for 3) · skinwalkers 25 pts, and only white bolts from the shop can kill them. If the horde reaches you, it costs the whole team health — survive as long as you can. More archers means a faster horde, and the shop only pauses the game for a lone archer.</p>
+            <p><b>Neon Siege:</b> the cyberpunk co-op defense, up to three defenders on the same shared health bar. Your crossbow is chrome here, and its laser bolts still need a draw: touch the string, pull back, and a bolt digitizes onto the bow — release to fire. No quiver, no dragging an arrow over. Switch weapons on your phone: an <b>EMP blast</b> that stuns everything in a cone, a <b>railgun</b> you hold to charge that pierces the whole line and kills instantly, and a <b>laser beam</b> that burns while you hold it, then needs a long recharge. Robots 5 pts · robot dogs 5 pts (fast, in packs) · drones 25 pts · mechs 15 pts, the tanks of the street.</p>
           </div>
         </div>
       </section>
@@ -713,6 +713,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var MATCH_SECONDS = 180;
     var WIN_SCORE = 100; /* first to this score wins; also sets the range-screen tint % */
     var QUIVER_MAX = 6, QUIVER_REFILL = 2.2; /* seconds per standard arrow */
+    /* Host aim smoothing: critically damped spring (D ≈ 2·√K) following
+       the phone's aim target, plus clamped velocity prediction. */
+    var AIM_SPRING_K = 500, AIM_SPRING_D = 45;
+    var AIM_PREDICT_S = 0.055;   /* seconds of target velocity to aim ahead */
+    var AIM_PREDICT_MAX = 0.05;  /* max prediction offset, in screen units */
+    var AIM_TVEL_MAX = 2.5;      /* max estimated target speed, units/sec */
     var PRICES = { smoke:4, splinter:6, tracker:8, exploding:10, laser:15, white:5 };
     var SPECIAL_INFO = {
       smoke:     { name:"Smoke arrow",     color:"#9aa3a8", desc:"Drops a smoke cloud on the big screen that blocks everyone's view of the targets behind it. In solo defense, the horde pushes through it slowly." },
@@ -758,15 +764,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       this.elapsed = 0;       /* seconds survived */
       this.kills = 0;
       this.hurtT = 0;         /* red-flash timer after a breach */
-      this.defenderId = null; /* the one archer in solo mode */
+      this.defenderId = null; /* first defender (solo defense) */
+      this.defenders = [];    /* co-op defense: up to MAX_DEFENDERS ids, join order */
+      this.shopOpen = {};     /* defender id -> their shop is open (solo defense) */
       this.nextEnemyId = 1;
       this.shrubs = makeShrubs(); /* light bushes scattered as depth landmarks */
       this.shopPaused = false; /* solo only: frozen while the defender's shop is open */
       this.pauseNow = 0;      /* animation clock frozen at the pause moment */
       this.theme = "medieval"; /* medieval | neon — which solo defense variant */
       this.props = [];         /* neon street props (depth landmarks) */
-      this.neonBoltCd = 0;     /* host-side laser bolt rate limit */
-      this.beamPt = null;      /* neon beam impact point while it fires */
     }
     Game.prototype.playerList = function(){
       var self = this;
@@ -782,26 +788,58 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var p = {
         id:id, name:name || ("Player " + (this.order.length+1)), isBot:!!isBot,
         colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
-        score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
+        score:0, credits:0, kills:0, quiver:QUIVER_MAX, refillT:0,
         inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
         aim:{ x:0.5, y:0.5, seen:false }, aimT:{ x:0.5, y:0.5 },
+        aimV:{ x:0, y:0 }, aimTV:{ x:0, y:0 }, _aimMsgAt:0, _aimAge:99,
         botTarget:null, botShootT:rand(1.2,2.6), botAimX:0.5, botAimY:0.5
       };
       this.players[id] = p; this.order.push(id);
-      if((this.mode === "solo" || this.mode === "neon") && !isBot && !this.defenderId) this.defenderId = id;
+      if((this.mode === "solo" || this.mode === "neon") && !isBot){
+        if(this.defenders.indexOf(id) === -1 && this.defenders.length < MAX_DEFENDERS) this.defenders.push(id);
+        this.defenderId = this.defenders[0] || null;
+      }
       return p;
     };
     Game.prototype.resetMatch = function(){
       this.targets = []; this.arrows = []; this.effects = []; this.smokes = [];
       this.enemies = []; this.health = 100; this.elapsed = 0; this.kills = 0; this.hurtT = 0;
-      this.shrubs = makeShrubs(); this.shopPaused = false; this.pauseNow = 0;
-      this.props = this.mode === "neon" ? makeNeonProps() : []; this.neonBoltCd = 0; this.beamPt = null;
+      this.shrubs = makeShrubs(); this.shopPaused = false; this.pauseNow = 0; this.shopOpen = {};
+      this.props = this.mode === "neon" ? makeNeonProps() : [];
       this.timeLeft = MATCH_SECONDS; this.spawnT = 0;
       this.playerList().forEach(function(p){
-        p.score = 0; p.credits = 0; p.quiver = QUIVER_MAX; p.refillT = 0;
+        p.score = 0; p.credits = 0; p.kills = 0; p.quiver = QUIVER_MAX; p.refillT = 0; p.beamPt = null;
         p.inv = { smoke:0, splinter:0, tracker:0, exploding:0, white:0 }; p.laser = false; p.weap = freshWeap();
       });
     };
+
+    /* =====================================================================
+       CO-OP DEFENSE — Hold the Line and Neon Siege take up to 3 defenders
+       sharing ONE health bar. Scores, credits, kills, quivers, shops and
+       weapon cooldowns stay individual per defender; kills are credited
+       to whoever fired. Difficulty scales with the defender count: more
+       defenders means a faster spawn rate and march, and giants / mech
+       tanks soak +2 HP per extra defender.
+       ===================================================================== */
+    var MAX_DEFENDERS = 3;
+    function isDefender(game, id){ return game.defenders.indexOf(id) !== -1; }
+    function defCount(game){ return Math.max(1, game.defenders.length); }
+    function diffScale(game){
+      var n = game.defenders.length;
+      if(n >= 3) return { spawn:0.58, speed:1.24 };
+      if(n === 2) return { spawn:0.76, speed:1.13 };
+      return { spawn:1, speed:1 };
+    }
+    /* The Hold the Line shop freezes the horde ONLY for a lone defender.
+       With 2–3 defenders the game keeps running while anyone shops. */
+    function refreshShopPause(game){
+      var anyOpen = false;
+      for(var k in game.shopOpen){ if(game.shopOpen[k]){ anyOpen = true; break; } }
+      var should = game.mode === "solo" && game.defenders.length <= 1 && anyOpen;
+      if(should && !game.shopPaused) game.pauseNow = performance.now();
+      if(!should) game.pauseNow = 0;
+      game.shopPaused = should;
+    }
 
     function spawnTarget(game){
       var roll = Math.random();
@@ -913,10 +951,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var kind = pickEnemyKind(game.elapsed);
       var st = ENEMY_STATS[kind];
       var speed = kind === "giant" ? rand(0.024, 0.030) : (kind === "skin" ? rand(0.052, 0.064) : rand(0.040, 0.052));
+      var bonusHp = kind === "giant" ? 2 * (defCount(game) - 1) : 0; /* co-op: giants toughen per extra defender */
       game.enemies.push({
         id: game.nextEnemyId++, kind: kind,
         xFrac: rand(0.1, 0.9), z: 0.02,
-        hp: st.hp, maxHp: st.hp, speed: speed,
+        hp: st.hp + bonusHp, maxHp: st.hp + bonusHp, speed: speed,
         dmg: st.dmg, pts: st.pts,
         ph: rand(0, Math.PI * 2), flash: 0
       });
@@ -947,6 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var i = game.enemies.indexOf(e);
         if(i !== -1) game.enemies.splice(i, 1);
         game.kills += 1;
+        p.kills += 1;
         award(game, p, e.pts, c.x, c.y);
         game.effects.push({ kind:"burst", x:c.x, y:c.y, t:0, ttl:0.4, color:p.color });
       } else {
@@ -982,7 +1022,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       mech: { hp:5, dmg:25, pts:15 }
     };
     var NEON_KILL_COLORS = { robot:"#37e0ff", dog:"#ff4fd8", drone:"#ffb03a", mech:"#ff7847" };
-    function freshWeap(){ return { empCd:0, railCd:0, beamCharge:100, beamLock:0, firing:false }; }
+    function freshWeap(){ return { empCd:0, railCd:0, beamCharge:100, beamLock:0, firing:false, boltCd:0 }; }
     function angDiffRad(a, b){
       var d = (a - b) % (Math.PI * 2);
       if(d > Math.PI) d -= Math.PI * 2;
@@ -1028,6 +1068,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function spawnNeonEnemy(game){
       var kind = pickNeonKind(game.elapsed);
       var n = kind === "dog" ? (Math.random() < 0.7 ? Math.floor(rand(2, 4)) : 1) : 1; /* dogs run in packs */
+      var bonusHp = kind === "mech" ? 2 * (defCount(game) - 1) : 0; /* co-op: mechs toughen per extra defender */
       for(var i = 0; i < n; i++){
         var st = NEON_STATS[kind];
         var speed = kind === "mech" ? rand(0.024, 0.030) :
@@ -1037,7 +1078,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           id: game.nextEnemyId++, kind: kind,
           xFrac: clamp(rand(0.1, 0.9) + (i - (n - 1) / 2) * 0.05, 0.05, 0.95),
           z: Math.max(0.02, 0.02 + (n - 1 - i) * 0.015),
-          hp: st.hp, maxHp: st.hp, speed: speed,
+          hp: st.hp + bonusHp, maxHp: st.hp + bonusHp, speed: speed,
           dmg: st.dmg, pts: st.pts,
           ph: rand(0, Math.PI * 2), flash: 0, stunT: 0, beamT: 0, wobX: 0
         });
@@ -1049,6 +1090,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var c = neonCenter(e);
       game.enemies.splice(i, 1);
       game.kills += 1;
+      p.kills += 1;
       award(game, p, e.pts, c.x, c.y);
       game.effects.push({ kind:"burst", x:c.x, y:c.y, t:0, ttl:0.4, color:NEON_KILL_COLORS[e.kind] || "#37e0ff" });
     }
@@ -1066,16 +1108,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(e) damageNeonEnemy(game, a.player, e, 1, "bolt");
       else game.effects.push({ kind:"dust", x:a.x1, y:a.y1, t:0, ttl:0.3, color:"#37e0ff" });
     }
-    /* The defender's four weapon settings, fired from the phone. */
+    /* The defenders' four weapon settings, fired from their phones. */
     function neonShoot(game, p, data){
-      if(game.phase !== "playing" || p.id !== game.defenderId) return;
+      if(game.phase !== "playing" || !isDefender(game, p.id)) return;
       var list = game.playerList();
       var bowX = AW/2 + (list.indexOf(p) - (list.length - 1) / 2) * 90, bowY = AH - 16;
       var ax = clamp(data.x, 0, 1) * AW, ay = clamp(data.y, 0, 1) * AH;
       var kind = data.kind || "bolt";
       if(kind === "bolt"){
-        if(game.neonBoltCd > 0) return;
-        game.neonBoltCd = 0.15;
+        if(p.weap.boltCd > 0) return; /* the bolt rate limit is per defender */
+        p.weap.boltCd = 0.15;
         game.arrows.push({ player:p, kind:"bolt", x0:bowX, y0:bowY, x1:ax, y1:ay, cx:bowX, cy:bowY,
                            t:0, dur:0.15, power:1, lock:null, lockEnemy:false });
       } else if(kind === "emp"){
@@ -1118,16 +1160,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function updateNeonCore(game, dt, now){
       if(game.phase !== "playing") return;
       game.elapsed += dt;
-      if(game.neonBoltCd > 0) game.neonBoltCd -= dt;
-      var speedMul = 1 + game.elapsed * 0.011;
+      var ds = diffScale(game);
+      var speedMul = (1 + game.elapsed * 0.011) * ds.speed;
       game.spawnT -= dt;
       if(game.spawnT <= 0 && game.enemies.length < 24){
         spawnNeonEnemy(game);
-        game.spawnT = Math.max(0.5, 2.4 * Math.pow(0.988, game.elapsed)) * rand(0.7, 1.25);
+        game.spawnT = Math.max(0.5, 2.4 * Math.pow(0.988, game.elapsed)) * rand(0.7, 1.25) * ds.spawn;
       }
-      var dp = game.players[game.defenderId];
-      if(dp){
+      /* Every defender runs their own weapon state: cooldowns tick and
+         the beam burns independently, and beam kills credit the defender
+         holding the beam. */
+      game.playerList().forEach(function(dp){
+        if(!isDefender(game, dp.id)) return;
         var w = dp.weap;
+        if(w.boltCd > 0) w.boltCd = Math.max(0, w.boltCd - dt);
         if(w.empCd > 0) w.empCd = Math.max(0, w.empCd - dt);
         if(w.railCd > 0) w.railCd = Math.max(0, w.railCd - dt);
         if(w.beamLock > 0){
@@ -1136,7 +1182,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         } else if(w.firing && w.beamCharge > 0){
           w.beamCharge = Math.max(0, w.beamCharge - 30 * dt); /* ~3.3 s of beam per full charge */
           var bx = clamp(dp.aim.x, 0, 1) * AW, by = clamp(dp.aim.y, 0, 1) * AH;
-          game.beamPt = { x: bx, y: by };
+          dp.beamPt = { x: bx, y: by };
           var tgt = neonHitTest(game, bx, by, 1.3);
           if(tgt){
             tgt.hp -= 2.4 * dt; tgt.beamT = 0.12; /* burns a mech down in ~2 s */
@@ -1147,8 +1193,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           w.firing = false;
           if(w.beamCharge < 100) w.beamCharge = Math.min(100, w.beamCharge + 16 * dt);
         }
-        if(!w.firing) game.beamPt = null;
-      }
+        if(!w.firing) dp.beamPt = null;
+      });
       for(var i = game.enemies.length - 1; i >= 0; i--){
         var e = game.enemies[i];
         if(e.beamT > 0) e.beamT -= dt;
@@ -1354,7 +1400,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function hostShoot(game, p, data){
       if(game.phase !== "playing" || !data) return;
-      if(game.mode === "solo" && p.id !== game.defenderId) return; /* one archer only */
+      if(game.mode === "solo" && !isDefender(game, p.id)) return; /* registered defenders only */
       var kind = data.kind || "std";
       if(kind === "std"){
         if(p.quiver < 1) return;
@@ -1398,11 +1444,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function updateSoloCore(game, dt, now){
       if(game.phase !== "playing") return;
       game.elapsed += dt;
-      var speedMul = 1 + game.elapsed * 0.011;
+      var ds = diffScale(game);
+      var speedMul = (1 + game.elapsed * 0.011) * ds.speed;
       game.spawnT -= dt;
       if(game.spawnT <= 0 && game.enemies.length < 24){
         spawnEnemy(game);
-        game.spawnT = Math.max(0.5, 2.4 * Math.pow(0.988, game.elapsed)) * rand(0.7, 1.25);
+        game.spawnT = Math.max(0.5, 2.4 * Math.pow(0.988, game.elapsed)) * rand(0.7, 1.25) * ds.spawn;
       }
       game.playerList().forEach(function(pl){
         if(pl.quiver < QUIVER_MAX){
@@ -1431,9 +1478,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function updateGame(game, dt, now){
       var i, p, t;
-      /* Solo defense freezes solid while the defender's shop is open:
-         no marching, no spawning, no survival clock, arrows hang in the
-         air. Multiplayer matches NEVER pause for a shop. */
+      /* Hold the Line freezes solid while a LONE defender's shop is open
+         (refreshShopPause only raises shopPaused for one defender): no
+         marching, no spawning, no survival clock, arrows hang in the air.
+         With 2–3 defenders the game never pauses for a shop, and
+         multiplayer matches NEVER pause for a shop. */
       if(game.mode === "solo" && game.shopPaused && game.phase === "playing") return;
       if(game.mode === "solo") updateSoloCore(game, dt, now);
       if(game.mode === "neon") updateNeonCore(game, dt, now);
@@ -1516,12 +1565,43 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         game.smokes[i].t -= dt;
         if(game.smokes[i].t <= 0) game.smokes.splice(i,1);
       }
-      /* glide each phone's dot toward its latest (throttled) aim point */
+      /* Spring-follow each phone's dot toward its latest aim point, with
+         a touch of velocity prediction. The old fixed-pace glide stepped
+         visibly between the phone's ~8/sec updates; a critically damped
+         spring (stiffness AIM_SPRING_K, damping AIM_SPRING_D) flows
+         continuously instead, and aiming slightly ahead of the target —
+         along the target velocity the aim handler estimates from the
+         incoming messages — cancels the spring's tracking lag on sweeps.
+         The prediction is clamped twice (a short lookahead, a small max
+         offset), the estimated target velocity decays every frame, and
+         the prediction itself is scaled by how fresh the last aim
+         message is — so when the phone stops sending, the prediction
+         fades within a fraction of a second and the dot settles on the
+         true point instead of overshooting past it. */
       game.playerList().forEach(function(pl){
         if(pl.isBot || !pl.aim.seen) return;
-        var k = Math.min(1, dt * 16);
-        pl.aim.x += (pl.aimT.x - pl.aim.x) * k;
-        pl.aim.y += (pl.aimT.y - pl.aim.y) * k;
+        if(!pl.aimV) pl.aimV = { x:0, y:0 };
+        if(!pl.aimTV) pl.aimTV = { x:0, y:0 };
+        var sdt = Math.min(dt, 0.05); /* keep the spring stable on hitches */
+        var decay = Math.exp(-3 * sdt);
+        pl.aimTV.x *= decay; pl.aimTV.y *= decay;
+        pl._aimAge = (pl._aimAge || 0) + sdt;
+        var pscale = Math.exp(-6 * pl._aimAge);
+        var px = pl.aimTV.x * AIM_PREDICT_S * pscale, py = pl.aimTV.y * AIM_PREDICT_S * pscale;
+        var pm = Math.sqrt(px*px + py*py);
+        if(pm > AIM_PREDICT_MAX){ px *= AIM_PREDICT_MAX / pm; py *= AIM_PREDICT_MAX / pm; }
+        var tx = pl.aimT.x + px, ty = pl.aimT.y + py;
+        pl.aimV.x += ((tx - pl.aim.x) * AIM_SPRING_K - pl.aimV.x * AIM_SPRING_D) * sdt;
+        pl.aimV.y += ((ty - pl.aim.y) * AIM_SPRING_K - pl.aimV.y * AIM_SPRING_D) * sdt;
+        pl.aim.x += pl.aimV.x * sdt;
+        pl.aim.y += pl.aimV.y * sdt;
+        /* settle cleanly instead of trembling around a still point */
+        var ddx = pl.aimT.x - pl.aim.x, ddy = pl.aimT.y - pl.aim.y;
+        if(ddx*ddx + ddy*ddy < 0.0015*0.0015 &&
+           pl.aimV.x*pl.aimV.x + pl.aimV.y*pl.aimV.y < 0.02*0.02){
+          pl.aim.x = pl.aimT.x; pl.aim.y = pl.aimT.y;
+          pl.aimV.x = 0; pl.aimV.y = 0;
+        }
       });
       /* per-player state sync */
       game.stateT -= dt;
@@ -1908,7 +1988,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctx.font = "800 42px 'Trebuchet MS', system-ui";
         ctx.fillText("The horde is coming.", AW / 2, 330);
         ctx.font = "600 23px system-ui";
-        ctx.fillText("One archer. One phone. Hold the line.", AW / 2, 372);
+        ctx.fillText("Up to three archers. One line. Hold it together.", AW / 2, 372);
       } else if(game.phase === "ended"){
         ctx.fillStyle = "rgba(16,10,8,.5)"; ctx.fillRect(0, 0, AW, AH);
         ctx.fillStyle = "#f0e6d2";
@@ -2184,20 +2264,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
       drawArrows(ctx, game);
       drawEffects(ctx, game, now);
-      /* the laser beam, live from the defender's bow to their dot */
-      var dp = game.players[game.defenderId];
-      if(dp && dp.weap.firing && game.beamPt && game.phase === "playing"){
-        var list = game.playerList();
-        var bowX = AW/2 + (list.indexOf(dp) - (list.length - 1) / 2) * 90;
-        ctx.save();
-        ctx.lineCap = "round";
-        ctx.strokeStyle = "rgba(90,220,255,.55)"; ctx.lineWidth = 9;
-        ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(game.beamPt.x, game.beamPt.y); ctx.stroke();
-        ctx.strokeStyle = "#eafcff"; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(game.beamPt.x, game.beamPt.y); ctx.stroke();
-        ctx.fillStyle = "rgba(160,245,255,.8)";
-        ctx.beginPath(); ctx.arc(game.beamPt.x, game.beamPt.y, 9 + Math.sin(now / 40) * 2.5, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
+      /* the laser beams, live from each firing defender's bow to their dot */
+      if(game.phase === "playing"){
+        var blist = game.playerList();
+        blist.forEach(function(dp){
+          if(!dp.weap || !dp.weap.firing || !dp.beamPt) return;
+          var bowX = AW/2 + (blist.indexOf(dp) - (blist.length - 1) / 2) * 90;
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "rgba(90,220,255,.55)"; ctx.lineWidth = 9;
+          ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(dp.beamPt.x, dp.beamPt.y); ctx.stroke();
+          ctx.strokeStyle = "#eafcff"; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(dp.beamPt.x, dp.beamPt.y); ctx.stroke();
+          ctx.fillStyle = "rgba(160,245,255,.8)";
+          ctx.beginPath(); ctx.arc(dp.beamPt.x, dp.beamPt.y, 9 + Math.sin(now / 40) * 2.5, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        });
       }
       drawNeonBarrier(ctx, game, now);
       drawBowsDots(ctx, game);
@@ -2217,7 +2299,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctx.font = "800 42px 'Trebuchet MS', system-ui";
         ctx.fillText("The swarm is coming.", AW / 2, 330);
         ctx.font = "600 23px system-ui";
-        ctx.fillText("One defender. One phone. Hold the street.", AW / 2, 372);
+        ctx.fillText("Up to three defenders. One street. Hold it together.", AW / 2, 372);
       } else if(game.phase === "ended"){
         ctx.fillStyle = "rgba(4,2,12,.55)"; ctx.fillRect(0, 0, AW, AH);
         ctx.fillStyle = "#aef3ff";
@@ -2288,7 +2370,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function sendPState(game, p){
       if(!hostBus || p.isBot) return;
       var payload = {
-        score:p.score, credits:p.credits, quiver:p.quiver,
+        score:p.score, credits:p.credits, kills:p.kills, quiver:p.quiver,
         inv:p.inv, laser:p.laser, phase:game.phase, timeLeft:Math.ceil(game.timeLeft),
         mode:game.mode, theme:game.theme, health:game.health, kills:game.kills, elapsed:Math.floor(game.elapsed),
         weap: p.weap ? { empCd:Math.round(p.weap.empCd * 10) / 10, railCd:Math.round(p.weap.railCd * 10) / 10,
@@ -2330,11 +2412,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(n > 0){ var cn = $("conn-note"); if(cn){ cn.textContent = ""; cn.style.color = ""; } }
       $("btn-start").disabled = n === 0;
       if(game.mode === "solo"){
-        $("start-note").textContent = n === 0 ? "Waiting for the archer to join…" :
-          "The archer is in. Start the defense when they're calibrated!";
+        $("start-note").textContent = n === 0 ? "Waiting for defenders to join…" :
+          n + (n === 1 ? " defender" : " defenders") + " in (up to " + MAX_DEFENDERS + "). Start the defense when they're calibrated!";
       } else if(game.mode === "neon"){
-        $("start-note").textContent = n === 0 ? "Waiting for the defender to join…" :
-          "The defender is in. Start the siege when they're calibrated!";
+        $("start-note").textContent = n === 0 ? "Waiting for defenders to join…" :
+          n + (n === 1 ? " defender" : " defenders") + " in (up to " + MAX_DEFENDERS + "). Start the siege when they're calibrated!";
       } else {
         $("start-note").textContent = n === 0 ? "Waiting for players to join…" :
           n + (n === 1 ? " player" : " players") + " in. Start when everyone's calibrated!";
@@ -2352,13 +2434,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     function renderScores(game){
       if(game.mode === "solo" || game.mode === "neon"){
-        var def = game.playerList()[0];
-        var rows = def ?
-          '<div class="score-row"><span class="dot" style="background:' + def.color + '"></span>' +
-          '<span class="nm">' + esc(def.name) + '</span><span class="sc">' + def.score + " pts</span></div>" : "";
-        rows += '<div class="score-row"><span class="nm">Kills</span><span class="sc">' + game.kills + "</span></div>" +
+        var teamScore = 0;
+        var rows = game.playerList().map(function(p){
+          teamScore += p.score;
+          return '<div class="score-row"><span class="dot" style="background:' + p.color + '"></span>' +
+            '<span class="nm">' + esc(p.name) + '</span><span class="sc">' + p.score + " pts · " + p.kills + " kills</span></div>";
+        }).join("");
+        if(!rows) rows = '<p class="muted">No defenders yet.</p>';
+        rows += '<div class="score-row"><span class="nm">Team score</span><span class="sc">' + teamScore + "</span></div>" +
+                '<div class="score-row"><span class="nm">Team kills</span><span class="sc">' + game.kills + "</span></div>" +
                 '<div class="score-row"><span class="nm">Time survived</span><span class="sc">' + fmtTime(game.elapsed) + "</span></div>" +
-                '<div class="score-row"><span class="nm">Health</span><span class="sc">' + game.health + " / 100</span></div>";
+                '<div class="score-row"><span class="nm">Health (shared)</span><span class="sc">' + game.health + " / 100</span></div>";
         $("score-list").innerHTML = rows;
         updateSoloHud(game);
         updateRangeStatus(game);
@@ -2377,13 +2463,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(!txt) return;
       if(game.mode === "solo" || game.mode === "neon"){
         if(game.shopPaused && game.phase === "playing"){
-          txt.textContent = "Paused — the horde waits while the defender is in the shop.";
+          txt.textContent = "Paused — the horde waits while the lone defender is in the shop.";
           if(dot) dot.style.background = "#e8b93c";
           return;
         }
-        var def = game.playerList()[0];
-        txt.textContent = (game.theme === "neon" ? "Neon Siege" : "Hold the line") + " · Health " + game.health + " · " + game.kills + " kills · Score " +
-          (def ? def.score : 0) + (game.theme === "neon" ? " · the swarm grows stronger the longer you last." : " · the horde grows stronger the longer you last.");
+        var teamScore = 0;
+        game.playerList().forEach(function(p){ teamScore += p.score; });
+        var nd = game.defenders.length;
+        txt.textContent = (game.theme === "neon" ? "Neon Siege" : "Hold the line") + " · " + nd + (nd === 1 ? " defender" : " defenders") +
+          " · Health " + game.health + " · " + game.kills + " kills · Team score " + teamScore +
+          (game.theme === "neon" ? " · the swarm grows stronger the longer you last." : " · the horde grows stronger the longer you last.");
         if(dot) dot.style.background = game.health > 50 ? "#3e6b34" : (game.health > 25 ? "#e07b39" : "#c0392b");
         return;
       }
@@ -2431,6 +2520,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function hostDispatch(msg){
       var game = host, d = msg.data || {};
       if(msg.type === "join"){
+        var defenseMode = game.mode === "solo" || game.mode === "neon";
+        /* Co-op defense holds at most MAX_DEFENDERS defenders. A phone
+           beyond that is told the match is full, right on its join
+           screen — never silently parked as a spectator. A phone that is
+           already a registered defender re-joining (its retries) is
+           always answered normally. */
+        if(defenseMode && !game.players[msg.from] && game.defenders.length >= MAX_DEFENDERS){
+          hostBus.send("full", { mode:game.mode, theme:game.theme }, msg.from);
+          return;
+        }
         var p = null;
         try{ p = game.addPlayer(msg.from, d.name, false); }
         catch(err){
@@ -2442,48 +2541,76 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           p = {
             id:msg.from, name:(typeof d.name === "string" && d.name.trim()) ? d.name.trim().slice(0, 14) : "Player",
             isBot:false, colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
-            score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
+            score:0, credits:0, kills:0, quiver:QUIVER_MAX, refillT:0,
             inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
             aim:{ x:0.5, y:0.5, seen:false }, aimT:{ x:0.5, y:0.5 },
+            aimV:{ x:0, y:0 }, aimTV:{ x:0, y:0 }, _aimMsgAt:0, _aimAge:99,
             botTarget:null, botShootT:2, botAimX:0.5, botAimY:0.5
           };
           game.players[msg.from] = p; game.order.push(msg.from);
-          if((game.mode === "solo" || game.mode === "neon") && !game.defenderId) game.defenderId = msg.from;
+          if(defenseMode){
+            if(game.defenders.indexOf(msg.from) === -1 && game.defenders.length < MAX_DEFENDERS) game.defenders.push(msg.from);
+            game.defenderId = game.defenders[0] || null;
+          }
         }
-        var isDef = (game.mode !== "solo" && game.mode !== "neon") || game.defenderId === msg.from;
+        var isDef = !defenseMode || isDefender(game, msg.from);
         /* The welcome goes out FIRST — once the phone hears back it is in
            the match, whatever the lobby bookkeeping below does. */
         hostBus.send("welcome", { color:p.color, colorName:p.colorName, name:p.name, phase:game.phase, mode:game.mode, theme:game.theme, defender:isDef }, msg.from);
-        try{ sendPState(game, p); renderLobby(game); }
+        try{ refreshShopPause(game); sendPState(game, p); renderLobby(game); }
         catch(err){ hostReportError("after a player joined", err); }
       } else if(msg.type === "aim"){
-        if((game.mode === "solo" || game.mode === "neon") && msg.from !== game.defenderId) return;
+        if((game.mode === "solo" || game.mode === "neon") && !isDefender(game, msg.from)) return;
         var pl = game.players[msg.from];
         if(pl && typeof d.x === "number" && typeof d.y === "number"){
-          /* Aim now arrives throttled (~8/sec from the phone), so it lands
-             in aimT, the target; updateGame glides aim toward it each
-             frame and the dot stays smooth. First sighting snaps, so the
-             dot appears where the phone is actually pointing. */
-          pl.aimT.x = clamp(d.x, -0.05, 1.05); pl.aimT.y = clamp(d.y, -0.05, 1.05);
-          if(!pl.aim.seen){ pl.aim.x = pl.aimT.x; pl.aim.y = pl.aimT.y; }
+          /* Aim arrives adaptively throttled from the phone (~8/sec at a
+             careful pace, bursting to ~20/sec on fast sweeps) and lands
+             in aimT, the target; updateGame spring-follows aim toward it
+             each frame and the dot stays smooth. Each message also feeds
+             aimTV, a smoothed estimate of the target's velocity, which
+             the spring uses for its small clamped prediction. First
+             sighting snaps, so the dot appears where the phone is
+             actually pointing. */
+          if(!pl.aimV) pl.aimV = { x:0, y:0 };
+          if(!pl.aimTV) pl.aimTV = { x:0, y:0 };
+          var nx = clamp(d.x, -0.05, 1.05), ny = clamp(d.y, -0.05, 1.05);
+          var nowMsg = Date.now();
+          if(pl.aim.seen && pl._aimMsgAt){
+            var dtMsg = (nowMsg - pl._aimMsgAt) / 1000;
+            if(dtMsg >= 0.02 && dtMsg <= 1){
+              var ivx = (nx - pl.aimT.x) / dtMsg, ivy = (ny - pl.aimT.y) / dtMsg;
+              var im = Math.sqrt(ivx*ivx + ivy*ivy);
+              if(im > AIM_TVEL_MAX){ ivx *= AIM_TVEL_MAX / im; ivy *= AIM_TVEL_MAX / im; }
+              pl.aimTV.x = pl.aimTV.x * 0.55 + ivx * 0.45;
+              pl.aimTV.y = pl.aimTV.y * 0.55 + ivy * 0.45;
+            }
+          }
+          pl._aimMsgAt = nowMsg; pl._aimAge = 0;
+          pl.aimT.x = nx; pl.aimT.y = ny;
+          if(!pl.aim.seen){
+            pl.aim.x = pl.aimT.x; pl.aim.y = pl.aimT.y;
+            pl.aimV.x = 0; pl.aimV.y = 0; pl.aimTV.x = 0; pl.aimTV.y = 0;
+          }
           pl.aim.seen = true;
         }
       } else if(msg.type === "shoot"){
         var ps = game.players[msg.from];
         if(ps){ if(game.mode === "neon") neonShoot(game, ps, d); else hostShoot(game, ps, d); }
       } else if(msg.type === "beam"){
-        /* Neon Siege only: the defender's beam runs while they hold. */
+        /* Neon Siege only: a defender's beam runs while they hold. */
         var pbeam = game.players[msg.from];
-        if(game.mode === "neon" && pbeam && msg.from === game.defenderId) pbeam.weap.firing = !!d.on;
+        if(game.mode === "neon" && pbeam && isDefender(game, msg.from)) pbeam.weap.firing = !!d.on;
       } else if(msg.type === "buy"){
         var pb = game.players[msg.from];
         if(pb) hostBuy(game, pb, d.item);
       } else if(msg.type === "shopstate"){
-        /* Solo defense only: the defender's open shop freezes the horde.
-           Multiplayer ignores this outright — a shop never pauses a match. */
-        if(game.mode === "solo" && msg.from === game.defenderId){
-          game.shopPaused = !!d.open;
-          game.pauseNow = game.shopPaused ? performance.now() : 0;
+        /* Hold the Line only: a defender's open shop freezes the horde
+           ONLY when they are the lone defender. With 2–3 defenders the
+           game keeps running while anyone shops. Multiplayer ignores
+           this outright — a shop never pauses a match. */
+        if(game.mode === "solo" && isDefender(game, msg.from)){
+          game.shopOpen[msg.from] = !!d.open;
+          refreshShopPause(game);
           if(game.phase === "playing")
             $("hud-phase").textContent = game.shopPaused ? "Paused — shop open" : "Defense running";
           renderScores(game);
@@ -2522,17 +2649,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function endSolo(game){
       game.phase = "ended";
       $("hud-phase").textContent = "Defense over";
-      var def = game.playerList()[0];
-      var score = def ? def.score : 0;
+      var teamScore = 0;
+      game.playerList().forEach(function(p){ teamScore += p.score; });
       hostBroadcast("ended", {
-        solo:true, score:score, time:game.elapsed, kills:game.kills,
-        standings: game.playerList().map(function(p){ return { name:p.name, color:p.color, score:p.score }; })
+        solo:true, score:teamScore, time:game.elapsed, kills:game.kills,
+        standings: game.playerList().map(function(p){ return { name:p.name, color:p.color, score:p.score, kills:p.kills }; })
       });
       $("end-title").textContent = game.theme === "neon" ? "The city has fallen" : "The line has fallen";
       $("end-standings").innerHTML =
-        '<div class="score-row"><span class="nm">Final score</span><span class="sc">' + score + " pts</span></div>" +
+        '<div class="score-row"><span class="nm">Team score</span><span class="sc">' + teamScore + " pts</span></div>" +
         '<div class="score-row"><span class="nm">Time survived</span><span class="sc">' + fmtTime(game.elapsed) + "</span></div>" +
-        '<div class="score-row"><span class="nm">Kills</span><span class="sc">' + game.kills + "</span></div>";
+        '<div class="score-row"><span class="nm">Team kills</span><span class="sc">' + game.kills + "</span></div>" +
+        game.playerList().map(function(p){
+          return '<div class="score-row"><span class="dot" style="background:' + p.color + '"></span>' +
+            '<span class="nm">' + esc(p.name) + '</span><span class="sc">' + p.score + " pts · " + p.kills + " kills</span></div>";
+        }).join("");
       $("btn-play-again").textContent = "Fight again";
       $("end-overlay").classList.remove("hidden");
       renderScores(game);
@@ -2593,20 +2724,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var soloMode = host.mode === "solo" || host.mode === "neon";
       var neonMode = host.mode === "neon";
       $("hud-timer").textContent = soloMode ? "0:00" : fmtTime(MATCH_SECONDS);
-      $("lobby-title").textContent = neonMode ? "Solo defense — Neon Siege" : (soloMode ? "Solo defense — Hold the Line" : "Join the match");
+      $("lobby-title").textContent = neonMode ? "Co-op defense — Neon Siege" : (soloMode ? "Co-op defense — Hold the Line" : "Join the match");
       $("lobby-note").textContent = neonMode ?
-        "One defender holds this street: scan the QR code with your phone. Robots, robot dogs, drones and mechs march in from the far end of the street — don't let them reach your barrier." :
+        "Up to three defenders hold this street together on one shared health bar: scan the QR code with your phones. Robots, robot dogs, drones and mechs march in from the far end of the street — don't let them reach your barrier." :
         soloMode ?
-        "One archer defends this screen: scan the QR code with your phone. The horde marches in from the horizon — don't let it reach the barricade." :
+        "Up to three archers defend this screen together on one shared health bar: scan the QR code with your phones. The horde marches in from the horizon — don't let it reach the barricade." :
         "Scan the QR code, or open this page on your phone and enter the code.";
       $("btn-start").textContent = neonMode ? "Start the siege" : (soloMode ? "Start the defense" : "Start match");
       $("hud-goal").textContent = soloMode ? (neonMode ? "Endless — hold the street" : "Endless — survive the horde") : "First to 100 wins";
       $("hud-health").classList.toggle("hidden", !soloMode);
       $("score-title").textContent = neonMode ? "Siege" : (soloMode ? "Defense" : "Scores");
       $("score-note").textContent = neonMode ?
-        "Robot 5 pts · Robot dog 5 pts (fast, hunts in packs) · Drone 25 pts · Mech 15 pts (5 hits — a charged railgun shot kills it instantly). Breaches cost health: robot & dog 10, drone 15, mech 25. Phone weapons: laser bolts (draw the string — the bolt digitizes onto the chrome bow), EMP stun cone, railgun, laser beam. No shop in the neon streets." :
+        "Co-op for up to 3 defenders on one shared 100-point health bar — scores stay individual. Robot 5 pts · Robot dog 5 pts (fast, hunts in packs) · Drone 25 pts · Mech 15 pts (5 hits, tougher with more defenders — a charged railgun shot kills it instantly). Breaches cost health: robot & dog 10, drone 15, mech 25. More defenders means faster spawns and a faster march. Phone weapons: laser bolts (draw the string — the bolt digitizes onto the chrome bow), EMP stun cone, railgun, laser beam. No shop in the neon streets." :
         soloMode ?
-        "Orc 5 pts · Giant 15 pts (5 hits — an exploding arrow hits for 3) · Skinwalker 25 pts, and only a white bolt can kill it. White bolts are in the phone shop for 5 credits. Breaches cost health: orc 10, skinwalker 15, giant 25." :
+        "Co-op for up to 3 archers on one shared 100-point health bar — scores, credits and shops stay individual. Orc 5 pts · Giant 15 pts (5 hits, tougher with more defenders — an exploding arrow hits for 3) · Skinwalker 25 pts, and only a white bolt can kill it. White bolts are in the phone shop for 5 credits. Breaches cost health: orc 10, skinwalker 15, giant 25. More archers means faster spawns and a faster march, and the shop only pauses the horde for a lone archer." :
         "Targets 5 pts · Moving 15 pts · Bombs clear nearby targets for the shooter. First to 100 wins — the range screen takes on the leader's color as their score climbs toward 100.";
       renderQR(code);
       renderLobby(host);
@@ -2637,10 +2768,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function newController(code, name){
       return {
         code:code, name:name, id:uid(), bus:null,
-        color:"#888", colorName:"", welcomed:false, joinTries:0, joinTimer:null, connError:null,
+        color:"#888", colorName:"", welcomed:false, refused:false, joinTries:0, joinTimer:null, connError:null,
         phase:"lobby", soloMode:false, isDefender:true, theme:"medieval",
         neonWeapon:"bolt", neonCharging:false, neonBoltDraw:false, beamHeld:false,
-        pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
+        pstate:{ score:0, credits:0, kills:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
                  weap:{ empCd:0, railCd:0, beamCharge:100, beamLock:0 } },
         /* local match clock: the host no longer broadcasts every second
            (write budget), so the phone ticks from the last pstate sync */
@@ -2746,17 +2877,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         showView("view-controller");
         $("end-banner").classList.add("hidden");
         if(ctrl.soloMode && !ctrl.isDefender){
-          $("wait-title").textContent = "Solo defense";
-          $("wait-text").textContent = "This defense already has its archer — watch the big screen!";
+          $("wait-title").textContent = "Defense full";
+          $("wait-text").textContent = "This defense already has its three defenders — watch the big screen!";
           $("btn-goto-calib").classList.add("hidden");
         } else {
           $("btn-goto-calib").classList.remove("hidden");
         }
         ctrlShow(ctrl.calibrated && ctrl.phase === "playing" && ctrl.isDefender ? "play" : "wait");
         paintController();
+      } else if(msg.type === "full"){
+        /* Co-op defense caps at 3 defenders: the host refused this join.
+           Say so plainly on the join screen and stop knocking. */
+        ctrl.refused = true;
+        clearInterval(ctrl.joinTimer);
+        $("join-status").textContent = "That defense match is full — 3 defenders are already in, and a defense only has room for 3. " +
+          "Watch the big screen, or wait for the next match.";
       } else if(msg.type === "pstate"){
         ctrl.pstate = {
-          score:d.score || 0, credits:d.credits || 0,
+          score:d.score || 0, credits:d.credits || 0, kills:d.kills || 0,
           quiver: (d.quiver == null ? QUIVER_MAX : d.quiver),
           inv: d.inv || ctrl.pstate.inv, laser: !!d.laser,
           health: (d.health == null ? 100 : d.health),
@@ -2794,8 +2932,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctrl.phase = "ended";
         ctrl.clock.run = false; paintClock();
         if(d.solo){
-          var sb = (ctrl.theme === "neon" ? "The city has fallen! " : "The line has fallen! ") + "Score " + (d.score || 0) + " · Survived " +
-            fmtTime(d.time || 0) + " · " + (d.kills || 0) + " kills.";
+          var dst = d.standings || [], dme = null;
+          dst.forEach(function(s){ if(s.name === ctrl.name) dme = s; });
+          var myScore = dme ? dme.score : ctrl.pstate.score;
+          var myKills = dme ? (dme.kills || 0) : (ctrl.pstate.kills || 0);
+          var sb = (ctrl.theme === "neon" ? "The city has fallen! " : "The line has fallen! ") +
+            "You: " + myScore + " pts · " + myKills + " kills. Team: " + (d.score || 0) + " pts · " +
+            (d.kills || 0) + " kills · Survived " + fmtTime(d.time || 0) + ".";
           $("end-banner").textContent = sb;
           $("end-banner").classList.remove("hidden");
           ctrl.nocked = null;
@@ -2820,13 +2963,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         paintController();
       }
     }
-    /* Firestore write budget: the aim stream is the write hog. Cap it at
-       ~8 sends/sec per phone and skip points that barely moved since the
-       last send — idle sensor jitter alone used to produce ~11 writes/sec
-       per phone and burned the free plan's 20k daily writes. The host
-       interpolates between updates, so the dot still glides. Discrete
-       events (join, shoot, buy, beam on/off) never pass through this gate. */
+    /* Firestore write budget: the aim stream is the write hog. The send
+       rate is ADAPTIVE. Slow or careful aim stays capped at ~8 sends/sec
+       and points that barely moved since the last send are skipped —
+       idle sensor jitter alone used to produce ~11 writes/sec per phone
+       and burned the free plan's 20k daily writes, so a still phone
+       still sends ~nothing. But when the aim point has travelled a large
+       distance since the last sent point (a fast sweep), the next send
+       fires as soon as AIM_BURST_MS has passed — bursts up to ~20/sec —
+       because sweeps are exactly where a flat 8/sec cap reads as choppy
+       on the big screen. Sweeps are brief, so the write cost stays low.
+       The host spring-smooths between updates either way. Discrete
+       events (join, shoot, buy, beam on/off) never pass through this
+       gate. */
     var AIM_SEND_MS = 125, AIM_DEADBAND = 0.006;
+    var AIM_BURST_MS = 50, AIM_BURST_DIST = 0.05;
     function startController(code, name){
       teardownHost(); teardownController();
       ctrl = newController(code, name);
@@ -2843,7 +2994,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
          behavior) stranded the phone whenever the host was slow to start
          listening — asleep tab, page still loading, slow network. */
       ctrl.joinTimer = setInterval(function(){
-        if(!ctrl || ctrl.welcomed) { clearInterval(ctrl && ctrl.joinTimer); return; }
+        if(!ctrl || ctrl.welcomed || ctrl.refused) { clearInterval(ctrl && ctrl.joinTimer); return; }
         ctrl.joinTries += 1;
         ctrl.bus.send("join", { name:name });
         if(ctrl.connError) return; /* the real error is already on screen */
@@ -2865,13 +3016,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var td = $("touch-dot");
         if(td && ctrl.touchMode){ td.style.left = (ctrl.touch.x*100) + "%"; td.style.top = (ctrl.touch.y*100) + "%"; td.style.background = ctrl.color; }
         var nowMs = Date.now();
-        if(nowMs - ctrl.lastAimAt >= AIM_SEND_MS &&
-           (Math.abs(a.x - ctrl.lastAimSent.x) > AIM_DEADBAND || Math.abs(a.y - ctrl.lastAimSent.y) > AIM_DEADBAND)){
-          ctrl.lastAimAt = nowMs;
-          ctrl.lastAimSent = { x:a.x, y:a.y };
-          ctrl.bus.send("aim", { x:a.x, y:a.y });
+        var adx = a.x - ctrl.lastAimSent.x, ady = a.y - ctrl.lastAimSent.y;
+        if(Math.abs(adx) > AIM_DEADBAND || Math.abs(ady) > AIM_DEADBAND){
+          /* A large jump since the last sent point means a fast sweep:
+             shorten the gate so the burst goes out at up to ~20/sec.
+             Anything smaller keeps the lean base ~8/sec gate. */
+          var adist = Math.sqrt(adx*adx + ady*ady);
+          var gate = adist >= AIM_BURST_DIST ? AIM_BURST_MS : AIM_SEND_MS;
+          if(nowMs - ctrl.lastAimAt >= gate){
+            ctrl.lastAimAt = nowMs;
+            ctrl.lastAimSent = { x:a.x, y:a.y };
+            ctrl.bus.send("aim", { x:a.x, y:a.y });
+          }
         }
-      }, 90);
+      }, 50);
       ctrl.clockTimer = setInterval(function(){ paintClock(); }, 250);
       paintController();
     }
@@ -2960,7 +3118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("ctrl-phase-label").textContent =
         ctrl.soloMode ?
           (ctrl.phase === "playing" ? "Health " + ctrl.pstate.health :
-           (ctrl.phase === "ended" ? "Defense over" : "Solo defense")) :
+           (ctrl.phase === "ended" ? "Defense over" : "Co-op defense")) :
           (ctrl.phase === "playing" ? "Match running" : (ctrl.phase === "ended" ? "Match over" : "Lobby"));
       /* Neon Siege swaps the quiver and shop for the weapon panel */
       var neonMode = ctrl.theme === "neon";
@@ -3094,9 +3252,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         $("power-fill").style.width = neonPowerPct() + "%";
       }
     }
-    /* Opening/closing the shop tells the host. In solo defense the host
-       freezes the horde while the shop is up; in multiplayer the host
-       ignores it and the match plays on. */
+    /* Opening/closing the shop tells the host. In Hold the Line the host
+       freezes the horde while a LONE defender shops; with 2–3 defenders
+       (and always in multiplayer) the game plays on. */
     function setShopOpen(open){
       $("shop-overlay").classList.toggle("hidden", !open);
       if(ctrl && ctrl.soloMode && ctrl.bus) ctrl.bus.send("shopstate", { open: open });
