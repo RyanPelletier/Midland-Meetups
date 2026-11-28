@@ -784,7 +784,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
         score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
         inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
-        aim:{ x:0.5, y:0.5, seen:false },
+        aim:{ x:0.5, y:0.5, seen:false }, aimT:{ x:0.5, y:0.5 },
         botTarget:null, botShootT:rand(1.2,2.6), botAimX:0.5, botAimY:0.5
       };
       this.players[id] = p; this.order.push(id);
@@ -1516,6 +1516,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         game.smokes[i].t -= dt;
         if(game.smokes[i].t <= 0) game.smokes.splice(i,1);
       }
+      /* glide each phone's dot toward its latest (throttled) aim point */
+      game.playerList().forEach(function(pl){
+        if(pl.isBot || !pl.aim.seen) return;
+        var k = Math.min(1, dt * 16);
+        pl.aim.x += (pl.aimT.x - pl.aim.x) * k;
+        pl.aim.y += (pl.aimT.y - pl.aim.y) * k;
+      });
       /* per-player state sync */
       game.stateT -= dt;
       if(game.stateT <= 0){
@@ -2263,15 +2270,51 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     /* ---------------- host networking / flow ---------------- */
     var hostBus = null, hostId = null, hostRAF = null, hostLastTs = 0;
 
+    /* Firestore write budget (Spark free tier: 20k writes/day): pstate is
+       a continuous broadcast, so it is capped at ~4.5 sends/sec per player
+       AND skipped entirely when nothing a phone displays has changed.
+       The clock fields (timeLeft/elapsed) ride along in the payload but
+       do NOT trigger sends — they change every second by definition, and
+       the phone ticks its clock locally between syncs, resyncing from
+       every pstate it receives. Discrete events (welcome, phase, ended,
+       buy results) never pass through here. */
+    var PSTATE_MIN_MS = 220;
+    function emitPState(p, payload, key){
+      if(!hostBus) return;
+      if(key === p._psKey) return;
+      p._psKey = key; p._psAt = Date.now();
+      hostBus.send("pstate", payload, p.id);
+    }
     function sendPState(game, p){
       if(!hostBus || p.isBot) return;
-      hostBus.send("pstate", {
+      var payload = {
         score:p.score, credits:p.credits, quiver:p.quiver,
-        inv:p.inv, laser:p.laser, phase:game.phase, timeLeft:game.timeLeft,
-        mode:game.mode, theme:game.theme, health:game.health, kills:game.kills, elapsed:game.elapsed,
+        inv:p.inv, laser:p.laser, phase:game.phase, timeLeft:Math.ceil(game.timeLeft),
+        mode:game.mode, theme:game.theme, health:game.health, kills:game.kills, elapsed:Math.floor(game.elapsed),
         weap: p.weap ? { empCd:Math.round(p.weap.empCd * 10) / 10, railCd:Math.round(p.weap.railCd * 10) / 10,
                          beamCharge:Math.round(p.weap.beamCharge), beamLock:Math.round(p.weap.beamLock * 10) / 10 } : null
-      }, p.id);
+      };
+      /* change key: everything except the ever-ticking clock fields */
+      var keyObj = {};
+      for(var k in payload){ if(k !== "timeLeft" && k !== "elapsed") keyObj[k] = payload[k]; }
+      var key = JSON.stringify(keyObj);
+      if(key === p._psKey){ p._psPending = null; return; }
+      var wait = (p._psAt || 0) + PSTATE_MIN_MS - Date.now();
+      if(wait > 0){
+        /* Inside the rate window: keep only the newest state and flush it
+           when the window opens, so a change is delayed, never lost. */
+        p._psPending = { payload:payload, key:key };
+        if(!p._psTimer){
+          p._psTimer = setTimeout(function(){
+            p._psTimer = null;
+            var pend = p._psPending; p._psPending = null;
+            if(pend) emitPState(p, pend.payload, pend.key);
+          }, wait);
+        }
+        return;
+      }
+      p._psPending = null; /* a direct send supersedes any queued flush */
+      emitPState(p, payload, key);
     }
     function hostBroadcast(type, data){
       if(hostBus) hostBus.send(type, data || {});
@@ -2401,7 +2444,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             isBot:false, colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
             score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
             inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
-            aim:{ x:0.5, y:0.5, seen:false },
+            aim:{ x:0.5, y:0.5, seen:false }, aimT:{ x:0.5, y:0.5 },
             botTarget:null, botShootT:2, botAimX:0.5, botAimY:0.5
           };
           game.players[msg.from] = p; game.order.push(msg.from);
@@ -2417,7 +2460,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if((game.mode === "solo" || game.mode === "neon") && msg.from !== game.defenderId) return;
         var pl = game.players[msg.from];
         if(pl && typeof d.x === "number" && typeof d.y === "number"){
-          pl.aim.x = clamp(d.x, -0.05, 1.05); pl.aim.y = clamp(d.y, -0.05, 1.05); pl.aim.seen = true;
+          /* Aim now arrives throttled (~8/sec from the phone), so it lands
+             in aimT, the target; updateGame glides aim toward it each
+             frame and the dot stays smooth. First sighting snaps, so the
+             dot appears where the phone is actually pointing. */
+          pl.aimT.x = clamp(d.x, -0.05, 1.05); pl.aimT.y = clamp(d.y, -0.05, 1.05);
+          if(!pl.aim.seen){ pl.aim.x = pl.aimT.x; pl.aim.y = pl.aimT.y; }
+          pl.aim.seen = true;
         }
       } else if(msg.type === "shoot"){
         var ps = game.players[msg.from];
@@ -2593,13 +2642,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         neonWeapon:"bolt", neonCharging:false, neonBoltDraw:false, beamHeld:false,
         pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
                  weap:{ empCd:0, railCd:0, beamCharge:100, beamLock:0 } },
+        /* local match clock: the host no longer broadcasts every second
+           (write budget), so the phone ticks from the last pstate sync */
+        clock:{ base:MATCH_SECONDS, at:0, dir:-1, run:false }, clockTimer:null,
         /* sensors */
         sensor:{ alpha:null, beta:null, ok:false, needsPerm:false },
         touchMode:false, touch:{ x:0.5, y:0.5 },
         flipX:1, flipY:1,
         calib:{ step:0, center:null, corners:{} },
         calibrated:false,
-        aim:{ x:0.5, y:0.5 }, lastAimSent:{ x:-1, y:-1 }, aimTimer:null,
+        aim:{ x:0.5, y:0.5 }, lastAimSent:{ x:-1, y:-1 }, lastAimAt:0, aimTimer:null,
         /* bow */
         selected:"std", nocked:null, drawing:false, drawStartY:0, power:0, cooldownUntil:0
       };
@@ -2663,6 +2715,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
 
     /* ---------- controller networking ---------- */
+    function paintClock(){
+      if(!ctrl) return;
+      var c = ctrl.clock;
+      var secs = c.run ? c.base + c.dir * (Date.now() - c.at) / 1000 : c.base;
+      if(c.dir < 0) secs = Math.max(0, secs);
+      var txt = fmtTime(secs), el = $("ctrl-time");
+      if(el && el.textContent !== txt) el.textContent = txt;
+    }
     function ctrlOnMessage(msg){
       if(!ctrl || !msg) return;
       var d = msg.data || {};
@@ -2675,6 +2735,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctrl.soloMode = d.mode === "solo" || d.mode === "neon";
         ctrl.theme = d.theme || "medieval";
         ctrl.isDefender = d.defender !== false;
+        ctrl.clock.dir = ctrl.soloMode ? 1 : -1;
+        ctrl.clock.base = ctrl.soloMode ? 0 : MATCH_SECONDS;
+        ctrl.clock.at = Date.now();
+        ctrl.clock.run = ctrl.phase === "playing";
+        paintClock();
         $("ctrl-band").style.background = ctrl.color;
         $("ctrl-name").textContent = ctrl.name + " · " + ctrl.colorName;
         $("join-status").textContent = "";
@@ -2700,11 +2765,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if(d.mode) ctrl.soloMode = d.mode === "solo" || d.mode === "neon";
         if(d.theme) ctrl.theme = d.theme;
         if(d.phase) ctrl.phase = d.phase;
-        $("ctrl-time").textContent = ctrl.soloMode ? fmtTime(d.elapsed || 0) :
-          fmtTime(d.timeLeft == null ? MATCH_SECONDS : d.timeLeft);
+        /* Resync the local clock from this pstate; it ticks on its own
+           between syncs (see the clock ticker in startController). */
+        if(ctrl.soloMode){ ctrl.clock.base = d.elapsed || 0; ctrl.clock.dir = 1; }
+        else { ctrl.clock.base = (d.timeLeft == null ? MATCH_SECONDS : d.timeLeft); ctrl.clock.dir = -1; }
+        ctrl.clock.at = Date.now();
+        ctrl.clock.run = ctrl.phase === "playing";
+        paintClock();
         paintController();
       } else if(msg.type === "phase"){
         ctrl.phase = d.phase;
+        if(d.phase === "playing"){
+          if(ctrl.soloMode){ ctrl.clock.base = 0; ctrl.clock.dir = 1; }
+          else { ctrl.clock.base = (d.timeLeft == null ? MATCH_SECONDS : d.timeLeft); ctrl.clock.dir = -1; }
+          ctrl.clock.at = Date.now(); ctrl.clock.run = true;
+        } else ctrl.clock.run = false;
+        paintClock();
         if(d.phase === "playing"){
           $("end-banner").classList.add("hidden");
           if(ctrl.soloMode && !ctrl.isDefender){ ctrlShow("wait"); paintController(); return; }
@@ -2716,6 +2792,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         paintController();
       } else if(msg.type === "ended"){
         ctrl.phase = "ended";
+        ctrl.clock.run = false; paintClock();
         if(d.solo){
           var sb = (ctrl.theme === "neon" ? "The city has fallen! " : "The line has fallen! ") + "Score " + (d.score || 0) + " · Survived " +
             fmtTime(d.time || 0) + " · " + (d.kills || 0) + " kills.";
@@ -2743,6 +2820,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         paintController();
       }
     }
+    /* Firestore write budget: the aim stream is the write hog. Cap it at
+       ~8 sends/sec per phone and skip points that barely moved since the
+       last send — idle sensor jitter alone used to produce ~11 writes/sec
+       per phone and burned the free plan's 20k daily writes. The host
+       interpolates between updates, so the dot still glides. Discrete
+       events (join, shoot, buy, beam on/off) never pass through this gate. */
+    var AIM_SEND_MS = 125, AIM_DEADBAND = 0.006;
     function startController(code, name){
       teardownHost(); teardownController();
       ctrl = newController(code, name);
@@ -2780,17 +2864,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if(pd){ pd.style.left = (clamp(a.x,0,1)*100) + "%"; pd.style.top = (clamp(a.y,0,1)*100) + "%"; pd.style.background = ctrl.color; }
         var td = $("touch-dot");
         if(td && ctrl.touchMode){ td.style.left = (ctrl.touch.x*100) + "%"; td.style.top = (ctrl.touch.y*100) + "%"; td.style.background = ctrl.color; }
-        if(Math.abs(a.x - ctrl.lastAimSent.x) > 0.0015 || Math.abs(a.y - ctrl.lastAimSent.y) > 0.0015){
-          ctrl.lastAimSent = a;
+        var nowMs = Date.now();
+        if(nowMs - ctrl.lastAimAt >= AIM_SEND_MS &&
+           (Math.abs(a.x - ctrl.lastAimSent.x) > AIM_DEADBAND || Math.abs(a.y - ctrl.lastAimSent.y) > AIM_DEADBAND)){
+          ctrl.lastAimAt = nowMs;
+          ctrl.lastAimSent = { x:a.x, y:a.y };
           ctrl.bus.send("aim", { x:a.x, y:a.y });
         }
       }, 90);
+      ctrl.clockTimer = setInterval(function(){ paintClock(); }, 250);
       paintController();
     }
     function teardownController(){
       if(ctrl){
         if(ctrl.bus) ctrl.bus.close();
         if(ctrl.aimTimer) clearInterval(ctrl.aimTimer);
+        if(ctrl.clockTimer) clearInterval(ctrl.clockTimer);
         if(ctrl.joinTimer) clearInterval(ctrl.joinTimer);
         ctrl = null;
       }
