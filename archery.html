@@ -203,6 +203,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         display:flex; align-items:center; justify-content:center; transform:translate(-50%,-50%);
       }
       #special-chips{ display:flex; flex-direction:column; gap:6px; width:62px; }
+      #weapon-panel{
+        position:absolute; top:12px; right:10px; width:62px; display:flex; flex-direction:column;
+        align-items:center; gap:8px;
+      }
+      #weapon-chips{ display:flex; flex-direction:column; gap:6px; width:62px; }
       .sp-chip{
         border:2px solid var(--line); background:var(--panel); border-radius:10px; padding:5px 2px;
         font-size:10.5px; font-weight:800; text-align:center; cursor:pointer; min-height:40px; line-height:1.25;
@@ -259,6 +264,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <button class="btn green" id="btn-host">Host a match on this screen</button>
             <button class="btn ghost" id="btn-solo">Solo demo with bots</button>
             <button class="btn" id="btn-defense">Solo defense: Hold the Line</button>
+            <button class="btn" id="btn-neon">Solo defense: Neon Siege</button>
           </div>
           <div class="divider">playing on your phone?</div>
           <div class="home-actions">
@@ -269,6 +275,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <p><b>Players:</b> drag an arrow from your quiver to the bow, pull the string back, and aim by pointing your phone at the big screen.</p>
             <p><b>Scoring:</b> targets 5 pts · moving targets 15 pts · shoot a bomb to clear everything near it and take the points. First to 100 pts wins — the range screen tints toward the leader's color as they close in. Hits earn shop credits (points ÷ 2, rounded up).</p>
             <p><b>Solo defense:</b> one archer holds the line alone against an orc horde marching in from the horizon. Orcs 5 pts · giants 15 pts (5 hits — an exploding arrow hits for 3) · skinwalkers 25 pts, and only white bolts from the shop can kill them. If the horde reaches you, it costs health — survive as long as you can.</p>
+            <p><b>Neon Siege:</b> the cyberpunk defense. Your crossbow auto-loads laser bolts — just aim and tap to fire, no nocking. Switch weapons on your phone: an <b>EMP blast</b> that stuns everything in a cone, a <b>railgun</b> you hold to charge that pierces the whole line and kills instantly, and a <b>laser beam</b> that burns while you hold it, then needs a long recharge. Robots 5 pts · robot dogs 5 pts (fast, in packs) · drones 25 pts · mechs 15 pts, the tanks of the street. Same 100-point health bar.</p>
           </div>
         </div>
       </section>
@@ -411,6 +418,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               <span class="cnt" id="quiver-count">6</span>
             </div>
             <div id="special-chips"></div>
+          </div>
+          <div id="weapon-panel" class="hidden">
+            <span class="quiver-label">Weapon</span>
+            <div id="weapon-chips"></div>
           </div>
           <div id="ctrl-bottom">
             <button class="btn" id="btn-shop">
@@ -642,6 +653,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       this.shrubs = makeShrubs(); /* light bushes scattered as depth landmarks */
       this.shopPaused = false; /* solo only: frozen while the defender's shop is open */
       this.pauseNow = 0;      /* animation clock frozen at the pause moment */
+      this.theme = "medieval"; /* medieval | neon — which solo defense variant */
+      this.props = [];         /* neon street props (depth landmarks) */
+      this.neonBoltCd = 0;     /* host-side laser bolt rate limit */
+      this.beamPt = null;      /* neon beam impact point while it fires */
     }
     Game.prototype.playerList = function(){
       var self = this;
@@ -654,22 +669,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         id:id, name:name || ("Player " + (this.order.length+1)), isBot:!!isBot,
         colorIdx:idx, color:PALETTE[idx].css, colorName:PALETTE[idx].name,
         score:0, credits:0, quiver:QUIVER_MAX, refillT:0,
-        inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false,
+        inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, weap:freshWeap(),
         aim:{ x:0.5, y:0.5, seen:false },
         botTarget:null, botShootT:rand(1.2,2.6), botAimX:0.5, botAimY:0.5
       };
       this.players[id] = p; this.order.push(id);
-      if(this.mode === "solo" && !isBot && !this.defenderId) this.defenderId = id;
+      if((this.mode === "solo" || this.mode === "neon") && !isBot && !this.defenderId) this.defenderId = id;
       return p;
     };
     Game.prototype.resetMatch = function(){
       this.targets = []; this.arrows = []; this.effects = []; this.smokes = [];
       this.enemies = []; this.health = 100; this.elapsed = 0; this.kills = 0; this.hurtT = 0;
       this.shrubs = makeShrubs(); this.shopPaused = false; this.pauseNow = 0;
+      this.props = this.mode === "neon" ? makeNeonProps() : []; this.neonBoltCd = 0; this.beamPt = null;
       this.timeLeft = MATCH_SECONDS; this.spawnT = 0;
       this.playerList().forEach(function(p){
         p.score = 0; p.credits = 0; p.quiver = QUIVER_MAX; p.refillT = 0;
-        p.inv = { smoke:0, splinter:0, tracker:0, exploding:0, white:0 }; p.laser = false;
+        p.inv = { smoke:0, splinter:0, tracker:0, exploding:0, white:0 }; p.laser = false; p.weap = freshWeap();
       });
     };
 
@@ -824,6 +840,242 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
+    /* =====================================================================
+       NEON SIEGE — cyberpunk solo defense. Same depth-march system and
+       100-point health bar as Hold the Line, but the crossbow auto-loads
+       laser bolts (no nocking — aim and fire) and the phone switches
+       between four weapon settings: standard bolt, EMP blast (stuns
+       everything in a cone), railgun (hold to charge; the shot pierces
+       the WHOLE line and instant-kills everything along it, mechs
+       included), and a sustained laser beam (damage over time where
+       aimed, drains its charge, then a long recharge). Enemies mirror
+       the medieval values: humanoid robots = orcs (1 hit, 5 pts, -10),
+       robot dogs = fast pack movers (1 hit, 5 pts, -10), drones = the
+       skinwalker skill shot (1 hit, 25 pts, -15), mechs = giants, the
+       tank (5 HP, 15 pts, -25). No shop in this mode.
+       ===================================================================== */
+    var NEON_DIMS = {
+      robot:{ h:96,  w:27, mul:1 },
+      dog:  { h:52,  w:32, mul:0.66 },
+      drone:{ h:36,  w:36, mul:0.6 },
+      mech: { h:104, w:34, mul:2.1 }
+    };
+    var NEON_STATS = {
+      robot:{ hp:1, dmg:10, pts:5 },
+      dog:  { hp:1, dmg:10, pts:5 },
+      drone:{ hp:1, dmg:15, pts:25 },
+      mech: { hp:5, dmg:25, pts:15 }
+    };
+    var NEON_KILL_COLORS = { robot:"#37e0ff", dog:"#ff4fd8", drone:"#ffb03a", mech:"#ff7847" };
+    function freshWeap(){ return { empCd:0, railCd:0, beamCharge:100, beamLock:0, firing:false }; }
+    function angDiffRad(a, b){
+      var d = (a - b) % (Math.PI * 2);
+      if(d > Math.PI) d -= Math.PI * 2;
+      if(d < -Math.PI) d += Math.PI * 2;
+      return d;
+    }
+    function neonScreen(e){
+      var ez = Math.pow(e.z, 1.35);
+      var x = AW/2 + (e.xFrac - 0.5) * AW * (0.30 + 0.70 * ez) + (e.wobX || 0) * (0.25 + 0.75 * e.z);
+      var y = HORIZON_Y + (LINE_Y - HORIZON_Y) * ez;
+      var s = (0.16 + Math.pow(e.z, 1.6)) * NEON_DIMS[e.kind].mul;
+      if(e.kind === "drone") y -= 118 * s; /* drones hover above the street */
+      return { x:x, y:y, s:s };
+    }
+    function neonCenter(e, es){
+      es = es || neonScreen(e);
+      return { x: es.x, y: es.y - NEON_DIMS[e.kind].h * es.s / 2 };
+    }
+    /* Same front-shields-back ellipse test as the horde, against the
+       neon bodies; padScale widens the target (the beam is forgiving). */
+    function neonHitTest(game, x, y, padScale){
+      var sorted = game.enemies.slice().sort(function(a, b){ return b.z - a.z; });
+      for(var i = 0; i < sorted.length; i++){
+        var e = sorted[i], es = neonScreen(e), c = neonCenter(e, es), d = NEON_DIMS[e.kind];
+        var ps = padScale || 1;
+        var dx = (x - c.x) / (d.w * es.s * ps), dy = (y - c.y) / (d.h * es.s / 2 * ps);
+        if(dx * dx + dy * dy <= 1.1) return e;
+      }
+      return null;
+    }
+    /* Escalation mirrors the medieval timing: mechs roll in around
+       25 s, drones around 55 s, dogs are there from the start. */
+    function pickNeonKind(elapsed){
+      var r = Math.random();
+      var mechW = elapsed < 25 ? 0 : Math.min(0.20, 0.10 + (elapsed - 25) / 600);
+      var droneW = elapsed < 55 ? 0 : Math.min(0.22, 0.12 + (elapsed - 55) / 700);
+      var dogW = 0.24;
+      if(r < droneW) return "drone";
+      if(r < droneW + mechW) return "mech";
+      if(r < droneW + mechW + dogW) return "dog";
+      return "robot";
+    }
+    function spawnNeonEnemy(game){
+      var kind = pickNeonKind(game.elapsed);
+      var n = kind === "dog" ? (Math.random() < 0.7 ? Math.floor(rand(2, 4)) : 1) : 1; /* dogs run in packs */
+      for(var i = 0; i < n; i++){
+        var st = NEON_STATS[kind];
+        var speed = kind === "mech" ? rand(0.024, 0.030) :
+                    kind === "dog" ? rand(0.064, 0.083) :   /* ~1.6x the standard march */
+                    kind === "drone" ? rand(0.048, 0.060) : rand(0.040, 0.052);
+        game.enemies.push({
+          id: game.nextEnemyId++, kind: kind,
+          xFrac: clamp(rand(0.1, 0.9) + (i - (n - 1) / 2) * 0.05, 0.05, 0.95),
+          z: Math.max(0.02, 0.02 + (n - 1 - i) * 0.015),
+          hp: st.hp, maxHp: st.hp, speed: speed,
+          dmg: st.dmg, pts: st.pts,
+          ph: rand(0, Math.PI * 2), flash: 0, stunT: 0, beamT: 0, wobX: 0
+        });
+      }
+    }
+    function killNeonEnemy(game, p, e){
+      var i = game.enemies.indexOf(e);
+      if(i === -1) return;
+      var c = neonCenter(e);
+      game.enemies.splice(i, 1);
+      game.kills += 1;
+      award(game, p, e.pts, c.x, c.y);
+      game.effects.push({ kind:"burst", x:c.x, y:c.y, t:0, ttl:0.4, color:NEON_KILL_COLORS[e.kind] || "#37e0ff" });
+    }
+    function damageNeonEnemy(game, p, e, dmg, kind){
+      e.hp -= dmg;
+      if(dmg >= 0.99) e.flash = 0.15; else e.beamT = 0.12;
+      if(e.hp <= 0){ killNeonEnemy(game, p, e); return; }
+      if(dmg >= 0.99){
+        var c = neonCenter(e);
+        game.effects.push({ kind:"burst", x:c.x, y:c.y, t:0, ttl:0.25, color:"#ffffff" });
+      }
+    }
+    function resolveNeonBolt(game, a){
+      var e = neonHitTest(game, a.x1, a.y1);
+      if(e) damageNeonEnemy(game, a.player, e, 1, "bolt");
+      else game.effects.push({ kind:"dust", x:a.x1, y:a.y1, t:0, ttl:0.3, color:"#37e0ff" });
+    }
+    /* The defender's four weapon settings, fired from the phone. */
+    function neonShoot(game, p, data){
+      if(game.phase !== "playing" || p.id !== game.defenderId) return;
+      var list = game.playerList();
+      var bowX = AW/2 + (list.indexOf(p) - (list.length - 1) / 2) * 90, bowY = AH - 16;
+      var ax = clamp(data.x, 0, 1) * AW, ay = clamp(data.y, 0, 1) * AH;
+      var kind = data.kind || "bolt";
+      if(kind === "bolt"){
+        if(game.neonBoltCd > 0) return;
+        game.neonBoltCd = 0.15;
+        game.arrows.push({ player:p, kind:"bolt", x0:bowX, y0:bowY, x1:ax, y1:ay, cx:bowX, cy:bowY,
+                           t:0, dur:0.15, power:1, lock:null, lockEnemy:false });
+      } else if(kind === "emp"){
+        if(p.weap.empCd > 0) return;
+        p.weap.empCd = 6;
+        var ang = Math.atan2(ay - bowY, ax - bowX), half = 0.30;
+        game.enemies.forEach(function(e){
+          var c = neonCenter(e);
+          var vx = c.x - bowX, vy = c.y - bowY, dist = Math.sqrt(vx * vx + vy * vy);
+          if(dist > 1020) return;
+          if(Math.abs(angDiffRad(Math.atan2(vy, vx), ang)) <= half + Math.atan2(30, Math.max(dist, 60)))
+            e.stunT = Math.max(e.stunT || 0, 3.2);
+        });
+        game.effects.push({ kind:"cone", bx:bowX, by:bowY, x:ax, y:ay, ang:ang, half:half, len:1020, t:0, ttl:0.38, color:"#37e0ff" });
+      } else if(kind === "rail"){
+        if(p.weap.railCd > 0) return;
+        var power = clamp(data.power == null ? 1 : data.power, 0, 1);
+        if(power < 0.3){ /* undercharged — the shot fizzles, no cooldown */
+          game.effects.push({ kind:"dust", x:ax, y:ay, t:0, ttl:0.3, color:"#37e0ff" });
+          return;
+        }
+        p.weap.railCd = 5;
+        var dx = ax - bowX, dy = ay - bowY, dl = Math.sqrt(dx * dx + dy * dy) || 1;
+        var ux = dx / dl, uy = dy / dl;
+        /* The railgun pierces the WHOLE line: every enemy along the ray,
+           all the way across the field, dies instantly — mechs too. */
+        game.enemies.slice().forEach(function(e){
+          var es = neonScreen(e), c = neonCenter(e, es);
+          var vx = c.x - bowX, vy = c.y - bowY;
+          if(vx * ux + vy * uy < 0) return; /* behind the bow */
+          var perp = Math.abs(vx * uy - vy * ux);
+          if(perp <= NEON_DIMS[e.kind].w * es.s * 0.5 + 34) damageNeonEnemy(game, p, e, 999, "rail");
+        });
+        game.effects.push({ kind:"railline", bx:bowX, by:bowY, x:bowX + ux * 1700, y:bowY + uy * 1700, t:0, ttl:0.32, color:"#aef4ff" });
+      }
+    }
+    /* Neon Siege tick: same escalation clock and breach math as the
+       medieval core, plus weapon cooldowns, the beam's damage over
+       time, drone zigzag, and EMP stuns freezing the march. */
+    function updateNeonCore(game, dt, now){
+      if(game.phase !== "playing") return;
+      game.elapsed += dt;
+      if(game.neonBoltCd > 0) game.neonBoltCd -= dt;
+      var speedMul = 1 + game.elapsed * 0.011;
+      game.spawnT -= dt;
+      if(game.spawnT <= 0 && game.enemies.length < 24){
+        spawnNeonEnemy(game);
+        game.spawnT = Math.max(0.5, 2.4 * Math.pow(0.988, game.elapsed)) * rand(0.7, 1.25);
+      }
+      var dp = game.players[game.defenderId];
+      if(dp){
+        var w = dp.weap;
+        if(w.empCd > 0) w.empCd = Math.max(0, w.empCd - dt);
+        if(w.railCd > 0) w.railCd = Math.max(0, w.railCd - dt);
+        if(w.beamLock > 0){
+          w.beamLock = Math.max(0, w.beamLock - dt);
+          w.firing = false;
+        } else if(w.firing && w.beamCharge > 0){
+          w.beamCharge = Math.max(0, w.beamCharge - 30 * dt); /* ~3.3 s of beam per full charge */
+          var bx = clamp(dp.aim.x, 0, 1) * AW, by = clamp(dp.aim.y, 0, 1) * AH;
+          game.beamPt = { x: bx, y: by };
+          var tgt = neonHitTest(game, bx, by, 1.3);
+          if(tgt){
+            tgt.hp -= 2.4 * dt; tgt.beamT = 0.12; /* burns a mech down in ~2 s */
+            if(tgt.hp <= 0) killNeonEnemy(game, dp, tgt);
+          }
+          if(w.beamCharge <= 0){ w.firing = false; w.beamLock = 8; } /* the long recharge */
+        } else {
+          w.firing = false;
+          if(w.beamCharge < 100) w.beamCharge = Math.min(100, w.beamCharge + 16 * dt);
+        }
+        if(!w.firing) game.beamPt = null;
+      }
+      for(var i = game.enemies.length - 1; i >= 0; i--){
+        var e = game.enemies[i];
+        if(e.beamT > 0) e.beamT -= dt;
+        if(e.kind === "drone") e.wobX = Math.sin(game.elapsed * 2.4 + e.ph) * 30; /* zigzag */
+        if(e.stunT > 0){ e.stunT -= dt; continue; } /* EMP'd: frozen in place */
+        e.z += e.speed * speedMul * dt;
+        if(e.z >= 1){
+          var c = neonCenter(e);
+          game.enemies.splice(i, 1);
+          game.health = Math.max(0, game.health - e.dmg);
+          game.hurtT = 0.7;
+          game.effects.push({ kind:"popup", x:clamp(c.x, 70, AW - 70), y:LINE_Y - 56, t:0, ttl:1.0, text:"-" + e.dmg + " HP", color:"#ff5a4e" });
+          if(game.health <= 0){ endSolo(game); return; }
+        }
+      }
+    }
+    /* Neon signposts scattered down the street as depth landmarks —
+       same depth space and projection as the medieval shrubs, so a far
+       sign is a speck at the end of the street and a near one towers. */
+    var NEON_PROP_COLORS = ["#00e5ff", "#ff2e88", "#ffb03a", "#7cff4f"];
+    function makeNeonProps(){
+      var props = [], i;
+      for(i = 0; i < 26; i++){
+        props.push({
+          xFrac: rand(0.02, 0.98),
+          z: 0.05 + 0.93 * Math.pow(Math.random(), 0.85),
+          size: rand(0.7, 1.4),
+          seed: rand(0, Math.PI * 2),
+          color: NEON_PROP_COLORS[i % NEON_PROP_COLORS.length]
+        });
+      }
+      return props;
+    }
+    function propScreen(pr){
+      var ez = Math.pow(pr.z, 1.35);
+      return {
+        x: AW/2 + (pr.xFrac - 0.5) * AW * (0.30 + 0.70 * ez),
+        y: HORIZON_Y + (LINE_Y - HORIZON_Y) * ez,
+        s: (0.16 + Math.pow(pr.z, 1.6)) * pr.size
+      };
+    }
+
     /* The current leader: highest score above zero. Ties go to whoever
        reached the top first in join order — hues never mix, the screen
        simply belongs to the one leader. */
@@ -900,6 +1152,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function resolveArrow(game, a){
       if(game.mode === "solo"){ resolveArrowSolo(game, a); return; }
+      if(game.mode === "neon"){ resolveNeonBolt(game, a); return; }
       var p = a.player;
       var ex = a.x1, ey = a.y1;
       if(a.kind !== "tracker" && a.power < 0.22){
@@ -1068,7 +1321,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
          air. Multiplayer matches NEVER pause for a shop. */
       if(game.mode === "solo" && game.shopPaused && game.phase === "playing") return;
       if(game.mode === "solo") updateSoloCore(game, dt, now);
-      if(game.mode !== "solo" && game.phase === "playing"){
+      if(game.mode === "neon") updateNeonCore(game, dt, now);
+      if(game.mode === "match" && game.phase === "playing"){
         game.timeLeft -= dt;
         if(game.timeLeft <= 0){ game.timeLeft = 0; endMatch(game); }
         var leaderNow = getLeader(game);
@@ -1214,6 +1468,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     function drawArrows(ctx, game){
       game.arrows.forEach(function(a){
+        if(a.kind === "bolt"){
+          /* laser bolt: a bright streak, not a wooden arrow */
+          var bang = Math.atan2(a.cy - a.y0, a.cx - a.x0);
+          ctx.save(); ctx.translate(a.cx, a.cy); ctx.rotate(bang);
+          ctx.shadowColor = "#37e0ff"; ctx.shadowBlur = 12;
+          ctx.fillStyle = "#aef4ff"; ctx.fillRect(-17, -2.6, 34, 5.2);
+          ctx.fillStyle = "#ffffff"; ctx.fillRect(-6, -1.4, 20, 2.8);
+          ctx.restore();
+          return;
+        }
         var acol = a.kind === "std" ? a.player.color :
           (SPECIAL_INFO[a.kind] ? SPECIAL_INFO[a.kind].color : a.player.color);
         var ang = Math.atan2(a.cy - a.y0, a.cx - a.x0);
@@ -1230,7 +1494,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function drawEffects(ctx, game, now){
       game.effects.forEach(function(e){
         var k = e.t / e.ttl;
-        if(e.kind === "popup"){
+        if(e.kind === "cone"){
+          /* EMP blast: a glowing wedge from the bow toward the aim point */
+          ctx.save(); ctx.globalAlpha = 1 - k;
+          ctx.translate(e.bx, e.by); ctx.rotate(e.ang);
+          ctx.beginPath(); ctx.moveTo(0, 0);
+          ctx.arc(0, 0, e.len, -e.half, e.half); ctx.closePath();
+          ctx.fillStyle = "rgba(55,224,255,.20)"; ctx.fill();
+          ctx.strokeStyle = "rgba(125,243,255,.8)"; ctx.lineWidth = 2.5; ctx.stroke();
+          ctx.restore();
+        } else if(e.kind === "railline"){
+          /* railgun: a white-hot piercing line across the whole field */
+          ctx.save(); ctx.globalAlpha = 1 - k;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "rgba(55,224,255,.5)"; ctx.lineWidth = 12 * (1 - k) + 3;
+          ctx.beginPath(); ctx.moveTo(e.bx, e.by); ctx.lineTo(e.x, e.y); ctx.stroke();
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4 * (1 - k) + 1.5;
+          ctx.beginPath(); ctx.moveTo(e.bx, e.by); ctx.lineTo(e.x, e.y); ctx.stroke();
+          ctx.restore();
+        } else if(e.kind === "popup"){
           ctx.save(); ctx.globalAlpha = 1 - k;
           ctx.font = "900 30px system-ui"; ctx.textAlign = "center";
           ctx.lineWidth = 5; ctx.strokeStyle = "rgba(255,255,255,.85)";
@@ -1513,9 +1795,319 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
+    /* ---------------- Neon Siege drawing ---------------- */
+    function hash01(n){ var v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); }
+    var NEON_SKYLINE = null;
+    function neonSkyline(){
+      if(NEON_SKYLINE) return NEON_SKYLINE;
+      var arr = [], x = -30;
+      while(x < AW + 30){
+        var w = 46 + hash01(x * 0.37) * 90, h = 34 + hash01(x * 0.91) * 128;
+        arr.push({ x: x, w: w, h: h, seed: x * 1.7 });
+        x += w + 4 + hash01(x * 0.53) * 16;
+      }
+      NEON_SKYLINE = arr;
+      return arr;
+    }
+    function drawNeonProp(ctx, pr){
+      var ps = propScreen(pr), s = ps.s, x = ps.x, base = ps.y;
+      ctx.save();
+      ctx.fillStyle = "rgba(0,229,255,.10)";
+      ctx.beginPath(); ctx.ellipse(x, base + 2 * s, 26 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#232038"; ctx.lineWidth = Math.max(1.5, 4.5 * s); ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(x, base); ctx.lineTo(x, base - 118 * s); ctx.stroke();
+      ctx.save();
+      ctx.shadowColor = pr.color; ctx.shadowBlur = 16 * s;
+      ctx.fillStyle = pr.color;
+      ctx.fillRect(x - 5.5 * s, base - 118 * s, 11 * s, 52 * s);
+      ctx.restore();
+      ctx.fillStyle = "rgba(255,255,255,.7)";
+      ctx.fillRect(x - 2.5 * s, base - 112 * s, 5 * s, 40 * s);
+      ctx.restore();
+    }
+    function drawNeonEnemy(ctx, e, now){
+      var es = neonScreen(e), s = es.s, x = es.x, feet = es.y;
+      var step = Math.sin(now / 150 + e.ph);
+      var bob = e.kind === "drone" ? Math.sin(now / 300 + e.ph) * 4 * s : Math.abs(Math.sin(now / 150 + e.ph)) * 2 * s;
+      ctx.save();
+      ctx.globalAlpha = 0.88 + 0.12 * e.z; /* bright and readable even at the far end of the street */
+      if(e.stunT > 0) ctx.translate(Math.sin(now / 28) * 1.6 * s, 0); /* EMP'd: buzzing in place */
+      if(e.kind === "drone"){
+        ctx.fillStyle = "rgba(0,229,255,.16)";
+        ctx.beginPath(); ctx.ellipse(x, feet + 118 * s + 3 * s, 22 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = "rgba(0,0,0,.4)";
+        ctx.beginPath(); ctx.ellipse(x, feet + 3 * s, 20 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.translate(x, feet - bob);
+      ctx.lineCap = "round";
+      if(e.kind === "robot"){
+        ctx.strokeStyle = "#5f7185"; ctx.lineWidth = 7 * s;
+        ctx.beginPath();
+        ctx.moveTo(-6 * s, -34 * s); ctx.lineTo((-6 + step * 9) * s, 0);
+        ctx.moveTo(6 * s, -34 * s); ctx.lineTo((6 - step * 9) * s, 0);
+        ctx.stroke();
+        ctx.strokeStyle = "#7d92a8"; ctx.lineWidth = 6 * s;
+        ctx.beginPath();
+        ctx.moveTo(-15 * s, -64 * s); ctx.lineTo((-19 - step * 3) * s, -36 * s);
+        ctx.moveTo(15 * s, -64 * s); ctx.lineTo((19 + step * 3) * s, -36 * s);
+        ctx.stroke();
+        /* bright chrome torso so it pops against the dark street */
+        ctx.fillStyle = "#d7e3ee";
+        ctx.beginPath();
+        ctx.moveTo(-15 * s, -72 * s); ctx.lineTo(15 * s, -72 * s); ctx.lineTo(12 * s, -32 * s); ctx.lineTo(-12 * s, -32 * s);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#8fa5ba"; ctx.fillRect(-12 * s, -44 * s, 24 * s, 5 * s);
+        ctx.save(); ctx.shadowColor = "#00e5ff"; ctx.shadowBlur = 12 * s;
+        ctx.fillStyle = "#5ff2ff";
+        ctx.beginPath(); ctx.arc(0, -58 * s, 4.6 * s, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        /* head + magenta visor */
+        ctx.fillStyle = "#aebfce"; ctx.fillRect(-9.5 * s, -93 * s, 19 * s, 17 * s);
+        ctx.fillStyle = "#39424e"; ctx.fillRect(-9.5 * s, -93 * s, 19 * s, 4 * s);
+        ctx.save(); ctx.shadowColor = "#ff2e88"; ctx.shadowBlur = 10 * s;
+        ctx.fillStyle = "#ff5aa5"; ctx.fillRect(-7 * s, -85 * s, 14 * s, 3.6 * s); ctx.restore();
+        ctx.strokeStyle = "#7d92a8"; ctx.lineWidth = 2 * s;
+        ctx.beginPath(); ctx.moveTo(0, -93 * s); ctx.lineTo(0, -103 * s); ctx.stroke();
+        ctx.fillStyle = "#5ff2ff";
+        ctx.beginPath(); ctx.arc(0, -104 * s, 2 * s, 0, Math.PI * 2); ctx.fill();
+      } else if(e.kind === "dog"){
+        var trot = Math.sin(now / 90 + e.ph);
+        ctx.strokeStyle = "#5f7185"; ctx.lineWidth = 5 * s;
+        ctx.beginPath();
+        ctx.moveTo(-16 * s, -16 * s); ctx.lineTo((-16 + trot * 7) * s, 0);
+        ctx.moveTo(-9 * s, -16 * s); ctx.lineTo((-9 - trot * 7) * s, 0);
+        ctx.moveTo(10 * s, -16 * s); ctx.lineTo((10 + trot * 7) * s, 0);
+        ctx.moveTo(17 * s, -16 * s); ctx.lineTo((17 - trot * 7) * s, 0);
+        ctx.stroke();
+        ctx.fillStyle = "#c3d2e0";
+        ctx.beginPath(); ctx.ellipse(0, -26 * s, 25 * s, 10.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.save(); ctx.shadowColor = "#ff2e88"; ctx.shadowBlur = 8 * s;
+        ctx.fillStyle = "#ff5aa5"; ctx.fillRect(-18 * s, -29 * s, 30 * s, 3.4 * s); ctx.restore();
+        /* head at the front, glowing red eye, ear up */
+        ctx.fillStyle = "#aebfce";
+        ctx.beginPath(); ctx.ellipse(26 * s, -32 * s, 10 * s, 7.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(20 * s, -38 * s); ctx.lineTo(23 * s, -47 * s); ctx.lineTo(27 * s, -38 * s); ctx.closePath(); ctx.fill();
+        ctx.save(); ctx.shadowColor = "#ff3131"; ctx.shadowBlur = 9 * s;
+        ctx.fillStyle = "#ff6b5e";
+        ctx.beginPath(); ctx.arc(29 * s, -33 * s, 2.4 * s, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        /* tail antenna */
+        ctx.strokeStyle = "#7d92a8"; ctx.lineWidth = 2.4 * s;
+        ctx.beginPath(); ctx.moveTo(-24 * s, -30 * s); ctx.lineTo(-31 * s, -44 * s); ctx.stroke();
+        ctx.fillStyle = "#5ff2ff";
+        ctx.beginPath(); ctx.arc(-31 * s, -45 * s, 2.2 * s, 0, Math.PI * 2); ctx.fill();
+      } else if(e.kind === "drone"){
+        var ra = now / 40 + e.ph;
+        ctx.strokeStyle = "rgba(200,230,255,.75)"; ctx.lineWidth = 2.4 * s;
+        [-20, 20].forEach(function(rx){
+          ctx.beginPath();
+          ctx.moveTo((rx - Math.cos(ra) * 11) * s, -34 * s - Math.sin(ra) * 2 * s);
+          ctx.lineTo((rx + Math.cos(ra) * 11) * s, -34 * s + Math.sin(ra) * 2 * s);
+          ctx.stroke();
+        });
+        ctx.strokeStyle = "#7d92a8"; ctx.lineWidth = 3 * s;
+        ctx.beginPath();
+        ctx.moveTo(-14 * s, -26 * s); ctx.lineTo(-20 * s, -33 * s);
+        ctx.moveTo(14 * s, -26 * s); ctx.lineTo(20 * s, -33 * s);
+        ctx.stroke();
+        ctx.fillStyle = "#d7e3ee";
+        ctx.beginPath(); ctx.ellipse(0, -22 * s, 17 * s, 9.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#8fa5ba";
+        ctx.beginPath(); ctx.ellipse(0, -27 * s, 9 * s, 5.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.save(); ctx.shadowColor = "#ff3131"; ctx.shadowBlur = 11 * s;
+        ctx.fillStyle = "#ff5147";
+        ctx.beginPath(); ctx.arc(0, -21 * s, 3.6 * s, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ctx.fillStyle = "rgba(0,229,255,.35)";
+        ctx.beginPath(); ctx.ellipse(0, -12 * s, 10 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill();
+      } else { /* mech: the tank — heavy plated hull, burning core, cannon arm */
+        ctx.strokeStyle = "#4c5866"; ctx.lineWidth = 12 * s;
+        ctx.beginPath();
+        ctx.moveTo(-11 * s, -38 * s); ctx.lineTo((-11 + step * 8) * s, 0);
+        ctx.moveTo(11 * s, -38 * s); ctx.lineTo((11 - step * 8) * s, 0);
+        ctx.stroke();
+        ctx.fillStyle = "#74879c"; ctx.fillRect(-33 * s, -74 * s, 12 * s, 34 * s);
+        ctx.fillStyle = "#39424e"; ctx.fillRect(21 * s, -66 * s, 20 * s, 10 * s);
+        ctx.save(); ctx.shadowColor = "#ff7847"; ctx.shadowBlur = 10 * s;
+        ctx.fillStyle = "#ffb03a";
+        ctx.beginPath(); ctx.arc(43 * s, -61 * s, 3.4 * s, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ctx.fillStyle = "#9fb2c5";
+        ctx.beginPath();
+        ctx.moveTo(-24 * s, -84 * s); ctx.lineTo(24 * s, -84 * s); ctx.lineTo(19 * s, -36 * s); ctx.lineTo(-19 * s, -36 * s);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#e07b39"; ctx.fillRect(-19 * s, -50 * s, 38 * s, 8 * s);
+        ctx.fillStyle = "#74879c";
+        ctx.beginPath(); ctx.arc(-24 * s, -80 * s, 8.5 * s, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(24 * s, -80 * s, 8.5 * s, 0, Math.PI * 2); ctx.fill();
+        ctx.save(); ctx.shadowColor = "#ff7847"; ctx.shadowBlur = 14 * s;
+        ctx.fillStyle = "#ffc46b";
+        ctx.beginPath(); ctx.arc(0, -64 * s, 6 * s, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ctx.fillStyle = "#aebfce"; ctx.fillRect(-8 * s, -100 * s, 16 * s, 13 * s);
+        ctx.save(); ctx.shadowColor = "#00e5ff"; ctx.shadowBlur = 9 * s;
+        ctx.fillStyle = "#5ff2ff"; ctx.fillRect(-6 * s, -95 * s, 12 * s, 3.2 * s); ctx.restore();
+      }
+      if(e.beamT > 0){
+        var db = NEON_DIMS[e.kind];
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = "#7df3ff";
+        ctx.beginPath(); ctx.ellipse(0, -db.h * s / 2, db.w * s, db.h * s / 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.88 + 0.12 * e.z;
+      }
+      if(e.flash > 0){
+        var df = NEON_DIMS[e.kind];
+        ctx.globalAlpha = Math.min(0.85, e.flash * 5);
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath(); ctx.ellipse(0, -df.h * s / 2, df.w * s, df.h * s / 2, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      /* EMP stun: lightning crackling over the frozen machine */
+      if(e.stunT > 0){
+        var ds = NEON_DIMS[e.kind], sy2 = feet - bob - ds.h * s - 6 * s;
+        ctx.save();
+        ctx.strokeStyle = "#7df3ff"; ctx.lineWidth = Math.max(1.4, 2.2 * s); ctx.lineCap = "round";
+        ctx.shadowColor = "#37e0ff"; ctx.shadowBlur = 8;
+        for(var q = 0; q < 3; q++){
+          var ox = (q - 1) * 13 * s + Math.sin(now / 90 + q * 2.1) * 3 * s;
+          ctx.beginPath();
+          ctx.moveTo(x + ox - 3 * s, sy2 - 8 * s); ctx.lineTo(x + ox + 2 * s, sy2 - 2 * s);
+          ctx.lineTo(x + ox - 2 * s, sy2 + 3 * s); ctx.lineTo(x + ox + 3 * s, sy2 + 9 * s);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      /* mech health bar */
+      if(e.kind === "mech" && e.hp < e.maxHp){
+        var bw = 64 * s, bh = Math.max(3.5, 7 * s);
+        var bx = x - bw / 2, by = feet - bob - NEON_DIMS.mech.h * s - 16 * s;
+        ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = "#ff7847"; ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh);
+      }
+    }
+    function drawNeonBarrier(ctx, game, now){
+      var by = LINE_Y + 20;
+      var shimmer = 0.5 + 0.3 * Math.sin(now / 300);
+      var grad = ctx.createLinearGradient(0, by - 44, 0, by + 6);
+      grad.addColorStop(0, "rgba(0,229,255,0)");
+      grad.addColorStop(1, "rgba(0,229,255," + (0.16 + 0.08 * shimmer) + ")");
+      ctx.fillStyle = grad; ctx.fillRect(0, by - 44, AW, 50);
+      ctx.strokeStyle = "rgba(140,245,255," + (0.55 + 0.35 * shimmer) + ")"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(0, by - 44); ctx.lineTo(AW, by - 44); ctx.stroke();
+      ctx.strokeStyle = "rgba(140,245,255,.3)"; ctx.lineWidth = 1.5;
+      for(var x = 24; x < AW; x += 48){
+        ctx.beginPath(); ctx.moveTo(x, by - 44); ctx.lineTo(x - 12, by + 6); ctx.stroke();
+      }
+      var p = game.playerList()[0];
+      var bc = p ? p.color : "#00e5ff";
+      [70, AW - 70].forEach(function(px){
+        ctx.strokeStyle = "#14101f"; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(px, by + 8); ctx.lineTo(px, by - 58); ctx.stroke();
+        ctx.save(); ctx.shadowColor = bc; ctx.shadowBlur = 14;
+        ctx.fillStyle = bc;
+        ctx.beginPath(); ctx.arc(px, by - 62, 6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      });
+    }
+    function drawNeonGame(game, now){
+      var cv = $("game-canvas"), ctx = cv.getContext("2d");
+      /* night sky over the city */
+      var sky = ctx.createLinearGradient(0, 0, 0, HORIZON_Y + 40);
+      sky.addColorStop(0, "#05030f"); sky.addColorStop(0.55, "#150a2e"); sky.addColorStop(1, "#33135c");
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, AW, HORIZON_Y + 40);
+      ctx.fillStyle = "rgba(200,220,255,.55)";
+      for(var st = 0; st < 42; st++){
+        ctx.fillRect(hash01(st * 3.3) * AW, hash01(st * 7.9) * (HORIZON_Y - 30), 2, 2);
+      }
+      /* holo rings hanging in the sky */
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,46,136,.5)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(AW * 0.79, 78, 42, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(0,229,255,.35)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(AW * 0.79, 78, 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      /* skyline: dark towers with neon-lit windows */
+      neonSkyline().forEach(function(b){
+        ctx.fillStyle = "#0b0819";
+        ctx.fillRect(b.x, HORIZON_Y - b.h, b.w, b.h + 4);
+        var cols = Math.floor(b.w / 13), rows = Math.floor(b.h / 16);
+        for(var cx2 = 0; cx2 < cols; cx2++) for(var ry = 0; ry < rows; ry++){
+          var hn = hash01(b.seed + cx2 * 17.3 + ry * 29.7);
+          if(hn < 0.42) continue;
+          ctx.fillStyle = hn < 0.62 ? "rgba(0,229,255,.85)" : (hn < 0.82 ? "rgba(255,46,136,.8)" : "rgba(255,176,58,.85)");
+          ctx.fillRect(b.x + 5 + cx2 * 13, HORIZON_Y - b.h + 6 + ry * 16, 5, 7);
+        }
+      });
+      /* horizon glow where the street meets the skyline */
+      var hg = ctx.createLinearGradient(0, HORIZON_Y - 26, 0, HORIZON_Y + 30);
+      hg.addColorStop(0, "rgba(255,46,136,0)"); hg.addColorStop(0.6, "rgba(255,46,136,.14)"); hg.addColorStop(1, "rgba(0,229,255,.10)");
+      ctx.fillStyle = hg; ctx.fillRect(0, HORIZON_Y - 26, AW, 56);
+      /* the street: dark asphalt lit by the lane lights */
+      var gnd = ctx.createLinearGradient(0, HORIZON_Y, 0, AH);
+      gnd.addColorStop(0, "#17102c"); gnd.addColorStop(0.5, "#1f1538"); gnd.addColorStop(1, "#2b1a47");
+      ctx.fillStyle = gnd; ctx.fillRect(0, HORIZON_Y, AW, AH - HORIZON_Y);
+      for(var f = -6; f <= 6; f++){
+        if(f === -6){ ctx.strokeStyle = "rgba(0,229,255,.75)"; ctx.lineWidth = 3; }
+        else if(f === 6){ ctx.strokeStyle = "rgba(255,46,136,.75)"; ctx.lineWidth = 3; }
+        else { ctx.strokeStyle = "rgba(140,110,220,.20)"; ctx.lineWidth = 2; }
+        ctx.beginPath(); ctx.moveTo(AW / 2 + f * 14, HORIZON_Y); ctx.lineTo(AW / 2 + f * 150, AH); ctx.stroke();
+      }
+      [0.2, 0.45, 0.7].forEach(function(z){
+        var y = HORIZON_Y + (LINE_Y - HORIZON_Y) * Math.pow(z, 1.35);
+        ctx.strokeStyle = "rgba(0,229,255,.14)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(AW, y); ctx.stroke();
+      });
+      /* neon signs and the swarm together, far to near */
+      var things = [];
+      game.props.forEach(function(pr){ things.push({ z: pr.z, prop: pr }); });
+      game.enemies.forEach(function(e){ things.push({ z: e.z, enemy: e }); });
+      things.sort(function(a, b){ return a.z - b.z; });
+      things.forEach(function(t){
+        if(t.prop) drawNeonProp(ctx, t.prop); else drawNeonEnemy(ctx, t.enemy, now);
+      });
+      drawArrows(ctx, game);
+      drawEffects(ctx, game, now);
+      /* the laser beam, live from the defender's bow to their dot */
+      var dp = game.players[game.defenderId];
+      if(dp && dp.weap.firing && game.beamPt && game.phase === "playing"){
+        var list = game.playerList();
+        var bowX = AW/2 + (list.indexOf(dp) - (list.length - 1) / 2) * 90;
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "rgba(90,220,255,.55)"; ctx.lineWidth = 9;
+        ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(game.beamPt.x, game.beamPt.y); ctx.stroke();
+        ctx.strokeStyle = "#eafcff"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(bowX, AH - 22); ctx.lineTo(game.beamPt.x, game.beamPt.y); ctx.stroke();
+        ctx.fillStyle = "rgba(160,245,255,.8)";
+        ctx.beginPath(); ctx.arc(game.beamPt.x, game.beamPt.y, 9 + Math.sin(now / 40) * 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      drawNeonBarrier(ctx, game, now);
+      drawBowsDots(ctx, game);
+      /* hurt flash + low-health pulse */
+      var va = game.hurtT > 0 ? game.hurtT * 0.5 : 0;
+      if(game.health <= 30 && game.phase === "playing") va = Math.max(va, 0.16 + 0.08 * Math.sin(now / 280));
+      if(va > 0){
+        var vg = ctx.createRadialGradient(AW / 2, AH / 2, AH * 0.36, AW / 2, AH / 2, AH * 0.78);
+        vg.addColorStop(0, "rgba(190,30,18,0)");
+        vg.addColorStop(1, "rgba(190,30,18," + clamp(va, 0, 0.6) + ")");
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, AW, AH);
+      }
+      ctx.textAlign = "center";
+      if(game.phase === "lobby"){
+        ctx.fillStyle = "rgba(4,2,12,.55)"; ctx.fillRect(0, 0, AW, AH);
+        ctx.fillStyle = "#aef3ff";
+        ctx.font = "800 42px 'Trebuchet MS', system-ui";
+        ctx.fillText("The swarm is coming.", AW / 2, 330);
+        ctx.font = "600 23px system-ui";
+        ctx.fillText("One defender. One phone. Hold the street.", AW / 2, 372);
+      } else if(game.phase === "ended"){
+        ctx.fillStyle = "rgba(4,2,12,.55)"; ctx.fillRect(0, 0, AW, AH);
+        ctx.fillStyle = "#aef3ff";
+        ctx.font = "800 42px 'Trebuchet MS', system-ui";
+        ctx.fillText("The city has fallen.", AW / 2, 330);
+      }
+    }
+
     function drawGame(game, now){
       var cv = $("game-canvas"), ctx = cv.getContext("2d");
       if(game.mode === "solo"){ drawSoloGame(game, now); return; }
+      if(game.mode === "neon"){ drawNeonGame(game, now); return; }
       /* The range is a white screen. As the leading player's score climbs
          toward WIN_SCORE, the screen takes on that player's color at the
          same percentage (20 of 100 = 20% color). When the lead changes,
@@ -1561,7 +2153,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       hostBus.send("pstate", {
         score:p.score, credits:p.credits, quiver:p.quiver,
         inv:p.inv, laser:p.laser, phase:game.phase, timeLeft:game.timeLeft,
-        mode:game.mode, health:game.health, kills:game.kills, elapsed:game.elapsed
+        mode:game.mode, theme:game.theme, health:game.health, kills:game.kills, elapsed:game.elapsed,
+        weap: p.weap ? { empCd:Math.round(p.weap.empCd * 10) / 10, railCd:Math.round(p.weap.railCd * 10) / 10,
+                         beamCharge:Math.round(p.weap.beamCharge), beamLock:Math.round(p.weap.beamLock * 10) / 10 } : null
       }, p.id);
     }
     function hostBroadcast(type, data){
@@ -1579,6 +2173,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(game.mode === "solo"){
         $("start-note").textContent = n === 0 ? "Waiting for the archer to join…" :
           "The archer is in. Start the defense when they're calibrated!";
+      } else if(game.mode === "neon"){
+        $("start-note").textContent = n === 0 ? "Waiting for the defender to join…" :
+          "The defender is in. Start the siege when they're calibrated!";
       } else {
         $("start-note").textContent = n === 0 ? "Waiting for players to join…" :
           n + (n === 1 ? " player" : " players") + " in. Start when everyone's calibrated!";
@@ -1595,7 +2192,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(num) num.textContent = game.health;
     }
     function renderScores(game){
-      if(game.mode === "solo"){
+      if(game.mode === "solo" || game.mode === "neon"){
         var def = game.playerList()[0];
         var rows = def ?
           '<div class="score-row"><span class="dot" style="background:' + def.color + '"></span>' +
@@ -1619,15 +2216,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function updateRangeStatus(game){
       var txt = $("range-status-text"), dot = $("range-status") ? $("range-status").querySelector(".rdot") : null;
       if(!txt) return;
-      if(game.mode === "solo"){
+      if(game.mode === "solo" || game.mode === "neon"){
         if(game.shopPaused && game.phase === "playing"){
           txt.textContent = "Paused — the horde waits while the defender is in the shop.";
           if(dot) dot.style.background = "#e8b93c";
           return;
         }
         var def = game.playerList()[0];
-        txt.textContent = "Hold the line · Health " + game.health + " · " + game.kills + " kills · Score " +
-          (def ? def.score : 0) + " · the horde grows stronger the longer you last.";
+        txt.textContent = (game.theme === "neon" ? "Neon Siege" : "Hold the line") + " · Health " + game.health + " · " + game.kills + " kills · Score " +
+          (def ? def.score : 0) + (game.theme === "neon" ? " · the swarm grows stronger the longer you last." : " · the horde grows stronger the longer you last.");
         if(dot) dot.style.background = game.health > 50 ? "#3e6b34" : (game.health > 25 ? "#e07b39" : "#c0392b");
         return;
       }
@@ -1661,19 +2258,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var game = host, d = msg.data || {};
       if(msg.type === "join"){
         var p = game.addPlayer(msg.from, d.name, false);
-        var isDef = game.mode !== "solo" || game.defenderId === msg.from;
-        hostBus.send("welcome", { color:p.color, colorName:p.colorName, name:p.name, phase:game.phase, mode:game.mode, defender:isDef }, msg.from);
+        var isDef = (game.mode !== "solo" && game.mode !== "neon") || game.defenderId === msg.from;
+        hostBus.send("welcome", { color:p.color, colorName:p.colorName, name:p.name, phase:game.phase, mode:game.mode, theme:game.theme, defender:isDef }, msg.from);
         sendPState(game, p);
         renderLobby(game);
       } else if(msg.type === "aim"){
-        if(game.mode === "solo" && msg.from !== game.defenderId) return;
+        if((game.mode === "solo" || game.mode === "neon") && msg.from !== game.defenderId) return;
         var pl = game.players[msg.from];
         if(pl && typeof d.x === "number" && typeof d.y === "number"){
           pl.aim.x = clamp(d.x, -0.05, 1.05); pl.aim.y = clamp(d.y, -0.05, 1.05); pl.aim.seen = true;
         }
       } else if(msg.type === "shoot"){
         var ps = game.players[msg.from];
-        if(ps) hostShoot(game, ps, d);
+        if(ps){ if(game.mode === "neon") neonShoot(game, ps, d); else hostShoot(game, ps, d); }
+      } else if(msg.type === "beam"){
+        /* Neon Siege only: the defender's beam runs while they hold. */
+        var pbeam = game.players[msg.from];
+        if(game.mode === "neon" && pbeam && msg.from === game.defenderId) pbeam.weap.firing = !!d.on;
       } else if(msg.type === "buy"){
         var pb = game.players[msg.from];
         if(pb) hostBuy(game, pb, d.item);
@@ -1700,7 +2301,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       sendPState(game, p);
     }
     function startMatch(game){
-      if(game.mode === "solo"){ startSoloRun(game); return; }
+      if(game.mode === "solo" || game.mode === "neon"){ startSoloRun(game); return; }
       game.resetMatch();
       game.phase = "playing";
       $("lobby-panel").classList.add("hidden");
@@ -1713,7 +2314,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       game.phase = "playing";
       game.spawnT = 1.4; /* a breath before the first orc crests the hill */
       $("lobby-panel").classList.add("hidden");
-      $("hud-phase").textContent = "Defense running";
+      $("hud-phase").textContent = game.theme === "neon" ? "Siege running" : "Defense running";
       hostBroadcast("phase", { phase:"playing", timeLeft:0 });
       game.playerList().forEach(function(p){ sendPState(game, p); });
       renderScores(game);
@@ -1727,7 +2328,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         solo:true, score:score, time:game.elapsed, kills:game.kills,
         standings: game.playerList().map(function(p){ return { name:p.name, color:p.color, score:p.score }; })
       });
-      $("end-title").textContent = "The line has fallen";
+      $("end-title").textContent = game.theme === "neon" ? "The city has fallen" : "The line has fallen";
       $("end-standings").innerHTML =
         '<div class="score-row"><span class="nm">Final score</span><span class="sc">' + score + " pts</span></div>" +
         '<div class="score-row"><span class="nm">Time survived</span><span class="sc">' + fmtTime(game.elapsed) + "</span></div>" +
@@ -1758,7 +2359,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       hostLastTs = ts;
       updateGame(host, dt, ts);
       drawGame(host, ts);
-      $("hud-timer").textContent = host.mode === "solo" ? fmtTime(host.elapsed) : fmtTime(host.timeLeft);
+      $("hud-timer").textContent = (host.mode === "solo" || host.mode === "neon") ? fmtTime(host.elapsed) : fmtTime(host.timeLeft);
       hostRAF = requestAnimationFrame(hostLoop);
     }
     function startHost(kind){
@@ -1767,6 +2368,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       hostId = uid();
       host = new Game(code);
       if(kind === "defense") host.mode = "solo";
+      if(kind === "neon"){ host.mode = "neon"; host.theme = "neon"; }
       hostBus = makeBus(code, hostId);
       hostBus.on(hostOnMessage);
       if(kind === "bots"){
@@ -1776,17 +2378,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("lobby-panel").classList.remove("hidden");
       $("end-overlay").classList.add("hidden");
       $("hud-phase").textContent = "Lobby";
-      var soloMode = host.mode === "solo";
+      var soloMode = host.mode === "solo" || host.mode === "neon";
+      var neonMode = host.mode === "neon";
       $("hud-timer").textContent = soloMode ? "0:00" : fmtTime(MATCH_SECONDS);
-      $("lobby-title").textContent = soloMode ? "Solo defense — Hold the Line" : "Join the match";
-      $("lobby-note").textContent = soloMode ?
+      $("lobby-title").textContent = neonMode ? "Solo defense — Neon Siege" : (soloMode ? "Solo defense — Hold the Line" : "Join the match");
+      $("lobby-note").textContent = neonMode ?
+        "One defender holds this street: scan the QR code with your phone. Robots, robot dogs, drones and mechs march in from the far end of the street — don't let them reach your barrier." :
+        soloMode ?
         "One archer defends this screen: scan the QR code with your phone. The horde marches in from the horizon — don't let it reach the barricade." :
         "Scan the QR code, or open this page on your phone and enter the code.";
-      $("btn-start").textContent = soloMode ? "Start the defense" : "Start match";
-      $("hud-goal").textContent = soloMode ? "Endless — survive the horde" : "First to 100 wins";
+      $("btn-start").textContent = neonMode ? "Start the siege" : (soloMode ? "Start the defense" : "Start match");
+      $("hud-goal").textContent = soloMode ? (neonMode ? "Endless — hold the street" : "Endless — survive the horde") : "First to 100 wins";
       $("hud-health").classList.toggle("hidden", !soloMode);
-      $("score-title").textContent = soloMode ? "Defense" : "Scores";
-      $("score-note").textContent = soloMode ?
+      $("score-title").textContent = neonMode ? "Siege" : (soloMode ? "Defense" : "Scores");
+      $("score-note").textContent = neonMode ?
+        "Robot 5 pts · Robot dog 5 pts (fast, hunts in packs) · Drone 25 pts · Mech 15 pts (5 hits — a charged railgun shot kills it instantly). Breaches cost health: robot & dog 10, drone 15, mech 25. Phone weapons: laser bolts, EMP stun cone, railgun, laser beam. No shop in the neon streets." :
+        soloMode ?
         "Orc 5 pts · Giant 15 pts (5 hits — an exploding arrow hits for 3) · Skinwalker 25 pts, and only a white bolt can kill it. White bolts are in the phone shop for 5 credits. Breaches cost health: orc 10, skinwalker 15, giant 25." :
         "Targets 5 pts · Moving 15 pts · Bombs clear nearby targets for the shooter. First to 100 wins — the range screen takes on the leader's color as their score climbs toward 100.";
       renderQR(code);
@@ -1819,8 +2426,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return {
         code:code, name:name, id:uid(), bus:null,
         color:"#888", colorName:"", welcomed:false, joinTries:0, joinTimer:null,
-        phase:"lobby", soloMode:false, isDefender:true,
-        pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100 },
+        phase:"lobby", soloMode:false, isDefender:true, theme:"medieval",
+        neonWeapon:"bolt", neonCharging:false, beamHeld:false, neonFireAt:0,
+        pstate:{ score:0, credits:0, quiver:QUIVER_MAX, inv:{ smoke:0, splinter:0, tracker:0, exploding:0, white:0 }, laser:false, health:100,
+                 weap:{ empCd:0, railCd:0, beamCharge:100, beamLock:0 } },
         /* sensors */
         sensor:{ alpha:null, beta:null, ok:false, needsPerm:false },
         touchMode:false, touch:{ x:0.5, y:0.5 },
@@ -1900,7 +2509,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctrl.color = d.color || ctrl.color;
         ctrl.colorName = d.colorName || "";
         ctrl.phase = d.phase || "lobby";
-        ctrl.soloMode = d.mode === "solo";
+        ctrl.soloMode = d.mode === "solo" || d.mode === "neon";
+        ctrl.theme = d.theme || "medieval";
         ctrl.isDefender = d.defender !== false;
         $("ctrl-band").style.background = ctrl.color;
         $("ctrl-name").textContent = ctrl.name + " · " + ctrl.colorName;
@@ -1921,9 +2531,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           score:d.score || 0, credits:d.credits || 0,
           quiver: (d.quiver == null ? QUIVER_MAX : d.quiver),
           inv: d.inv || ctrl.pstate.inv, laser: !!d.laser,
-          health: (d.health == null ? 100 : d.health)
+          health: (d.health == null ? 100 : d.health),
+          weap: d.weap || ctrl.pstate.weap
         };
-        if(d.mode) ctrl.soloMode = d.mode === "solo";
+        if(d.mode) ctrl.soloMode = d.mode === "solo" || d.mode === "neon";
+        if(d.theme) ctrl.theme = d.theme;
         if(d.phase) ctrl.phase = d.phase;
         $("ctrl-time").textContent = ctrl.soloMode ? fmtTime(d.elapsed || 0) :
           fmtTime(d.timeLeft == null ? MATCH_SECONDS : d.timeLeft);
@@ -1935,13 +2547,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if(ctrl.soloMode && !ctrl.isDefender){ ctrlShow("wait"); paintController(); return; }
           ctrlShow(ctrl.calibrated ? "play" : "calib");
           if(!ctrl.calibrated) startCalib();
-          toast(ctrl.soloMode ? "The horde is coming — hold the line!" : "Match started — good luck!");
+          toast(ctrl.theme === "neon" ? "The swarm is coming — hold the street!" :
+                (ctrl.soloMode ? "The horde is coming — hold the line!" : "Match started — good luck!"));
         }
         paintController();
       } else if(msg.type === "ended"){
         ctrl.phase = "ended";
         if(d.solo){
-          var sb = "The line has fallen! Score " + (d.score || 0) + " · Survived " +
+          var sb = (ctrl.theme === "neon" ? "The city has fallen! " : "The line has fallen! ") + "Score " + (d.score || 0) + " · Survived " +
             fmtTime(d.time || 0) + " · " + (d.kills || 0) + " kills.";
           $("end-banner").textContent = sb;
           $("end-banner").classList.remove("hidden");
@@ -2085,6 +2698,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           (ctrl.phase === "playing" ? "Health " + ctrl.pstate.health :
            (ctrl.phase === "ended" ? "Defense over" : "Solo defense")) :
           (ctrl.phase === "playing" ? "Match running" : (ctrl.phase === "ended" ? "Match over" : "Lobby"));
+      /* Neon Siege swaps the quiver and shop for the weapon panel */
+      var neonMode = ctrl.theme === "neon";
+      $("quiver").classList.toggle("hidden", neonMode);
+      $("weapon-panel").classList.toggle("hidden", !neonMode);
+      $("btn-shop").classList.toggle("hidden", neonMode);
+      if(neonMode) paintWeapons();
       /* quiver token */
       var col = arrowColor(ctrl.selected), cnt = selectedCount();
       $("qt-shaft").setAttribute("stroke", col);
@@ -2113,6 +2732,50 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       paintBow();
       if(!$("shop-overlay").classList.contains("hidden")) paintShop();
     }
+    /* ---------- Neon Siege weapon panel (phone) ---------- */
+    function paintWeapons(){
+      if(!ctrl) return;
+      var w = ctrl.pstate.weap || { empCd:0, railCd:0, beamCharge:100, beamLock:0 };
+      var defs = [
+        ["bolt", "Bolt", "READY", true],
+        ["emp", "EMP", w.empCd > 0.05 ? w.empCd.toFixed(1) + "s" : "READY", w.empCd <= 0.05],
+        ["rail", "Rail", w.railCd > 0.05 ? w.railCd.toFixed(1) + "s" : "READY", w.railCd <= 0.05],
+        ["beam", "Beam", w.beamLock > 0.05 ? Math.ceil(w.beamLock) + "s" : Math.round(w.beamCharge) + "%", w.beamLock <= 0.05]
+      ];
+      $("weapon-chips").innerHTML = defs.map(function(d){
+        return '<button class="sp-chip' + (ctrl.neonWeapon === d[0] ? " sel" : "") + (d[3] ? "" : " none") +
+          '" data-weap="' + d[0] + '">' + d[1] + '<span class="n">' + d[2] + "</span></button>";
+      }).join("");
+      Array.prototype.forEach.call($("weapon-chips").querySelectorAll(".sp-chip[data-weap]"), function(ch){
+        ch.addEventListener("click", function(){
+          if(ctrl.beamHeld){ ctrl.beamHeld = false; ctrl.bus.send("beam", { on:false }); }
+          ctrl.neonWeapon = ch.getAttribute("data-weap");
+          paintController();
+        });
+      });
+    }
+    function neonHintText(){
+      if(!ctrl) return "";
+      if(ctrl.phase !== "playing") return "The siege hasn't started yet — your blaster is ready.";
+      if(!ctrl.calibrated) return "Calibrate your aim to start shooting.";
+      var w = ctrl.pstate.weap || { empCd:0, railCd:0, beamCharge:100, beamLock:0 };
+      if(ctrl.neonWeapon === "emp")
+        return w.empCd > 0.05 ? "EMP recharging — " + w.empCd.toFixed(1) + "s" : "Tap the bow: EMP stun cone toward your dot.";
+      if(ctrl.neonWeapon === "rail")
+        return w.railCd > 0.05 ? "Railgun recharging — " + w.railCd.toFixed(1) + "s" :
+          (ctrl.drawing ? (ctrl.power < 0.3 ? "Charging… keep holding" : "Release to fire the railgun!") :
+           "Hold the bow to charge the railgun, release to fire.");
+      if(ctrl.neonWeapon === "beam")
+        return w.beamLock > 0.05 ? "Beam recharging — " + Math.ceil(w.beamLock) + "s" : "Hold the bow to burn your dot with the beam.";
+      return "Tap the bow to fire a laser bolt.";
+    }
+    function neonPowerPct(){
+      if(!ctrl) return 0;
+      var w = ctrl.pstate.weap || { beamCharge:100 };
+      if(ctrl.neonWeapon === "rail") return ctrl.drawing ? ctrl.power * 100 : 0;
+      if(ctrl.neonWeapon === "beam") return w.beamCharge;
+      return 0;
+    }
     function paintBow(){
       if(!ctrl) return;
       var draw = ctrl.drawing ? ctrl.power : 0;
@@ -2136,6 +2799,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctrl.nocked ? (ctrl.drawing ? (ctrl.power < 0.22 ? "Pull back further…" : "Release to loose!") : "Pull the string back… then release!") :
         selectedCount() <= 0 ? (ctrl.selected === "std" ? "Quiver empty — arrows refill over time." : "None of those left — pick another arrow.") :
         "Drag the arrow from the quiver onto the bow.";
+      if(ctrl.theme === "neon"){
+        $("ctrl-hint").textContent = neonHintText();
+        $("power-fill").style.width = neonPowerPct() + "%";
+      }
     }
     /* Opening/closing the shop tells the host. In solo defense the host
        freezes the horde while the shop is up; in multiplayer the host
@@ -2221,7 +2888,45 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       token.addEventListener("pointerup", endDrag);
       token.addEventListener("pointercancel", endDrag);
 
+      /* Neon Siege firing: no nocking — the selected weapon decides what
+         a press on the bow does. Bolt and EMP fire on tap, the railgun
+         charges while held and fires on release, the beam burns while
+         held and stops on release. */
+      function neonPointerDown(e){
+        if(!ctrl || ctrl.phase !== "playing" || !ctrl.isDefender) return;
+        var w = ctrl.pstate.weap || { empCd:0, railCd:0, beamCharge:100, beamLock:0 };
+        var a = computeAim() || ctrl.aim;
+        if(ctrl.neonWeapon === "bolt"){
+          if(Date.now() - ctrl.neonFireAt < 130) return;
+          ctrl.neonFireAt = Date.now();
+          ctrl.bus.send("shoot", { x:a.x, y:a.y, power:1, kind:"bolt" });
+          if(navigator.vibrate) navigator.vibrate(10);
+        } else if(ctrl.neonWeapon === "emp"){
+          if(w.empCd > 0.05){ toast("EMP still recharging — " + w.empCd.toFixed(1) + "s"); return; }
+          ctrl.bus.send("shoot", { x:a.x, y:a.y, power:1, kind:"emp" });
+          if(navigator.vibrate) navigator.vibrate(25);
+        } else if(ctrl.neonWeapon === "rail"){
+          if(w.railCd > 0.05){ toast("Railgun still recharging — " + w.railCd.toFixed(1) + "s"); return; }
+          ctrl.neonCharging = true;
+          ctrl.drawing = true;
+          ctrl.drawStartY = e.clientY;
+          ctrl.power = 0;
+          bowArea.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          paintBow();
+        } else if(ctrl.neonWeapon === "beam"){
+          if(w.beamLock > 0.05){ toast("Beam recharging — " + Math.ceil(w.beamLock) + "s"); return; }
+          if(w.beamCharge <= 2){ toast("Beam charge empty — let it recharge."); return; }
+          ctrl.beamHeld = true;
+          ctrl.bus.send("beam", { on:true });
+          bowArea.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          if(navigator.vibrate) navigator.vibrate(15);
+        }
+      }
+
       bowArea.addEventListener("pointerdown", function(e){
+        if(ctrl && ctrl.theme === "neon"){ neonPointerDown(e); return; }
         if(!ctrl || !ctrl.nocked || ctrl.phase !== "playing") return;
         if(Date.now() < ctrl.cooldownUntil) return;
         ctrl.drawing = true;
@@ -2237,7 +2942,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         paintBow();
       });
       function endDraw(){
-        if(!ctrl || !ctrl.drawing) return;
+        if(!ctrl) return;
+        if(ctrl.theme === "neon"){
+          if(ctrl.beamHeld){ ctrl.beamHeld = false; ctrl.bus.send("beam", { on:false }); }
+          if(!ctrl.drawing) return;
+          ctrl.drawing = false;
+          if(ctrl.neonCharging){
+            ctrl.neonCharging = false;
+            var pw = ctrl.power; ctrl.power = 0;
+            if(pw >= 0.18){
+              var a = computeAim() || ctrl.aim;
+              ctrl.bus.send("shoot", { x:a.x, y:a.y, power:pw, kind:"rail" });
+              if(navigator.vibrate) navigator.vibrate(45);
+            } else {
+              toast("Railgun needs more charge — hold longer.");
+            }
+            paintBow();
+          }
+          return;
+        }
+        if(!ctrl.drawing) return;
         ctrl.drawing = false;
         if(ctrl.power >= 0.18) fireArrow();
         else { ctrl.power = 0; paintBow(); }
@@ -2285,6 +3009,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $("btn-host").addEventListener("click", function(){ startHost("match"); });
       $("btn-solo").addEventListener("click", function(){ startHost("bots"); });
       $("btn-defense").addEventListener("click", function(){ startHost("defense"); });
+      $("btn-neon").addEventListener("click", function(){ startHost("neon"); });
       $("btn-go-join").addEventListener("click", function(){ showView("view-join"); });
       $("btn-join-back").addEventListener("click", function(){ showView("view-home"); });
       $("btn-join").addEventListener("click", function(){
@@ -2304,7 +3029,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
       $("btn-play-again").addEventListener("click", function(){
         if(!host) return;
-        if(host.mode === "solo"){
+        if(host.mode === "solo" || host.mode === "neon"){
           $("end-overlay").classList.add("hidden");
           startSoloRun(host);
           return;
