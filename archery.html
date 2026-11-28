@@ -98,8 +98,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       #canvas-wrap{ flex:1 1 auto; min-width:0; }
       #game-canvas{
         width:100%; height:auto; display:block; border-radius:14px;
-        border:1px solid var(--line); box-shadow:var(--shadow); background:#bfd9e8;
+        border:1px solid var(--line); box-shadow:var(--shadow); background:#ffffff;
       }
+      #range-status{
+        display:flex; align-items:center; gap:8px; margin-top:9px;
+        font-size:14.5px; font-weight:600; color:var(--muted);
+      }
+      #range-status .rdot{ width:13px; height:13px; border-radius:50%; flex:none; box-shadow:inset 0 0 0 2px rgba(0,0,0,.15); background:#fff; border:1px solid var(--line); }
       #host-side{ flex:0 0 300px; width:300px; display:grid; gap:14px; }
       @media (max-width:900px){
         #host-main{ flex-direction:column; }
@@ -160,7 +165,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       #play-panel{ position:relative; padding:14px; overflow:hidden; }
       #dot-preview{
         position:relative; width:132px; height:74px; border:2px solid var(--line); border-radius:8px;
-        background:linear-gradient(#bfd9e8,#e8f2df); margin:0 auto 6px; overflow:hidden;
+        background:#ffffff; margin:0 auto 6px; overflow:hidden;
       }
       #preview-dot{
         position:absolute; width:14px; height:14px; border-radius:50%; border:2px solid #fff;
@@ -267,7 +272,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="howto">
             <p><b>Host:</b> open this page on the laptop or TV, start a match, and players scan the QR code to join.</p>
             <p><b>Players:</b> drag an arrow from your quiver to the bow, pull the string back, and aim by pointing your phone at the big screen.</p>
-            <p><b>Scoring:</b> targets 5 pts · moving targets 15 pts · shoot a bomb to clear everything near it and take the points. Hits earn shop credits (points ÷ 2, rounded up).</p>
+            <p><b>Scoring:</b> targets 5 pts · moving targets 15 pts · shoot a bomb to clear everything near it and take the points. First to 100 pts wins — the range screen tints toward the leader's color as they close in. Hits earn shop credits (points ÷ 2, rounded up).</p>
           </div>
         </div>
       </section>
@@ -297,12 +302,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <span class="chip">Code <span id="hud-code" style="letter-spacing:3px;">····</span></span>
           <span class="chip" id="hud-phase">Lobby</span>
           <span class="chip">Time <span id="hud-timer">3:00</span></span>
+          <span class="chip">First to 100 wins</span>
           <span style="flex:1"></span>
           <button class="btn ghost small" id="btn-leave-host">End match</button>
         </div>
         <div id="host-main">
           <div id="canvas-wrap">
             <canvas id="game-canvas" width="1280" height="720"></canvas>
+            <div id="range-status"><span class="rdot"></span><span id="range-status-text">Range screen: white — no score yet.</span></div>
           </div>
           <div id="host-side">
             <div class="card" id="lobby-panel">
@@ -320,6 +327,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               <div id="score-list"><p class="muted">No players yet.</p></div>
               <p class="muted" style="font-size:13.5px; margin:12px 0 0;">
                 Targets 5 pts · Moving 15 pts · Bombs clear nearby targets for the shooter.
+                First to 100 wins — the range screen takes on the leader's color as their score climbs toward 100.
               </p>
             </div>
           </div>
@@ -585,6 +593,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
        ===================================================================== */
     var AW = 1280, AH = 720;
     var MATCH_SECONDS = 180;
+    var WIN_SCORE = 100; /* first to this score wins; also sets the range-screen tint % */
     var QUIVER_MAX = 6, QUIVER_REFILL = 2.2; /* seconds per standard arrow */
     var PRICES = { smoke:4, splinter:6, tracker:8, exploding:10, laser:15 };
     var SPECIAL_INFO = {
@@ -666,6 +675,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                 ph: rand(0, Math.PI*2) };
       game.targets.push(t);
       return t;
+    }
+
+    /* The current leader: highest score above zero. Ties go to whoever
+       reached the top first in join order — hues never mix, the screen
+       simply belongs to the one leader. */
+    function getLeader(game){
+      var best = null;
+      game.playerList().forEach(function(p){
+        if(!best || p.score > best.score) best = p;
+      });
+      return (best && best.score > 0) ? best : null;
+    }
+    function hexRgb(hex){
+      var m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+      if(!m) return null;
+      var n = parseInt(m[1], 16);
+      return [ (n >> 16) & 255, (n >> 8) & 255, n & 255 ];
+    }
+    /* White blended toward a player color: pct 0 = pure white, pct 1 = full color. */
+    function tintToward(css, pct){
+      var c = hexRgb(css);
+      if(!c) return "#ffffff";
+      pct = clamp(pct, 0, 1);
+      var r = Math.round(255 + (c[0] - 255) * pct);
+      var g = Math.round(255 + (c[1] - 255) * pct);
+      var b = Math.round(255 + (c[2] - 255) * pct);
+      return "rgb(" + r + "," + g + "," + b + ")";
+    }
+    /* Range screen color right now: white until someone scores, then the
+       leader's color at (leader score / WIN_SCORE) strength. */
+    function rangeScreenColor(game){
+      var leader = getLeader(game);
+      if(!leader) return "#ffffff";
+      return tintToward(leader.color, leader.score / WIN_SCORE);
     }
 
     function award(game, p, pts, x, y){
@@ -779,6 +822,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if(game.phase === "playing"){
         game.timeLeft -= dt;
         if(game.timeLeft <= 0){ game.timeLeft = 0; endMatch(game); }
+        var leaderNow = getLeader(game);
+        if(game.phase === "playing" && leaderNow && leaderNow.score >= WIN_SCORE) endMatch(game);
         game.spawnT -= dt;
         if(game.spawnT <= 0 && game.targets.length < 7){
           spawnTarget(game); game.spawnT = 1.35;
@@ -894,19 +939,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function drawGame(game, now){
       var cv = $("game-canvas"), ctx = cv.getContext("2d");
-      /* sky + hills + ground */
-      var sky = ctx.createLinearGradient(0,0,0,AH);
-      sky.addColorStop(0, "#a8cbe4"); sky.addColorStop(0.62, "#dcead2"); sky.addColorStop(0.63, "#7fae5c"); sky.addColorStop(1, "#5d8f43");
-      ctx.fillStyle = sky; ctx.fillRect(0,0,AW,AH);
-      ctx.fillStyle = "#8fbc72";
-      ctx.beginPath(); ctx.ellipse(220, AH*0.63, 340, 60, 0, Math.PI, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(1060, AH*0.63, 380, 72, 0, Math.PI, Math.PI*2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,.75)";
-      [[240,80,52],[330,86,38],[880,64,44],[972,70,34]].forEach(function(c){
-        ctx.beginPath(); ctx.ellipse(c[0], c[1], c[2], c[2]*0.36, 0, 0, Math.PI*2); ctx.fill();
-      });
-      /* range lines on the grass */
-      ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 3;
+      /* The range is a white screen. As the leading player's score climbs
+         toward WIN_SCORE, the screen takes on that player's color at the
+         same percentage (20 of 100 = 20% color). When the lead changes,
+         the screen switches outright to the new leader's hue — the colors
+         are never blended together. */
+      ctx.fillStyle = rangeScreenColor(game);
+      ctx.fillRect(0,0,AW,AH);
+      /* faint range guide lines on the screen */
+      ctx.strokeStyle = "rgba(0,0,0,.07)"; ctx.lineWidth = 3;
       [0.72, 0.82, 0.92].forEach(function(f){
         ctx.beginPath(); ctx.moveTo(0, AH*f); ctx.lineTo(AW, AH*f); ctx.stroke();
       });
@@ -1039,8 +1080,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var list = game.playerList().slice().sort(function(a,b){ return b.score - a.score; });
       $("score-list").innerHTML = list.length ? list.map(function(p){
         return '<div class="score-row"><span class="dot" style="background:' + p.color + '"></span>' +
-               '<span class="nm">' + esc(p.name) + '</span><span class="sc">' + p.score + "</span></div>";
+               '<span class="nm">' + esc(p.name) + '</span><span class="sc">' + p.score +
+               ' <span class="muted" style="font-size:13px; font-weight:600;">/ ' + WIN_SCORE + "</span></span></div>";
       }).join("") : '<p class="muted">No players yet.</p>';
+      updateRangeStatus(game);
+    }
+    function updateRangeStatus(game){
+      var txt = $("range-status-text"), dot = $("range-status") ? $("range-status").querySelector(".rdot") : null;
+      if(!txt) return;
+      var leader = getLeader(game);
+      if(!leader){
+        txt.textContent = "Range screen: white — first to " + WIN_SCORE + " wins. No score yet.";
+        if(dot){ dot.style.background = "#ffffff"; }
+        return;
+      }
+      var pct = Math.round(clamp(leader.score / WIN_SCORE, 0, 1) * 100);
+      txt.textContent = leader.colorName + " (" + leader.name + ") leads · " + leader.score + " / " + WIN_SCORE +
+        " · screen is " + pct + "% " + leader.colorName.toLowerCase();
+      if(dot){ dot.style.background = leader.color; }
     }
     function renderQR(code){
       var url = location.href.split(/[?#]/)[0] + "?code=" + code;
